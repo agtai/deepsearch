@@ -2027,7 +2027,9 @@ def knowledge_base_list(req: KnowledgeBaseListRequest) -> ResponseModel:
         )
         if status_result.code == status.HTTP_200_OK:
             status_list = status_result.data or []
-            if any(doc_status.startswith("upload") for doc_status in status_list):
+            if any(doc_status == "failed" for doc_status in status_list):
+                kb_status = "failed"
+            elif any(doc_status.startswith("upload") for doc_status in status_list):
                 kb_status = "uploading"
             elif status_list and all(doc_status == "indexed" for doc_status in status_list):
                 kb_status = "indexed"
