@@ -550,7 +550,7 @@ class TestDependencyOutlineInteractionNode:
     async def test_accepted_redirects_to_dependency_reasoning_team(
         self, dependency_node, mock_session, mock_context
     ):
-        """接受大纲时，跳转到 DEPENDENCY_REASONING_TEAM 而非 EDITOR_TEAM"""
+        """接受大纲时，跳转到 DEPENDENCY_EDITOR_TEAM 而非 EDITOR_TEAM"""
         # Arrange
         config = {
             "feedback_mode": "web",
@@ -564,13 +564,13 @@ class TestDependencyOutlineInteractionNode:
         result = await dependency_node._do_invoke({}, mock_session, mock_context)
 
         # Assert
-        assert result["next_node"] == NodeId.DEPENDENCY_REASONING_TEAM.value
+        assert result["next_node"] == NodeId.DEPENDENCY_EDITOR_TEAM.value
 
     @pytest.mark.asyncio
     async def test_interaction_disabled_redirects_to_dependency_reasoning_team(
         self, dependency_node, mock_session, mock_context
     ):
-        """交互禁用时，跳转到 DEPENDENCY_REASONING_TEAM"""
+        """交互禁用时，跳转到 DEPENDENCY_EDITOR_TEAM"""
         # Arrange
         config = {
             "feedback_mode": "cmd",
@@ -583,7 +583,7 @@ class TestDependencyOutlineInteractionNode:
         result = await dependency_node._do_invoke({}, mock_session, mock_context)
 
         # Assert
-        assert result["next_node"] == NodeId.DEPENDENCY_REASONING_TEAM.value
+        assert result["next_node"] == NodeId.DEPENDENCY_EDITOR_TEAM.value
 
     @pytest.mark.asyncio
     async def test_revise_comment_still_goes_to_outline(

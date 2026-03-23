@@ -1,17 +1,17 @@
 # -*- coding: UTF-8 -*-
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
-"""测试依赖驱动规划子图节点"""
+"""测试依赖驱动规划子图节点。"""
+
+from unittest.mock import Mock
 
 import pytest
-from unittest.mock import Mock, MagicMock
-
-from openjiuwen.core.session.node import Session
 from openjiuwen.core.context_engine.base import ModelContext
+from openjiuwen.core.session.node import Session
 
 from openjiuwen_deepsearch.framework.openjiuwen.agent.reasoning_writing_graph.dependency_reasoning_team_nodes import (
-    SectionReasoningStartNode,
-    SectionReasoningEndNode,
     DependencyPlanReasoningNode,
+    SectionReasoningEndNode,
+    SectionReasoningStartNode,
 )
 from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import (
     Plan,
@@ -22,11 +22,11 @@ from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
 
 
 class TestSectionReasoningStartNode:
-    """测试 SectionReasoningStartNode"""
+    """测试 SectionReasoningStartNode。"""
 
     @pytest.mark.asyncio
     async def test_section_reasoning_start_node_init(self):
-        """测试初始化 section_context"""
+        """测试初始化 section_context。"""
         node = SectionReasoningStartNode()
         session = Mock(spec=Session)
         context = Mock(spec=ModelContext)
@@ -51,7 +51,7 @@ class TestSectionReasoningStartNode:
 
     @pytest.mark.asyncio
     async def test_section_reasoning_start_node_background_knowledge(self):
-        """测试从 parent_section_steps 提取背景知识"""
+        """测试从 parent_section_steps 提取背景知识。"""
         node = SectionReasoningStartNode()
         session = Mock(spec=Session)
         context = Mock(spec=ModelContext)
@@ -75,7 +75,7 @@ class TestSectionReasoningStartNode:
             "config": {},
         }
 
-        result = await node.invoke(inputs, session, context)
+        await node.invoke(inputs, session, context)
 
         session.update_global_state.assert_called_once()
         call_args = session.update_global_state.call_args[0][0]
@@ -90,11 +90,11 @@ class TestSectionReasoningStartNode:
 
 
 class TestSectionReasoningEndNode:
-    """测试 SectionReasoningEndNode"""
+    """测试 SectionReasoningEndNode。"""
 
     @pytest.mark.asyncio
     async def test_section_reasoning_end_node_return(self):
-        """测试返回 history_plans"""
+        """测试返回 history_plans 和告警异常信息。"""
         node = SectionReasoningEndNode()
         session = Mock(spec=Session)
         context = Mock(spec=ModelContext)
@@ -109,24 +109,28 @@ class TestSectionReasoningEndNode:
                 steps=[],
             )
         ]
-        session.get_global_state.return_value = mock_plans
+        session.get_global_state.side_effect = lambda key: {
+            "section_context.section_idx": "1",
+            "section_context.history_plans": mock_plans,
+            "section_context.warning_infos": ["warning"],
+            "section_context.exception_infos": ["exception"],
+        }.get(key)
 
         inputs = {"test": "input"}
         result = await node.invoke(inputs, session, context)
 
         assert isinstance(result, dict)
-        assert "plans" in result
         assert result["plans"] == mock_plans
-
-        session.get_global_state.assert_called_with("section_context.history_plans")
+        assert result["warning_infos"] == ["warning"]
+        assert result["exception_infos"] == ["exception"]
 
 
 class TestDependencyPlanReasoningNode:
-    """测试 DependencyPlanReasoningNode"""
+    """测试 DependencyPlanReasoningNode。"""
 
     @pytest.fixture
     def mock_session(self):
-        """创建 mock session"""
+        """创建 mock session。"""
         session = Mock(spec=Session)
         session.get_global_state.side_effect = lambda key: {
             "section_context.section_idx": "1",
@@ -138,13 +142,11 @@ class TestDependencyPlanReasoningNode:
 
     @pytest.fixture
     def mock_context(self):
-        """创建 mock context"""
+        """创建 mock context。"""
         return Mock(spec=ModelContext)
 
-    def test_dependency_plan_reasoning_success_not_completed(
-        self, mock_session, mock_context
-    ):
-        """测试规划成功但信息不足时路由到信息收集"""
+    def test_dependency_plan_reasoning_success_not_completed(self, mock_session, mock_context):
+        """测试规划成功但信息不足时路由到信息收集。"""
         node = DependencyPlanReasoningNode()
 
         mock_plan = Plan(
@@ -165,15 +167,12 @@ class TestDependencyPlanReasoningNode:
 
         algorithm_output = {"plan": mock_plan, "success": True, "response_messages": []}
 
-        inputs = {}
-        result = node._post_handle(inputs, algorithm_output, mock_session, mock_context)
+        result = node._post_handle({}, algorithm_output, mock_session, mock_context)
 
         assert result["next_node"] == NodeId.INFO_COLLECTOR.value
 
-    def test_dependency_plan_reasoning_success_completed(
-        self, mock_session, mock_context
-    ):
-        """测试规划成功且信息充足时路由到 END"""
+    def test_dependency_plan_reasoning_success_completed(self, mock_session, mock_context):
+        """测试规划成功且信息充足时路由到 END。"""
         node = DependencyPlanReasoningNode()
 
         mock_plan = Plan(
@@ -187,24 +186,22 @@ class TestDependencyPlanReasoningNode:
 
         algorithm_output = {"plan": mock_plan, "success": True, "response_messages": []}
 
-        inputs = {}
-        result = node._post_handle(inputs, algorithm_output, mock_session, mock_context)
+        result = node._post_handle({}, algorithm_output, mock_session, mock_context)
 
         assert result["next_node"] == NodeId.END.value
 
     def test_dependency_plan_reasoning_failure(self, mock_session, mock_context):
-        """测试规划失败时路由到 END"""
+        """测试规划失败时路由到 END。"""
         node = DependencyPlanReasoningNode()
 
         algorithm_output = {"plan": None, "success": False, "error_msg": "Test error", "response_messages": []}
 
-        inputs = {}
-        result = node._post_handle(inputs, algorithm_output, mock_session, mock_context)
+        result = node._post_handle({}, algorithm_output, mock_session, mock_context)
 
         assert result["next_node"] == NodeId.END.value
 
     def test_dependency_plan_id_format(self, mock_session, mock_context):
-        """验证 plan.id 格式为 {section_idx}-{plan_executed_num}"""
+        """验证 plan.id 格式为 {section_idx}-{plan_executed_num}。"""
         node = DependencyPlanReasoningNode()
 
         mock_plan = Plan(
@@ -218,15 +215,12 @@ class TestDependencyPlanReasoningNode:
 
         algorithm_output = {"plan": mock_plan, "success": True, "response_messages": []}
 
-        inputs = {}
-        node._post_handle(inputs, algorithm_output, mock_session, mock_context)
+        node._post_handle({}, algorithm_output, mock_session, mock_context)
 
         assert mock_plan.id == "1-1"
 
-    def test_dependency_plan_background_knowledge_injection(
-        self, mock_session, mock_context
-    ):
-        """验证背景知识注入到 plan"""
+    def test_dependency_plan_background_knowledge_injection(self, mock_session, mock_context):
+        """验证背景知识注入到 plan。"""
         node = DependencyPlanReasoningNode()
 
         mock_plan = Plan(
@@ -248,7 +242,6 @@ class TestDependencyPlanReasoningNode:
 
         algorithm_output = {"plan": mock_plan, "success": True, "response_messages": []}
 
-        inputs = {}
-        node._post_handle(inputs, algorithm_output, mock_session, mock_context)
+        node._post_handle({}, algorithm_output, mock_session, mock_context)
 
         assert mock_plan.background_knowledge == mock_bg_knowledge

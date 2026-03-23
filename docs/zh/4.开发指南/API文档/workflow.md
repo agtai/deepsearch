@@ -97,6 +97,12 @@ class openjiuwen_deepsearch.framework.openjiuwen.agent.workflow.DeepresearchDepe
 ```
 依赖驱动执行思维链模式的研究工作流 Agent。
 
+**行为说明**：
+- 与 `DeepresearchAgent` 共用 `run` 接口、参数校验和中断恢复机制。
+- 当 `agent_config.execution_method="dependency_driving"` 时启用。
+- 主链路为 `DependencyOutlineNode -> DependencyOutlineInteractionNode -> DependencyEditorTeamNode -> ReporterNode`。
+- `DependencyEditorTeamNode` 内部统一编排依赖驱动的推理子图和写作子图，章节执行遵循依赖层级：上一层章节写作可以与下一层章节推理并行执行。
+
 ---
 
 ## function validate_generate_template_params

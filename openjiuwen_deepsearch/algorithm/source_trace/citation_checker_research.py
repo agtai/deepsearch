@@ -584,7 +584,10 @@ class CitationCheckerResearch:
         # 整合最终结果，更新参考文献章节
         result_text = transformed_text + '\n\n' + reference_section
         if not LogManager.is_sensitive():
-            logger.info(f"=============== result text =================:\n{result_text}")
+            logger.info(
+                f"=============== result text =================:\n{result_text}",
+                extra={"skip_truncation": True},
+            )
 
         return result_text, datas
 

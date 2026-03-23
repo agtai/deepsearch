@@ -2,7 +2,12 @@ from unittest.mock import Mock, AsyncMock, patch
 
 import pytest
 
-from openjiuwen_deepsearch.algorithm.query_understanding.outliner import Outliner, create_outline_tool
+from openjiuwen_deepsearch.algorithm.query_understanding.outliner import (
+    Outliner,
+    check_tool_call,
+    create_outline_tool,
+)
+from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import Outline, Section
 
 # 定义测试数据
@@ -86,6 +91,23 @@ class TestOutliner:
             result = await setup_outliner.generate_outline(test_data)
 
         assert result == mock_llm_response
+    def test_check_tool_call_sections_must_be_list(self):
+        """check_tool_call 验证 sections """
+        tool = create_outline_tool(1)
+        tool_calls = [
+            {
+                'args': {
+                    'language': 'zh-CN',
+                    'sections': 'invalid-sections',
+                    'thought': 'test thought',
+                    'title': 'test title'
+                },
+                'name': tool.card.name,
+            }
+        ]
+
+        with pytest.raises(CustomValueException, match='Sections is not a list'):
+            check_tool_call(tool, tool_calls)
 
     @pytest.mark.asyncio
     async def test_generate_outline_failure(self, setup_outliner, mock_llm):

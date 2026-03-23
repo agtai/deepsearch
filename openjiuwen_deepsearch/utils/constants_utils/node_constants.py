@@ -21,8 +21,7 @@ class NodeId(enum.Enum):
     SOURCE_TRACER = "source_tracer"
     SOURCE_TRACER_INFER = "source_tracer_infer"
     USER_FEEDBACK_PROCESSOR = "user_feedback_processor"
-    DEPENDENCY_REASONING_TEAM = "dependency_reasoning_team"
-    DEPENDENCY_WRITING_TEAM = "dependency_writing_team"
+    DEPENDENCY_EDITOR_TEAM = "dependency_editor_team"
 
     # 子图
     INFO_COLLECTOR = "info_collector"

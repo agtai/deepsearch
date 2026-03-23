@@ -42,6 +42,7 @@ openjiuwen_deepsearch = ["**/*"]  # 递归收录所有文件，包括 .md、.jso
 [tool.pytest.ini_options]
 pythonpath = ["."]
 asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
 addopts = "-ra -q"
 testpaths = ["tests"]
 filterwarnings = [

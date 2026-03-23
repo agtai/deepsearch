@@ -131,7 +131,8 @@ class openjiuwen_deepsearch.framework.openjiuwen.agent.search_context.SubReport(
 - **id**(str)：默认值：`""`。
 - **section_id**(int)：默认值：`0`。
 - **section_task**(str)：子章节任务标题。
-- **background_knowledge**(List[Dict], 可选)：背景知识。
+- **background_knowledge**(List[Dict], 可选)：写作背景知识。依赖驱动模式下会记录父章节的摘要信息，
+  典型结构为 `{"section_id": str, "content_summary": str}`，可在当前章节没有检索文档时作为写作兜底上下文。
 - **content**(SubReportContent)：子报告内容。
 
 ---
@@ -143,7 +144,7 @@ class openjiuwen_deepsearch.framework.openjiuwen.agent.search_context.SubReportC
 **SubReportContent** 是子报告内容模型。
 
 **字段**：
-- **classified_content**(List[Dict])：子章节筛选的文档信息。
+- **classified_content**(List[Dict])：子章节筛选的文档信息。若当前章节直接使用 `background_knowledge` 生成内容，该字段可能为空列表。
 - **sub_report_content**(str)：子报告内容。
 - **sub_report_content_summary**(str)：子报告摘要。
 - **sub_report_trace_source_datas**(List[Dict])：子报告溯源信息。

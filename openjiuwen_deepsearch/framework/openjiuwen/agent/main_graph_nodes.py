@@ -305,7 +305,9 @@ class EndNode(End):
         """ invoke 方法"""
         logger.info(f"[EndNode] Start EndNode.")
         final_result = session.get_global_state("search_context.final_result")
-        logger.info(f"[EndNode] Get final result: {'***' if LogManager.is_sensitive() else final_result}")
+        logger.info(
+            f"[EndNode] Get final result: {'***' if LogManager.is_sensitive() else final_result}",
+        )
         final_result_json = json.dumps(final_result, ensure_ascii=False)
         if final_result.get("exception_info", "") == "":
             await session.write_custom_stream({"message_id": str(uuid.uuid4()), "agent": NodeId.END.value,
@@ -577,7 +579,7 @@ class DependencyOutlineNode(OutlineNode):
 
     def _get_next_node_after_outline(self) -> str:
         """依赖驱动模式下的下一个节点"""
-        return NodeId.DEPENDENCY_REASONING_TEAM.value
+        return NodeId.DEPENDENCY_EDITOR_TEAM.value
 
 
 class SourceTracerNode(BaseNode):
@@ -863,7 +865,7 @@ class DependencyOutlineInteractionNode(OutlineInteractionNode):
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
         result = await super()._do_invoke(inputs, session, context)
         if result.get("next_node") == NodeId.EDITOR_TEAM.value:
-            result["next_node"] = NodeId.DEPENDENCY_REASONING_TEAM.value
+            result["next_node"] = NodeId.DEPENDENCY_EDITOR_TEAM.value
         return result
     
 

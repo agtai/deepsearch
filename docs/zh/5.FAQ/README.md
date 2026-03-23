@@ -65,8 +65,12 @@ uv sync --allow-insecure-host github.com --allow-insecure-host pypi.org --allow-
 ## 二、日志定位
 ### 1. 日志路径
 openJiuwen-deepsearch运行日志文件通常位于项目根路径的 **output/logs/common** 下，系统实现了日志分流，包含两类日志：
-- warnning级别以上（方便快速定位错误日志）：**common_warnning.log**
-- 全部级别日志：**common.log**
+- warning级别以上（方便快速定位错误日志）：**common_warning.log**
+- 项目运行日志：**common.log**
+
+补充说明：
+- `common.log` 主要记录DeepSearch项目自身日志；第三方组件日志默认仅保留 `warning/error` 级别，`debug/info` 不会写入。
+- 超长日志会自动截断，仅保留头尾关键片段；少数关键结果日志会显式跳过截断，便于排查引用、报告等完整输出。
 
 ## 三、模型相关错误
 ### 1. 模型服务调用失败或超时

@@ -115,7 +115,7 @@ class DependencyOutlineInteractionNode(OutlineInteractionNode)
 
 **功能**：
 - 继承自 `OutlineInteractionNode`，交互逻辑与父类相同。
-- 区别在于：用户接受大纲时，跳转到 `DependencyReasoningTeamNode`。
+- 区别在于：用户接受大纲时，跳转到 `DependencyEditorTeamNode`。
 - 修改评论时，仍然跳转到 `OutlineNode`。
 
 ---
@@ -132,27 +132,16 @@ class EditorTeamNode(BaseNode)
 
 ---
 
-### class DependencyReasoningTeamNode
+### class DependencyEditorTeamNode
 ```python
-class DependencyReasoningTeamNode(EditorTeamNode)
+class DependencyEditorTeamNode(EditorTeamNode)
 ```
-**DependencyReasoningTeamNode** 依赖驱动工作流编辑团队子图管理节点（定义在 `editor_team_manager_node.py`）。
+**DependencyEditorTeamNode** 依赖驱动工作流编辑团队节点（定义在 `editor_team_manager_node.py`）。
 
 **功能**：
-- 基于前置依赖关系构建子工作流并汇聚结果。
-- 透传子图流式输出信息收集结果。
-
----
-
-### class DependencyWritingTeamNode
-```python
-class DependencyWritingTeamNode(EditorTeamNode)
-```
-**DependencyWritingTeamNode** 依赖驱动工作流子报告撰写子图管理节点（定义在 `editor_team_manager_node.py`）。
-
-**功能**：
-- 构建子报告撰写子工作流并汇聚结果。
-- 透传子图流式输出报告内容与溯源信息。
+- 按依赖层级流水线并行执行：每层同时执行「上一层的写作」与「本层的推理」（如 1 推理完成后，1 的写作与 2、3 的推理并行）。
+- 基于前置依赖关系构建推理子工作流与写作子工作流并汇聚结果。
+- 透传子图流式输出信息收集与报告内容。
 
 ---
 
@@ -253,7 +242,7 @@ class EndNode(End)
 
 ---
 
-## 依赖驱动工作流编辑团队子图节点（Dependency Driven Reasoning Team Subgraph Nodes）
+## 依赖驱动工作流推理子图节点（Dependency Driven Reasoning Subgraph Nodes）
 
 定义在 `reasoning_writing_graph/dependency_reasoning_team_nodes.py`：
 
@@ -287,10 +276,13 @@ StartNode -> EntryNode -> [GenerateQuestionsNode -> FeedbackHandlerNode] -> Outl
 ### 主工作流（依赖驱动）
 ```text
 StartNode -> EntryNode -> [GenerateQuestionsNode -> FeedbackHandlerNode] -> DependencyOutlineNode
--> [DependencyOutlineInteractionNode] -> DependencyReasoningTeamNode
--> DependencyWritingTeamNode -> ReporterNode -> SourceTracerNode
+-> [DependencyOutlineInteractionNode -> DependencyOutlineNode]*
+-> DependencyEditorTeamNode -> ReporterNode -> SourceTracerNode
 -> SourceTracerInferNode -> UserFeedbackProcessorNode -> EndNode
 ```
+
+说明：`DependencyEditorTeamNode` 会在内部同时编排依赖驱动的推理子图与写作子图，
+按章节依赖层级执行“上一层写作 + 本层推理”的流水线并行调度。
 
 ### 编辑团队子图
 ```

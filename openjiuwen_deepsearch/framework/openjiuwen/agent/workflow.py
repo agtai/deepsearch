@@ -22,8 +22,10 @@ from openjiuwen_deepsearch.common.status_code import StatusCode
 from openjiuwen_deepsearch.config.config import AgentConfig, WebSearchEngineConfig, LocalSearchEngineConfig, \
     CustomWebSearchConfig, CustomLocalSearchConfig
 from openjiuwen_deepsearch.framework.openjiuwen.agent.base_node import init_router
-from openjiuwen_deepsearch.framework.openjiuwen.agent.editor_team_manager_node import EditorTeamNode, \
-    DependencyReasoningTeamNode, DependencyWritingTeamNode
+from openjiuwen_deepsearch.framework.openjiuwen.agent.editor_team_manager_node import (
+    EditorTeamNode,
+    DependencyEditorTeamNode,
+)
 from openjiuwen_deepsearch.framework.openjiuwen.agent.main_graph_nodes import (
     SourceTracerNode, StartNode, EntryNode, GenerateQuestionsNode, OutlineNode, FeedbackHandlerNode,
     ReporterNode, EndNode, DependencyOutlineNode, OutlineInteractionNode, DependencyOutlineInteractionNode, 
@@ -602,10 +604,8 @@ class DeepresearchDependencyAgent(DeepresearchAgent):
         flow.add_workflow_comp(NodeId.FEEDBACK_HANDLER.value, FeedbackHandlerNode())
         flow.add_workflow_comp(NodeId.OUTLINE.value, DependencyOutlineNode())
         flow.add_workflow_comp(NodeId.OUTLINE_INTERACTION.value, DependencyOutlineInteractionNode())
-        # 子图管理节点①：推理子图执行及结果解析节点
-        flow.add_workflow_comp(NodeId.DEPENDENCY_REASONING_TEAM.value, DependencyReasoningTeamNode())
-        # 子图管理节点②：写作子图执行及结果解析节点
-        flow.add_workflow_comp(NodeId.DEPENDENCY_WRITING_TEAM.value, DependencyWritingTeamNode())
+        # 依赖驱动编辑团队节点（推理+写作按层流水线并行）
+        flow.add_workflow_comp(NodeId.DEPENDENCY_EDITOR_TEAM.value, DependencyEditorTeamNode())
         flow.add_workflow_comp(NodeId.REPORTER.value, ReporterNode())
         flow.add_workflow_comp(NodeId.SOURCE_TRACER.value, SourceTracerNode())
         flow.add_workflow_comp(NodeId.SOURCE_TRACER_INFER.value, SourceTracerInferNode())
@@ -622,18 +622,16 @@ class DeepresearchDependencyAgent(DeepresearchAgent):
                                                 [NodeId.FEEDBACK_HANDLER.value, NodeId.END.value])
         outline_router = init_router(
             NodeId.OUTLINE.value,
-            [NodeId.OUTLINE_INTERACTION.value, NodeId.DEPENDENCY_REASONING_TEAM.value, NodeId.END.value])
+            [NodeId.OUTLINE_INTERACTION.value, NodeId.DEPENDENCY_EDITOR_TEAM.value, NodeId.END.value])
         outline_interaction_router = init_router(
             NodeId.OUTLINE_INTERACTION.value,
-            [NodeId.OUTLINE.value, NodeId.DEPENDENCY_REASONING_TEAM.value, NodeId.END.value])
+            [NodeId.OUTLINE.value, NodeId.DEPENDENCY_EDITOR_TEAM.value, NodeId.END.value])
         reporter_router = init_router(NodeId.REPORTER.value, [NodeId.END.value,
                                                               NodeId.SOURCE_TRACER.value])
         feedback_handler_router = init_router(NodeId.FEEDBACK_HANDLER.value, [NodeId.OUTLINE.value,
                                                                               NodeId.END.value])
-        reasoning_team_router = init_router(NodeId.DEPENDENCY_REASONING_TEAM.value,
-                                            [NodeId.DEPENDENCY_WRITING_TEAM.value, NodeId.END.value])
-        writing_team_router = init_router(NodeId.DEPENDENCY_WRITING_TEAM.value,
-                                          [NodeId.REPORTER.value, NodeId.END.value])
+        dependency_editor_router = init_router(NodeId.DEPENDENCY_EDITOR_TEAM.value,
+                                               [NodeId.REPORTER.value, NodeId.END.value])
         user_feedback_processor_router = init_router(NodeId.USER_FEEDBACK_PROCESSOR.value,
                                                      [NodeId.USER_FEEDBACK_PROCESSOR.value, NodeId.END.value])
         flow.add_conditional_connection(NodeId.ENTRY.value, router=entry_router)
@@ -642,8 +640,7 @@ class DeepresearchDependencyAgent(DeepresearchAgent):
         flow.add_conditional_connection(NodeId.FEEDBACK_HANDLER.value, router=feedback_handler_router)
         flow.add_conditional_connection(NodeId.OUTLINE_INTERACTION.value, router=outline_interaction_router)
         flow.add_conditional_connection(NodeId.REPORTER.value, router=reporter_router)
-        flow.add_conditional_connection(NodeId.DEPENDENCY_REASONING_TEAM.value, router=reasoning_team_router)
-        flow.add_conditional_connection(NodeId.DEPENDENCY_WRITING_TEAM.value, router=writing_team_router)
+        flow.add_conditional_connection(NodeId.DEPENDENCY_EDITOR_TEAM.value, router=dependency_editor_router)
         flow.add_connection(NodeId.SOURCE_TRACER.value, NodeId.SOURCE_TRACER_INFER.value)
         flow.add_connection(NodeId.SOURCE_TRACER_INFER.value, NodeId.USER_FEEDBACK_PROCESSOR.value)
         flow.add_conditional_connection(NodeId.USER_FEEDBACK_PROCESSOR.value, router=user_feedback_processor_router)

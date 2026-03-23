@@ -307,14 +307,92 @@ class EditorTeamNode(BaseNode):
             logger.error(f"{added_exception}")
 
 
-class DependencyReasoningTeamNode(EditorTeamNode):
+class DependencyEditorTeamNode(EditorTeamNode):
+    """依赖驱动编辑团队节点：按层流水线并行执行「推理+写作」."""
+
     def __init__(self):
         super().__init__()
+
+    def get_task_execute_sequence(self, outline: Outline):
+        """按依赖关系获取层级执行序列，每层内 section 可并行。"""
+        all_section_parent_infos = []
+        for item in outline.sections:
+            if isinstance(item, Section):
+                node_item = {"id": item.id, "parent_ids": item.parent_ids}
+                all_section_parent_infos.append(node_item)
+
+        indegree = defaultdict(int)
+        child_node = defaultdict(list)
+        nodes = set()
+        for node_info in all_section_parent_infos:
+            node_id = node_info["id"]
+            nodes.add(node_id)
+            indegree[node_id] = len(node_info.get("parent_ids", []))
+            for v in node_info.get("parent_ids", []):
+                child_node[v].append(node_id)
+
+        execute_sequence = []
+        queue = deque([n for n in nodes if indegree[n] == 0])
+        executed_nodes = 0
+        while queue:
+            execute_sequence.append(list(queue))
+            for _ in range(len(queue)):
+                u = queue.popleft()
+                executed_nodes += 1
+                for v in child_node[u]:
+                    indegree[v] -= 1
+                    if indegree[v] == 0:
+                        queue.append(v)
+        if executed_nodes != len(nodes):
+            logger.error(
+                "[DependencyEditorTeamNode] Invalid dependency graph detected, executed_nodes=%s, total_nodes=%s",
+                executed_nodes,
+                len(nodes),
+            )
+            return []
+        return execute_sequence
+
+    def get_parent_ids(self, section_id, outline: Outline):
+        """通过 section_id 获取该 section 的依赖 section id 列表。"""
+        if not outline:
+            return []
+        for section in outline.sections:
+            if section and section.id == section_id:
+                return section.parent_ids
+        return []
+
+    def get_section_by_id(self, section_id, outline: Outline):
+        """通过 section_id 从 outline 中获取 Section。"""
+        if not outline:
+            return None
+        for section in outline.sections:
+            if section_id == section.id:
+                return section
+        return None
+
+    def _get_background_knowledge_from_writing_results(self, parent_ids, writing_results: dict):
+        """从 writing_results 字典按 parent_ids 构造 background_knowledge 列表。"""
+        background_knowledge = []
+        for pid in parent_ids:
+            wr = writing_results.get(pid)
+            if not wr:
+                continue
+            sub_report_content = wr.get("sub_report_content")
+            summary = ""
+            if sub_report_content and hasattr(sub_report_content, "sub_report_content_summary"):
+                summary = sub_report_content.sub_report_content_summary or ""
+            background_knowledge.append({"section_id": pid, "content_summary": summary})
+        return background_knowledge
+
+    async def _run_reasoning_await(self, session: Session, sub_workflow, section_state: dict):
+        """跑推理子图并给结果补上 section_idx."""
+        result = await self._run_section_sub_graph_await(session, sub_workflow, section_state)
+        result["section_idx"] = section_state.get("section_idx", "0")
+        return result
 
     async def _do_invoke(
             self, inputs: Input, session: Session, context: ModelContext
     ) -> Output:
-        # 1.从上下文中获取带依赖关系的大纲
         state = self._pre_handle(inputs, session, context)
         logger.info(f"{self.log_prefix} current_inputs: {'*' if LogManager.is_sensitive() else state}")
         current_outline = state.get("outline")
@@ -335,76 +413,158 @@ class DependencyReasoningTeamNode(EditorTeamNode):
             self._handle_warning_exception_info(session, added_warning=msg, added_exception=msg)
             logger.info(f"{self.log_prefix} End {self.__class__.__name__}.")
             return dict(next_node=NodeId.END.value)
-        outline_num = len(sections)
+
         current_report = Report(
             id=str(uuid.uuid4()),
             report_task=current_outline.title,
-            report_template=state.get("report_template", "")
+            report_template=state.get("report_template", ""),
         )
         state["report"] = current_report
-        sub_reports = []
+        sub_reports = [
+            SubReport(id=str(uuid.uuid4()), section_id=section.id, section_task=section.title)
+            for section in sections
+        ]
 
-        # 2. 依赖关系执行各章节
-        history_section_plans = {}
-        tasks_results = []
-        while len(history_section_plans) < outline_num:
-            tasks = []
-            # 查找所有可执行的section
-            for section in current_outline.sections:
-                if section.id in history_section_plans:
-                    continue
-                # 检查section的依赖是否都已完成
-                section_parents_is_finished = all(
-                    parent in history_section_plans for parent in section.parent_ids
-                )
+        execute_sequence = self.get_task_execute_sequence(current_outline)
+        logger.info(f"[DependencyEditorTeamNode] execute sequence is {execute_sequence}")
+        if not execute_sequence:
+            msg = (
+                f"[{StatusCode.EDITORTEAM_MANAGER_MISSING_OUTLINE_SECTION.code}] "
+                f"{self.log_prefix} Invalid dependency graph or empty execution sequence."
+            )
+            self._handle_warning_exception_info(session, added_warning=msg, added_exception=msg)
+            logger.info(f"{self.log_prefix} End {self.__class__.__name__}.")
+            return dict(next_node=NodeId.END.value)
+        reasoning_results = {}
+        writing_results = {}
 
-                if section_parents_is_finished:
-                    sub_report = SubReport(id=str(uuid.uuid4()), section_id=section.id, section_task=section.title)
-                    sub_reports.append(sub_report)
+        for level_idx, section_ids_in_level in enumerate(execute_sequence):
+            if level_idx == 0:
+                tasks = []
+                valid_ids_level0 = []
+                for section_id in section_ids_in_level:
+                    section = self.get_section_by_id(section_id, current_outline)
+                    if not section:
+                        logger.error("Can't find section with id %s", section_id)
+                        continue
+                    section_state = self._create_section_state_from_state(
+                        state, current_outline, section
+                    )
+                    section_state["parent_section_steps"] = []
+                    valid_ids_level0.append(section_id)
+                    tasks.append(
+                        self._run_reasoning_await(
+                            session, build_dependency_reasoning_workflow(), section_state
+                        )
+                    )
+                if tasks:
+                    current_results = await asyncio.gather(*tasks)
+                    for i, section_id in enumerate(valid_ids_level0):
+                        if i < len(current_results):
+                            reasoning_results[section_id] = current_results[i]
+            else:
+                prev_level_ids = execute_sequence[level_idx - 1]
+                writing_tasks = []
+                valid_writing_ids = []
+                for section_id in prev_level_ids:
+                    section = self.get_section_by_id(section_id, current_outline)
+                    if not section:
+                        continue
+                    section.plans = reasoning_results.get(section_id, {}).get("plans", [])
+                    parent_ids = self.get_parent_ids(section_id, current_outline)
+                    background_knowledge = self._get_background_knowledge_from_writing_results(
+                        parent_ids, writing_results
+                    )
+                    section_state = self._create_section_state_from_state(
+                        state, current_outline, section, background_knowledge
+                    )
+                    valid_writing_ids.append(section_id)
+                    writing_tasks.append(
+                        self._run_section_sub_graph_await(
+                            session, build_dependency_writing_workflow(), section_state
+                        )
+                    )
+                reasoning_tasks = []
+                valid_reasoning_ids = []
+                for section_id in section_ids_in_level:
+                    section = self.get_section_by_id(section_id, current_outline)
+                    if not section:
+                        continue
                     parent_section_steps = []
                     for parent in section.parent_ids:
-                        parent_section_plans = history_section_plans.get(parent, [])
-                        for plan in parent_section_plans:
+                        for plan in reasoning_results.get(parent, {}).get("plans", []):
                             parent_section_steps.extend(plan.steps)
-                    sub_workflow = build_dependency_reasoning_workflow()
-
                     section_state = self._create_section_state_from_state(
                         state, current_outline, section
                     )
                     section_state["parent_section_steps"] = parent_section_steps
-                    tasks.append(
-                        self._run_section_sub_graph_await(
-                            session, sub_workflow, section_state)
+                    valid_reasoning_ids.append(section_id)
+                    reasoning_tasks.append(
+                        self._run_reasoning_await(
+                            session, build_dependency_reasoning_workflow(), section_state
+                        )
                     )
-            current_results = await asyncio.gather(*tasks)
-            tasks_results.extend(current_results)
+                all_tasks = writing_tasks + reasoning_tasks
+                if all_tasks:
+                    results = await asyncio.gather(*all_tasks)
+                    n_w = len(writing_tasks)
+                    for i, section_id in enumerate(valid_writing_ids):
+                        if i < n_w:
+                            writing_results[section_id] = results[i]
+                    for j, section_id in enumerate(valid_reasoning_ids):
+                        if n_w + j < len(results):
+                            reasoning_results[section_id] = results[n_w + j]
 
-            for result in current_results:
-                section_idx = result.get("section_idx")
-                history_section_plans[section_idx] = result.get("plans", [])
+        # 最后一层仅写作（并行执行）
+        last_level_ids = execute_sequence[-1]
+        last_level_tasks = []
+        valid_section_ids = []
+        for section_id in last_level_ids:
+            section = self.get_section_by_id(section_id, current_outline)
+            if not section:
+                continue
+            section.plans = reasoning_results.get(section_id, {}).get("plans", [])
+            parent_ids = self.get_parent_ids(section_id, current_outline)
+            background_knowledge = self._get_background_knowledge_from_writing_results(
+                parent_ids, writing_results
+            )
+            section_state = self._create_section_state_from_state(
+                state, current_outline, section, background_knowledge
+            )
+            valid_section_ids.append(section_id)
+            last_level_tasks.append(
+                self._run_section_sub_graph_await(
+                    session, build_dependency_writing_workflow(), section_state
+                )
+            )
+        if last_level_tasks:
+            last_level_results = await asyncio.gather(*last_level_tasks)
+            for i, section_id in enumerate(valid_section_ids):
+                if i < len(last_level_results):
+                    writing_results[section_id] = last_level_results[i]
 
-        # 3. 填充结果字段，并更新在state中
-        state = self._update_state(state, sections, sub_reports, tasks_results)
+        task_results = []
+        for section in sections:
+            wr = writing_results.get(section.id, {})
+            result = dict(wr)
+            result["plans"] = reasoning_results.get(section.id, {}).get("plans", result.get("plans", []))
+            result["background_knowledge"] = self._get_background_knowledge_from_writing_results(
+                self.get_parent_ids(section.id, current_outline), writing_results
+            )
+            task_results.append(result)
 
-        # 4. 导出outline完整信息
+        state = self._update_state(state, sections, sub_reports, task_results)
         ResultExporter.export_outline(state.get("outline"), state.get("session_id"))
-
-        # 5. 上下文更新
-        results = self._post_handle(inputs, state, session, context)
-        return results
-
-    async def _run_section_sub_graph_await(self, workflow_runtime, sub_workflow, input_state):
-        result = await super()._run_section_sub_graph_await(workflow_runtime, sub_workflow, input_state)
-        section_idx = input_state.get("section_idx", "0")
-        result["section_idx"] = section_idx
-        return result
+        return self._post_handle(inputs, state, session, context)
 
     def _update_state(self, state: dict, sections: list[Section], sub_reports: list[SubReport], task_results: list):
         state = super()._update_state(state, sections, sub_reports, task_results)
         report: Report = state.get("report")
-        # 依赖关系推理节点输出只包含plans和steps，classified_content和trace_source_datas保存为空列表
-        report.all_classified_contents = []
-        report.merged_trace_source_datas = []
+        for sub_report in report.sub_reports:
+            for i, section in enumerate(sections):
+                if section.id == sub_report.section_id and i < len(task_results):
+                    sub_report.background_knowledge = task_results[i].get("background_knowledge", [])
+                    break
         state["report"] = report
         return state
 
@@ -416,191 +576,28 @@ class DependencyReasoningTeamNode(EditorTeamNode):
             "search_context.history_reports": state.get("history_reports"),
         }
         session.update_global_state(algorithm_output)
-
-        # 添加debug日志
-        add_debug_log_wrapper(session, NodeDebugData(NodeId.DEPENDENCY_REASONING_TEAM.value, 0, NodeType.MAIN.value,
-                              output_content=str(algorithm_output).replace("\\n", "\n")))
-
-        next_node = NodeId.DEPENDENCY_WRITING_TEAM.value
-        warning_info = state.get('warning_info', '')
-        exception_info = state.get('exception_info', '')
-
+        add_debug_log_wrapper(
+            session,
+            NodeDebugData(NodeId.DEPENDENCY_EDITOR_TEAM.value, 0, NodeType.MAIN.value,
+                          output_content=str(algorithm_output).replace("\\n", "\n")),
+        )
+        next_node = NodeId.REPORTER.value
+        current_report: Report = state.get("report")
+        warning_info = state.get("warning_info", "")
+        exception_info = state.get("exception_info", "")
+        has_any_content = any(
+            sub_report.content and (getattr(sub_report.content, "sub_report_content_text", "") or "").strip()
+            for sub_report in (current_report.sub_reports or [])
+        )
+        if not current_report or not current_report.sub_reports or not has_any_content:
+            empty_msg = (
+                f"[{StatusCode.EDITORTEAM_MANAGER_EMPTY_SUB_REPORT.code}] "
+                f"{self.log_prefix} {StatusCode.EDITORTEAM_MANAGER_EMPTY_SUB_REPORT.errmsg}"
+            )
+            warning_info = (warning_info + "\n" + empty_msg).strip()
+            exception_info = (exception_info + "\n" + empty_msg).strip()
+            next_node = NodeId.END.value
         if warning_info or exception_info:
             self._handle_warning_exception_info(session, added_warning=warning_info, added_exception=exception_info)
         logger.info(f"{self.log_prefix} End {self.__class__.__name__}.")
-
         return dict(next_node=next_node)
-
-
-class DependencyWritingTeamNode(EditorTeamNode):
-    def __init__(self):
-        super().__init__()
-
-    def get_task_execute_sequence(self, outline: Outline):
-        """获取并行任务序列"""
-        all_section_parent_infos = []
-        for item in outline.sections:
-            if isinstance(item, Section):
-                node_item = {"id": item.id, "parent_ids": item.parent_ids}
-                all_section_parent_infos.append(node_item)
-
-        indegree = defaultdict(int)
-        child_node = defaultdict(list)
-        nodes = set()
-        for node_info in all_section_parent_infos:
-            node_id = node_info["id"]
-            nodes.add(node_id)
-            indegree[node_id] = len(node_info.get("parent_ids", []))
-            for v in node_info.get("parent_ids", []):
-                child_node[v].append(node_id)
-
-        execute_sequence = []
-        # 把入度为0的节点都放到队列里
-        queue = deque([n for n in nodes if indegree[n] == 0])
-        while queue:
-            execute_sequence.append(list(queue))  # 当前层所有节点
-            for _ in range(len(queue)):
-                u = queue.popleft()
-                # 所有子节点的入度减1
-                for v in child_node[u]:
-                    indegree[v] -= 1
-                    # 如果入度为0放到队列中
-                    if indegree[v] == 0:
-                        queue.append(v)
-        return execute_sequence
-
-    def get_background_knowledge(self, parent_ids, pre_results):
-        background_knowledge = []
-        for result in pre_results:
-            if result["id"] in parent_ids:
-                sub_report_content = result["result"].get("sub_report_content")
-                knowledge = {
-                    "section_id": result.get("id"),
-                    "content_summary": sub_report_content.sub_report_content_summary if sub_report_content else "",
-                }
-                background_knowledge.append(knowledge)
-        return background_knowledge
-
-    def get_parent_ids(self, section_id, outline):
-        """通过section_id获取指定section的依赖section id"""
-        if not outline:
-            return []
-        for section in outline.sections:
-            if section:
-                if section.id == section_id:
-                    return section.parent_ids
-        return []
-
-    def add_background_knowledge(self, section_id, background_knowledge, results):
-        """给结果拼接背景信息"""
-        for index, item in enumerate(results):
-            if item.get("id") == section_id:
-                results[index]["background_knowledge"] = background_knowledge
-
-    def get_section_by_id(self, section_id, outline):
-        """通过section_id从outline中获取section"""
-        if not outline:
-            return None
-        for section in outline.sections:
-            if section_id == section.id:
-                return section
-        return None
-
-
-    async def execute_tasks(self, session, execute_sequence: list[list], state, current_outline):
-        """ 执行子报告生成任务 """
-        results = []
-        # 多层可并行的任务
-        for execute_list in execute_sequence:
-            tasks = []
-            # 并行执行
-            for section_id in execute_list:
-                sub_workflow = build_dependency_writing_workflow()
-
-                # 获取章节的parent_ids
-                parent_ids = self.get_parent_ids(section_id, current_outline)
-                # 获取章节的背景信息
-                background_knowledge = self.get_background_knowledge(parent_ids, results)
-                section = self.get_section_by_id(section_id, current_outline)
-                if not section:
-                    logger.error(f"Can't find section with id {section_id}")
-                    continue
-                section_state = self._create_section_state_from_state(
-                    state, current_outline, section, background_knowledge
-                )
-                tasks.append(
-                    self._run_section_sub_graph_await(session, sub_workflow, section_state)
-                )
-            task_results = await asyncio.gather(*tasks)
-            # 暂存子章节信息
-            for index, item in enumerate(execute_list):
-                results.append({"id": item, "result": task_results[index]})
-
-        # 子章节结果添加背景信息
-        flat = [item for sub in execute_sequence for item in sub]
-        for section_id in flat:
-            # 获取章节的parent_ids
-            parent_ids = self.get_parent_ids(section_id, current_outline)
-            # 获取章节的背景信息
-            background_knowledge = self.get_background_knowledge(parent_ids, results)
-            self.add_background_knowledge(section_id, background_knowledge, results)
-        # 按id把结果排序
-        sorted_data = sorted(results, key=lambda x: int(x["id"]))
-        return sorted_data
-
-
-    async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
-        # 1. 从上下文中获取大纲
-        state = self._pre_handle(inputs, session, context)
-        state["report"] = session.get_global_state("search_context.current_report")
-        current_outline = state.get("outline")
-        current_report = state.get("report")
-        if not current_outline:
-            msg = (
-                f"[{StatusCode.EDITORTEAM_MANAGER_MISSING_OUTLINE.code}] "
-                f"{self.log_prefix} {StatusCode.EDITORTEAM_MANAGER_MISSING_OUTLINE.errmsg}"
-            )
-            self._handle_warning_exception_info(session, added_warning=msg, added_exception=msg)
-            logger.info(f"{self.log_prefix} End {self.__class__.__name__}.")
-            return dict(next_node=NodeId.END.value)
-        sections = current_outline.sections
-        if not sections:
-            msg = (
-                f"[{StatusCode.EDITORTEAM_MANAGER_MISSING_OUTLINE_SECTION.code}] "
-                f"{self.log_prefix} {StatusCode.EDITORTEAM_MANAGER_MISSING_OUTLINE_SECTION.errmsg}"
-            )
-            self._handle_warning_exception_info(session, added_warning=msg, added_exception=msg)
-            logger.info(f"{self.log_prefix} End {self.__class__.__name__}.")
-            return dict(next_node=NodeId.END.value)
-
-        # 获取子任务执行的顺序
-        execute_sequence = self.get_task_execute_sequence(current_outline)
-        logger.info(f"[DependencyWritingTeamNode] execute sequence is {execute_sequence}")
-        # 执行子任务
-        tasks_results = await self.execute_tasks(session, execute_sequence, state, current_outline)
-        # 3. 填充结果字段，并更新在state中
-        existing_sub_reports = current_report.sub_reports if current_report else []
-        state = self._update_state(state, sections, existing_sub_reports, tasks_results)
-
-        # 4. 导出outline完整信息
-        ResultExporter.export_outline(state.get("outline"), state.get("session_id"))
-
-        # 5. 上下文更新
-        results = self._post_handle(inputs, state, session, context)
-        return results
-
-    def _update_state(self, state: dict, sections: list[Section], sub_reports: list[SubReport], tasks_results: list):
-        algorithm_output = [item["result"] for item in tasks_results]
-        state = super()._update_state(state, sections, sub_reports, algorithm_output)
-        report: Report = state.get("report")
-        # 回填子报告背景知识
-        for sub_report in report.sub_reports:
-            for result in tasks_results:
-                if result.get("id") == sub_report.section_id:
-                    sub_report.background_knowledge = result.get("background_knowledge", [])
-        state["report"] = report
-        return state
-
-    def _post_handle(self, inputs: Input, algorithm_output: dict, session: Session, context: ModelContext):
-        super()._post_handle(inputs, algorithm_output, session, context)
-        return dict(next_node=NodeId.REPORTER.value)

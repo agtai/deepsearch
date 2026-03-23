@@ -1,12 +1,14 @@
 import logging
-import pytest
-import sys
 import os
+import sys
 from pathlib import Path
+
+import pytest
 
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
 from openjiuwen_deepsearch.utils.log_utils.log_handlers import SafeRotatingFileHandler
+from openjiuwen_deepsearch.utils.log_utils.log_common import DEFAULT_MAX_LOG_MESSAGE_LENGTH
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
 
 
@@ -15,7 +17,40 @@ def clean_logs(tmp_path):
     safe_base = tmp_path / "logs"
     safe_base.mkdir(parents=True)
     LogManager._SAFE_BASE = str(safe_base)
+    LogManager._initialized = False
+    third_party_states = {
+        logger_name: (
+            logging.getLogger(logger_name).disabled,
+            logging.getLogger(logger_name).propagate,
+            logging.getLogger(logger_name).level,
+        )
+        for logger_name in LogManager._THIRD_PARTY_LOGGERS
+    }
     yield safe_base
+    root_logger = logging.getLogger()
+    for handler in list(root_logger.handlers):
+        handler.flush()
+        handler.close()
+    root_logger.handlers.clear()
+    for logger_name, (disabled, propagate, level) in third_party_states.items():
+        logger_obj = logging.getLogger(logger_name)
+        logger_obj.disabled = disabled
+        logger_obj.propagate = propagate
+        logger_obj.setLevel(level)
+    LogManager._initialized = False
+
+
+def _flush_root_handlers():
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers:
+        handler.flush()
+
+
+def _read_common_log(log_root: Path) -> str:
+    common_log = log_root / "common" / "common.log"
+    if not common_log.exists():
+        return ""
+    return common_log.read_text(encoding="utf-8")
 
 
 def test_safe_log_dir_valid(clean_logs):
@@ -209,3 +244,106 @@ def test_safe_rotating_file_handler_permissions(clean_logs):
                 assert backup_mode == 0o440, f"备份文件 {i} 权限不符: 期望 0o440, 实际 {oct(backup_mode)}"
 
     handler.close()
+
+
+def test_common_log_truncates_long_message(clean_logs):
+    LogManager.init(log_dir=str(clean_logs), level="DEBUG", is_sensitive=False)
+    logger = logging.getLogger("openjiuwen_deepsearch.test_log")
+    long_message = "HEAD" * 500 + "BODY" * 800 + "TAIL" * 500
+
+    logger.info(long_message)
+    _flush_root_handlers()
+
+    common_log_text = _read_common_log(clean_logs)
+    assert "truncated, original_len=" in common_log_text
+    assert "HEADHEADHEAD" in common_log_text
+    assert "TAILTAILTAIL" in common_log_text
+    assert long_message not in common_log_text
+
+
+def test_common_log_keeps_boundary_message_without_truncation(clean_logs):
+    LogManager.init(log_dir=str(clean_logs), level="DEBUG", is_sensitive=False)
+    logger = logging.getLogger("openjiuwen_deepsearch.boundary")
+    boundary_message = "a" * DEFAULT_MAX_LOG_MESSAGE_LENGTH
+
+    logger.info(boundary_message)
+    _flush_root_handlers()
+
+    common_log_text = _read_common_log(clean_logs)
+    assert boundary_message in common_log_text
+    assert "truncated, original_len=" not in common_log_text
+
+
+def test_skip_truncation_preserves_full_message(clean_logs):
+    LogManager.init(log_dir=str(clean_logs), level="DEBUG", is_sensitive=False)
+    logger = logging.getLogger("openjiuwen_deepsearch.key_log")
+    long_message = "IMPORTANT-" + ("0123456789" * 700)
+
+    logger.info(long_message, extra={"skip_truncation": True})
+    _flush_root_handlers()
+
+    common_log_text = _read_common_log(clean_logs)
+    assert long_message in common_log_text
+    assert "truncated, original_len=" not in common_log_text
+
+
+def test_exception_log_truncates_message_and_keeps_traceback(clean_logs):
+    LogManager.init(log_dir=str(clean_logs), level="DEBUG", is_sensitive=False)
+    logger = logging.getLogger("openjiuwen_deepsearch.exception_log")
+
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        logger.exception("X" * (DEFAULT_MAX_LOG_MESSAGE_LENGTH + 200))
+    _flush_root_handlers()
+
+    common_log_text = _read_common_log(clean_logs)
+    assert "truncated, original_len=" in common_log_text
+    assert "Traceback (most recent call last)" in common_log_text
+    assert "ValueError: boom" in common_log_text
+
+
+def test_third_party_debug_info_are_filtered_but_warning_error_are_kept(clean_logs):
+    LogManager.init(log_dir=str(clean_logs), level="DEBUG", is_sensitive=False)
+
+    for logger_name in LogManager._THIRD_PARTY_LOGGERS:
+        logger_obj = logging.getLogger(logger_name)
+        assert logger_obj.disabled is False
+        assert logger_obj.propagate is True
+        assert logger_obj.level == logging.WARNING
+
+    third_party_logger = logging.getLogger("openai._base_client")
+    third_party_logger.info("third-party-info-should-not-appear")
+    third_party_logger.warning("third-party-warning-should-appear")
+    third_party_logger.error("third-party-error-should-appear")
+    _flush_root_handlers()
+
+    common_log_text = _read_common_log(clean_logs)
+    assert "third-party-info-should-not-appear" not in common_log_text
+    assert "third-party-warning-should-appear" in common_log_text
+    assert "third-party-error-should-appear" in common_log_text
+
+
+def test_project_logger_is_allowed_to_write_common_log(clean_logs):
+    LogManager.init(log_dir=str(clean_logs), level="DEBUG", is_sensitive=False)
+    logger = logging.getLogger("server.test_module")
+
+    logger.warning("project-warning-should-appear")
+    _flush_root_handlers()
+
+    common_log_text = _read_common_log(clean_logs)
+    assert "project-warning-should-appear" in common_log_text
+
+
+def test_representative_key_log_can_bypass_truncation(clean_logs):
+    LogManager.init(log_dir=str(clean_logs), level="DEBUG", is_sensitive=False)
+    logger = logging.getLogger(
+        "openjiuwen_deepsearch.algorithm.source_trace.citation_checker_research"
+    )
+    full_result_text = "=============== result text =================:\n" + ("RESULT-" * 900)
+
+    logger.info(full_result_text, extra={"skip_truncation": True})
+    _flush_root_handlers()
+
+    common_log_text = _read_common_log(clean_logs)
+    assert full_result_text in common_log_text

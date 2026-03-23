@@ -51,3 +51,56 @@ async def test_generate_sub_report(mock_llm_cls, mock_ainvoke_llm):
     success, report, sub_report_content, classified_content = await reporter.generate_sub_report(current_inputs)
 
     assert success is True
+
+
+@pytest.mark.asyncio
+@patch("openjiuwen_deepsearch.algorithm.report.report.ainvoke_llm_with_stats", new_callable=AsyncMock)
+@patch("openjiuwen_deepsearch.algorithm.report.report.llm_context", new_callable=MagicMock)
+async def test_generate_sub_report_with_background_knowledge_only(mock_llm_cls, mock_ainvoke_llm):
+    mock_session = MagicMock()
+    mock_session.write_custom_stream = AsyncMock()
+    token = session_context.set(mock_session)
+
+    async def mock_ainvoke_llm_with_stats(llm, messages, llm_type: str = "basic", agent_name="AI", schema=None,
+                                          tools=None, need_stream_out=False):
+        if any("classification" in msg.get("content", "") for msg in messages):
+            raise AssertionError("classification should not run when doc_infos is empty but background exists")
+        if any("subsection outline" in msg.get("content", "") for msg in messages):
+            return {"content": "2 企业经营分析\n2.1 上游章节要点承接\n2.2 当前章节判断"}
+        if any("write the chapter" in msg.get("content", "") for msg in messages):
+            return {"content": "fake subsection report content from background knowledge"}
+        return {"content": "background summary"}
+
+    mock_ainvoke_llm.side_effect = mock_ainvoke_llm_with_stats
+
+    reporter = Reporter("basic")
+    current_inputs = dict(
+        has_template=False,
+        language=CHINESE,
+        report_template='',
+        report_style='scholarly',
+        section_idx=2,
+        report_task='XX有限公司尽职调查报告',
+        section_task='企业经营分析',
+        section_iscore=False,
+        section_description='结合父章节摘要继续撰写',
+        doc_infos=[],
+        gathered_info=[],
+        sub_report_background_knowledge=[
+            {"section_id": "1", "content_summary": "父章节总结：公司主营业务稳定，收入结构清晰。"}
+        ],
+        sub_evaluation_details='',
+        max_generate_retry_num=3,
+        max_sub_report_evaluate_num=0
+    )
+
+    success, report, sub_report_content, classified_content = await reporter.generate_sub_report(current_inputs)
+
+    session_context.reset(token)
+
+    assert success is True
+    assert sub_report_content
+    assert classified_content == []
+    assert current_inputs["sub_section_core_content"] == [
+        "[Parent Section 1] 父章节总结：公司主营业务稳定，收入结构清晰。"
+    ]

@@ -196,11 +196,11 @@ def creat_dep_driving_outline_tool(max_section_num: int):
                                     "type": "string"
                                 }
                             }
-                        },
+                            },
                         "required": ["title", "description", "id", "parent_ids", "relationships"]
                     }
                 }
-                },
+            },
             "required": ["language", "title", "thought", "sections"]
         }
     )
@@ -220,59 +220,89 @@ def check_tool_call(tool: LocalFunction, tool_calls: list):
     """
     is_sensitive = LogManager.is_sensitive()
     if not tool_calls:
-        raise CustomValueException(
-            StatusCode.OUTLINER_GENERATE_ERROR.code,
-            "No outline tool calls found in response",
-        )
+        _raise_tool_call_error("No outline tool calls found in response")
     if len(tool_calls) > 1:
         logger.error("Multiple tool calls found in response")
     for tool_call in tool_calls:
-        tool_name = tool_call.get("name", "")
-        arguments = tool_call.get("args", {})
-        if tool_name != tool.card.name:
-            # 手动纠正工具名
-            tool_call["name"] = tool.card.name
-            logger.error(
-                f"Tool name is not match({tool.card.name}): {'**' if is_sensitive else tool_name}"
-            )
-        if not arguments:
-            raise CustomValueException(
-                StatusCode.OUTLINER_GENERATE_ERROR.code,
-                f"No arguments found in tool call: {'**' if is_sensitive else tool_call}",
-            )
-        if not isinstance(arguments, dict):
-            raise CustomValueException(
-                StatusCode.OUTLINER_GENERATE_ERROR.code,
-                f"Args is not a dict in tool call: {'**' if is_sensitive else tool_call}",
-            )
-        input_params = tool.card.input_params.get("properties", {})
-        for param_name, param_info in input_params.items():
-            required = param_name in tool.card.input_params.get("required", [])
-            if required and param_name not in arguments:
-                raise CustomValueException(
-                    StatusCode.OUTLINER_GENERATE_ERROR.code,
-                    f"Required param '{param_name}' not found in tool call: {'**' if is_sensitive else tool_call}",
-                )
-            if param_name == "sections":
-                sections = arguments[param_name]
-                if not isinstance(sections, list):
-                    raise CustomValueException(
-                        StatusCode.OUTLINER_GENERATE_ERROR.code,
-                        f"Sections is not a list in tool call: {'**' if is_sensitive else tool_call}",
-                    )
-                for i, section in enumerate(sections):
-                    if not isinstance(section, dict):
-                        raise CustomValueException(
-                            StatusCode.OUTLINER_GENERATE_ERROR.code,
-                            f"Section[{i}] is not a dict in tool call: {'**' if is_sensitive else tool_call}",
-                        )
-                    # Check items/properties if needed, but for simplicity:
-                    if not section.get("title") or not section.get("description"):
-                        raise CustomValueException(
-                            StatusCode.OUTLINER_GENERATE_ERROR.code,
-                            f"Required section param 'title' or 'description' not found in tool call: "
-                            f"{'**' if is_sensitive else tool_call}",
-                        )
+        _check_tool_name(tool, tool_call, is_sensitive)
+        arguments = _check_tool_arguments(tool_call, is_sensitive)
+        _check_required_params(tool, arguments, tool_call, is_sensitive)
+        _check_sections(arguments, tool_call, is_sensitive)
+
+
+def _raise_tool_call_error(message: str) -> None:
+    raise CustomValueException(
+        StatusCode.OUTLINER_GENERATE_ERROR.code,
+        message,
+    )
+
+
+def _check_tool_name(
+    tool: LocalFunction, tool_call: dict, is_sensitive: bool
+) -> None:
+    tool_name = tool_call.get("name", "")
+    if tool_name == tool.card.name:
+        return
+
+    tool_call["name"] = tool.card.name
+    logger.error(
+        f"Tool name is not match({tool.card.name}): {'**' if is_sensitive else tool_name}"
+    )
+
+
+def _check_tool_arguments(tool_call: dict, is_sensitive: bool) -> dict:
+    arguments = tool_call.get("args", {})
+    if not arguments:
+        _raise_tool_call_error(
+            f"No arguments found in tool call: {'**' if is_sensitive else tool_call}"
+        )
+    if not isinstance(arguments, dict):
+        _raise_tool_call_error(
+            f"Args is not a dict in tool call: {'**' if is_sensitive else tool_call}"
+        )
+
+    return arguments
+
+
+def _check_required_params(
+    tool: LocalFunction, arguments: dict, tool_call: dict, is_sensitive: bool
+) -> None:
+    required_params = tool.card.input_params.get("required", [])
+    for param_name in required_params:
+        if param_name in arguments:
+            continue
+        _raise_tool_call_error(
+            f"Required param '{param_name}' not found in tool call: "
+            f"{'**' if is_sensitive else tool_call}"
+        )
+
+
+def _check_sections(arguments: dict, tool_call: dict, is_sensitive: bool) -> None:
+    sections = arguments.get("sections")
+    if sections is None:
+        return
+    if not isinstance(sections, list):
+        _raise_tool_call_error(
+            f"Sections is not a list in tool call: {'**' if is_sensitive else tool_call}"
+        )
+    for index, section in enumerate(sections):
+        _check_section(section, index, tool_call, is_sensitive)
+
+
+def _check_section(
+    section: dict, index: int, tool_call: dict, is_sensitive: bool
+) -> None:
+    if not isinstance(section, dict):
+        _raise_tool_call_error(
+            f"Section[{index}] is not a dict in tool call: {'**' if is_sensitive else tool_call}"
+        )
+    if section.get("title") and section.get("description"):
+        return
+
+    _raise_tool_call_error(
+        "Required section param 'title' or 'description' not found in tool call: "
+        f"{'**' if is_sensitive else tool_call}"
+    )
 
 
 class Outliner:
@@ -312,7 +342,8 @@ class Outliner:
                 outline = await tool.invoke(tool_call.get("args"))
                 logger.info(
                     f"The outline generation is completed: "
-                    f"{'**' if LogManager.is_sensitive() else outline.model_dump_json(indent=4)}"
+                    f"{'**' if LogManager.is_sensitive() else outline.model_dump_json(indent=4)}",
+                    extra={"skip_truncation": True},
                 )
                 break
 
