@@ -139,11 +139,9 @@ class ServiceConfig(BaseModel):
 
     # 大纲节点基础参数
     outliner_max_generate_outline_retry_num: int = Field(default=3, description="最大生成大纲重试次数")
-    outliner_specified_llm: str = Field(default="", description='默认使用基础llm，可选值:["", "qwen"]')
 
     # 规划节点基础参数
     planner_max_step_num: int = Field(default=3, description="最大步骤数量")
-    planner_specified_llm: str = Field(default="", description='默认使用基础llm，可选值:["", "qwen"]')
     planner_max_retry_num: int = Field(default=3, description="最大重试次数")
 
     # 信息收集节点参数

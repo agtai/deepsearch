@@ -18,11 +18,11 @@ classifiers = [
 # SDK依赖
 dependencies = [
     'Jinja2==3.1.6',
-    'json_repair==0.52.4',
+    'json-repair==0.55.0',
     'python-docx==1.2.0',
-    'tenacity==8.5.0',
+    'tenacity==9.1.2',
     'pypdfium2==4.30.0',
-    'openjiuwen==0.1.5',
+    'openjiuwen==0.1.8',
     'pyvis==0.3.2',
     'networkx==3.4.2',
     'aiolimiter==1.1.0',
@@ -43,7 +43,7 @@ openjiuwen_deepsearch = ["**/*"]  # 递归收录所有文件，包括 .md、.jso
 pythonpath = ["."]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
-addopts = "-ra -q"
+addopts = ["-ra -q"]
 testpaths = ["tests"]
 filterwarnings = [
     "ignore::pytest.PytestDeprecationWarning",

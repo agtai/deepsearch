@@ -85,6 +85,16 @@ class StatusCode(Enum):
 
     WORKFLOW_ROUTER_INIT_TYPE_ERROR = (211100, "next_nodes must be either str or list[str]")
     WORKFLOW_TYPE_NOT_EXIST_ERROR = (211101, "Workflow doesn't exsit, config is {config}")
+    WORKFLOW_CONTROLLER_ADAPTER_NOT_INIT = (211102, "WorkflowControllerAdapter not initialized (init() not called)")
+    WORKFLOW_CONTROLLER_NOT_CONFIGURED = (211103, "WorkflowController not configured (setup_from_agent not called)")
+    WORKFLOW_NOT_FOUND_IN_RESOURCE = (211104, "Workflow not found in resource_mgr: {workflow_key} (tag={tag})")
+    WORKFLOW_AGENT_CONFIG_TYPE_ERROR = (
+        211105,
+        "Config must be WorkflowControllerConfig before add_workflows",
+    )
+    WORKFLOW_CONTROLLER_NO_WORKFLOWS = (211106, "No workflows configured for WorkflowController")
+    WORKFLOW_PARAM_INVALID = (211107, "Workflow must have .card or be callable provider with id/version.")
+    WORKFLOW_ADD_FAILED = (211108, "Failed to add workflow {workflow_key}: {err}")
 
     LLM_INSTANCE_NONE_ERROR = (211200, "llm instance is None when ainvoke, check if obtain llm first")
     LLM_RESPONSE_ERROR = (211201, "LLM response has something wrong")

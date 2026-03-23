@@ -7,11 +7,10 @@ import time
 from typing import Optional
 import uuid
 
-from openjiuwen.core.application.workflow_agent.workflow_agent import WorkflowAgent
 from openjiuwen.core.runner.runner import Runner
 from openjiuwen.core.session.checkpointer import CheckpointerFactory
 from openjiuwen.core.session.stream.base import CustomSchema, OutputSchema
-from openjiuwen.core.single_agent.legacy.config import WorkflowAgentConfig
+from openjiuwen.core.single_agent.schema.agent_card import AgentCard
 from openjiuwen.core.workflow.base import WorkflowCard
 from openjiuwen.core.workflow.workflow import Workflow
 from pydantic import ValidationError
@@ -22,6 +21,8 @@ from openjiuwen_deepsearch.common.status_code import StatusCode
 from openjiuwen_deepsearch.config.config import AgentConfig, WebSearchEngineConfig, LocalSearchEngineConfig, \
     CustomWebSearchConfig, CustomLocalSearchConfig
 from openjiuwen_deepsearch.framework.openjiuwen.agent.base_node import init_router
+from openjiuwen_deepsearch.framework.openjiuwen.core.workflow_agent.workflow_agent import WorkflowAgent
+from openjiuwen_deepsearch.framework.openjiuwen.core.workflow_agent import WorkflowControllerConfig
 from openjiuwen_deepsearch.framework.openjiuwen.agent.editor_team_manager_node import (
     EditorTeamNode,
     DependencyEditorTeamNode,
@@ -393,7 +394,7 @@ class DeepresearchAgent(BaseAgent):
                 # 若流输出本身失败，仅记录日志，避免掩盖原始异常
                 logger.warning("[DeepResearchAgent.run] Failed to emit error stream event: %s", stream_err)
 
-            await self.agent.clear_session(conversation_id)
+            await self.agent.release_session(conversation_id)
             await self._release_checkpointer_session(conversation_id)
             session_id_ctx.reset(token)
         finally:
@@ -435,7 +436,7 @@ class DeepresearchAgent(BaseAgent):
                     "search_api_key", bytearray("", encoding="utf-8")))
                 zero_secret(session_agent_config.get("local_search_engine_config", {}).get(
                     "search_api_key", bytearray("", encoding="utf-8")))
-                await self.agent.clear_session(conversation_id)
+                await self.agent.release_session(conversation_id)
                 await self._release_checkpointer_session(conversation_id)
                 session_id_ctx.reset(token)
 
@@ -511,10 +512,19 @@ class DeepresearchAgent(BaseAgent):
             description=self.research_name,
             input_params=self.workflow_input_schema
         )
-        workflow_config = WorkflowAgentConfig(
-            workflows=[workflow_card]
+
+        card = AgentCard(
+            id=self.research_name,
+            name=self.research_name,
+            description=self.research_name,
         )
-        self.agent = WorkflowAgent(workflow_config)
+        config = WorkflowControllerConfig(
+            id=self.research_name,
+            version=self.version,
+            description=self.research_name,
+            workflows=[workflow_card],
+        )
+        self.agent = WorkflowAgent(card=card, config=config)
         self.agent.add_workflows([research_workflow])
 
     def _handle_report_template(self, report_template):
@@ -574,10 +584,19 @@ class DeepresearchDependencyAgent(DeepresearchAgent):
             description=self.research_name,
             input_params=self.workflow_input_schema
         )
-        workflow_config = WorkflowAgentConfig(
-            workflows=[workflow_card]
+
+        card = AgentCard(
+            id=self.research_name,
+            name=self.research_name,
+            description=self.research_name,
         )
-        self.agent = WorkflowAgent(workflow_config)
+        config = WorkflowControllerConfig(
+            id=self.research_name,
+            version=self.version,
+            description=self.research_name,
+            workflows=[workflow_card],
+        )
+        self.agent = WorkflowAgent(card=card, config=config)
         self.agent.add_workflows([research_workflow])
 
     def _build_research_dependency_workflow(self):

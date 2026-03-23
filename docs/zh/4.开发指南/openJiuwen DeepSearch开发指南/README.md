@@ -1,4 +1,4 @@
-# 初始化DeepResearchAgent配置
+# 初始化 DeepResearch 配置
 
 ---
 配置参数类`Config`包括两种类型的参数变量，一是`AgentConfig`类，这些参数是通过对外接口，用户可修改的配置参数；二是`ServiceConfig`类，这些参数涵盖系统各模块的主要核心配置参数，且已配置默认值。
@@ -8,18 +8,24 @@
 ```python
 from openjiuwen_deepsearch.config.config import Config
 
-# 实例化AgentConfig
 agent_config = Config().agent_config.model_dump()
-# 对必填项进行赋值
-# 1. 配置LLM
+
+# 1. 配置至少一个可用的 LLM
 agent_config["llm_config"]["general"]["model_name"] = ""
 agent_config["llm_config"]["general"]["model_type"] = ""
 agent_config["llm_config"]["general"]["base_url"] = ""
 agent_config["llm_config"]["general"]["api_key"] = ""
+
 # 2. 配置联网增强引擎
 agent_config["web_search_engine_config"]["search_engine_name"] = ""
 agent_config["web_search_engine_config"]["search_url"] = ""
 agent_config["web_search_engine_config"]["search_api_key"] = ""
+
+# 3. 按需覆盖执行参数
+agent_config["workflow_human_in_the_loop"] = False
+agent_config["outline_interaction_enabled"] = False
+agent_config["search_mode"] = "research"
+agent_config["execution_method"] = "parallel"
 ```
 
 ## 大模型配置说明
@@ -70,16 +76,16 @@ os.environ["TOOL_SSL_VERIFY"] = "false"
 os.environ["TOOL_SSL_CERT"] = ""
 ```
 
-# 实例化DeepResearchAgent类
+# 实例化 Agent
 
 ---
-`DeepResearchAgent`是系统基于openJiuwen开发框架，开发并预置的深度研究智能体。能够根据用户查询进行研究报告生成。
+系统基于 openJiuwen 开发框架预置了深度研究 Agent，能够根据用户查询完成分析规划、信息收集和研究报告生成。
 
 ## 通过AgentFactory方式创建
 
 ---
 
-`AgentFactory`类支持根据配置`agent_config`，实例化`DeepResearchAgent`类，获取`DeepResearchAgent`对象。
+`AgentFactory` 会根据 `agent_config` 中的 `execution_method` 等配置，返回当前应使用的 Agent 实例。研究模式下，通常返回 `DeepresearchAgent` 或 `DeepresearchDependencyAgent`。
 
 ```python
 from openjiuwen_deepsearch.framework.openjiuwen.agent.agent_factory import AgentFactory
@@ -88,24 +94,24 @@ agent_factory = AgentFactory()
 agent = agent_factory.create_agent(agent_config)
 ```
 
-获取的agent是一个`DeepResearchAgent`实例。
+这是当前最推荐的创建方式，因为它会自动根据执行模式选择合适的 Agent 实现。
 
 ## 通过构造函数方式创建
 
 ---
-直接通过`DeepResearchAgent`的构造函数，获取实例化对象。
+如果你明确希望直接使用并行研究 Agent，也可以手动实例化 `DeepresearchAgent`。
 
 ```python
-from openjiuwen_deepsearch.framework.openjiuwen.agent.workflow import DeepResearchAgent
+from openjiuwen_deepsearch.framework.openjiuwen.agent.workflow import DeepresearchAgent
 
-agent = DeepResearchAgent(agent_config)
+agent = DeepresearchAgent()
 ```
 
 # 生成研究报告
 
 ---
 
-`DeepResearchAgent`可以根据用户查询，进行深度研究和分析规划，通过网络搜索等任务完成信息收集，并生成研究报告。用户的输入，可以分为三种情况：
+`DeepresearchAgent` 的 `run()` 和 `generate_template()` 可以覆盖当前文档中的主要使用场景。用户输入通常分为三种情况：
  - 用户查询，描述用户的需求或者问题。
  - 用户查询和用户已有模板，期望系统遵循已有模板进行研究报告生成。
  - 用户查询和用户已有报告，期望系统遵循已有报告的章节格式进行研究报告生成。
@@ -114,7 +120,7 @@ agent = DeepResearchAgent(agent_config)
 
 ---
 
-`DeepResearchAgent`的`run`函数，可接收用户查询`message`，数据类型是`str`。`conversation_id`参数是会话标识id。深度研究过程，遵循`agent_config`的参数配置。
+`DeepresearchAgent` 的 `run` 函数可接收用户查询 `message`，数据类型是 `str`。`conversation_id` 是会话标识，整个深度研究过程遵循 `agent_config` 的参数配置。
 
 `run`函数按照流式数据的模式，逐帧输出系统内部结果。每帧数据是`dict`类型，key值`agent`记录当前帧数据的生产者角色；key值`content`来记录当前帧数据的具体内容。默认情况下，最终结果由`NodeId.END.value`输出；当开启报告后局部优化能力时，`user_feedback_processor`节点会在结束前额外承担一轮交互。
 
@@ -182,7 +188,7 @@ async for chunk in agent.run(message=message, conversation_id=str(uuid.uuid4()),
 > 功能概述：上游供应链分析和下游客户结构分析
 ```
 
-`DeepResearchAgent`的`generate_template`函数，可以对用户提供的模板文件进行规范化校验和处理。其中，入参`is_template`标识用户提供的文件是否为模板文件，此处取值为`True`。
+`DeepresearchAgent` 的 `generate_template` 函数可以对用户提供的模板文件进行规范化校验和处理。其中，入参 `is_template` 标识用户提供的文件是否为模板文件，此处取值为 `True`。
 
 ```python
 import base64
@@ -202,7 +208,7 @@ result = await agent.generate_template(file_name=file_path, file_stream=file_str
 user_template_content = result["template_content"]
 ```
 
-`DeepResearchAgent`的`run`函数，参数`report_template`可接收系统规范化后的模板文件内容`user_template_content`，数据类型是`str`，是一份base64编码。
+`DeepresearchAgent` 的 `run` 函数支持通过参数 `report_template` 接收系统规范化后的模板内容 `user_template_content`，数据类型是 `str`，内容为一份 base64 编码字符串。
 
 ```python
 import json
@@ -233,7 +239,7 @@ async for chunk in agent.run(message=message, conversation_id=conversation_id, a
 
 用户提供的样例报告文件，与期望生成研究报告遵循相同模板。样例报告文件格式支持markdown、docx、pdf、html。
 
-与上一小节“根据用户查询和用户已有模板生成研究报告”不同的是，`DeepResearchAgent`的`generate_template`函数，入参`is_template`标识应取值为`False`，标识用户提供的文件为样例报告文件。
+与上一小节“根据用户查询和用户已有模板生成研究报告”不同的是，`DeepresearchAgent` 的 `generate_template` 函数中，入参 `is_template` 应取值为 `False`，表示用户提供的是样例报告文件。
 
 ```python
 import base64
@@ -253,7 +259,7 @@ result = await agent.generate_template(file_name=file_path, file_stream=file_str
 user_template_content = result["template_content"]
 ```
 
-提取出规范化后的模板文件内容`user_template_content`之后，继续通过`DeepResearchAgent`的`run`函数，进行研究报告生成。
+提取出规范化后的模板文件内容 `user_template_content` 之后，再通过 `DeepresearchAgent` 的 `run` 函数继续生成研究报告。
 
 ```python
 import json
@@ -300,8 +306,8 @@ async for chunk in agent.run(message=message, conversation_id=conversation_id, a
 当配置参数：
 
 ```python
-agent_config.workflow_human_in_the_loop = True
-````
+agent_config["workflow_human_in_the_loop"] = True
+```
 
 系统将执行用户查询意图交互流程，该功能 **默认开启**。
 
@@ -365,7 +371,7 @@ service_config.workflow_feedback_mode = "cmd"
 当配置参数：
 
 ```python
-outline_interaction_enabled = True
+agent_config["outline_interaction_enabled"] = True
 ```
 
 系统在生成大纲后会暂停执行，并等待用户反馈，该功能 **默认开启**。
