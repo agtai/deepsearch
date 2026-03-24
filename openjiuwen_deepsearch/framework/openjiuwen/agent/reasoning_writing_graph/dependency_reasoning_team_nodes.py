@@ -213,6 +213,15 @@ class DependencyInfoCollectorNode(InfoCollectorNode):
         if inner_session and inner_session.stream_writer_manager():
             workflow_session.set_stream_writer_manager(inner_session.stream_writer_manager())
 
+        if hasattr(collector_internal, "auto_complete_abilities"):
+            collector_internal.auto_complete_abilities()
+        workflow_config_getter = getattr(collector_internal, "config", None)
+        if callable(workflow_config_getter):
+            workflow_session.config().add_workflow_config(
+                workflow_id=collector_graph.card.id,
+                workflow_config=workflow_config_getter(),
+            )
+
         config = session.get_global_state("config")
         if config is not None:
             workflow_state = cast(InMemoryState, workflow_session.state())

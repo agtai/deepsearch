@@ -3,7 +3,7 @@ name = "openjiuwen-deepsearch"
 version = "0.2.0"
 description = "Built on the openJiuwen agent-core framework, openJiuwen DeepSearch is a system supporting both deep search and research work."
 readme = "README.md"
-requires-python = "==3.11.*"
+requires-python = ">=3.11,<3.14"
 license = { text = "Apache-2.0" }
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -12,6 +12,8 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "License :: OSI Approved :: Apache Software License",
 ]
 
