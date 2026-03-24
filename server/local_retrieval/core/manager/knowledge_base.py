@@ -72,6 +72,19 @@ from server.local_retrieval.models.knowledge_base_document import DocumentStatus
 from server.core.manager.model_manager.utils import SecurityUtils
 from server.local_retrieval.core.object.aioboto_storage_client import AioBotoClient
 
+_RESILIENT_PDF_REGISTERED = False
+
+
+def _ensure_resilient_pdf_parser() -> None:
+    """Use PDF parser that clamps image bboxes; avoids pdfplumber crop failures on bad PDFs."""
+    global _RESILIENT_PDF_REGISTERED
+    if _RESILIENT_PDF_REGISTERED:
+        return
+    from server.local_retrieval.core.parser.resilient_pdf_parser import ResilientPDFParser
+
+    AutoFileParser.register_new_parser(".pdf", lambda: ResilientPDFParser())
+    _RESILIENT_PDF_REGISTERED = True
+
 
 class OBSDocumentManager:
     """
@@ -923,6 +936,8 @@ async def _parse_file(
     if not doc_path:
         raise ValueError("File path is empty")
 
+    _ensure_resilient_pdf_parser()
+
     # 检测并修正文件扩展名
     corrected_path = _get_corrected_file_path(doc_path)
     temp_file_created = False
@@ -1123,6 +1138,7 @@ def _create_index_manager(collection_name: str) -> MilvusIndexer:
         milvus_uri = f"http://{milvus_host}:{milvus_port}"
 
         vector_store_config = VectorStoreConfig(
+            store_provider="milvus",
             collection_name=collection_name,
         )
         return MilvusIndexer(config=vector_store_config, milvus_uri=milvus_uri, milvus_token=milvus_token)
@@ -1242,6 +1258,7 @@ def _create_vector_store(collection_name: str) -> MilvusVectorStore:
         milvus_uri = f"http://{milvus_host}:{milvus_port}"
 
         vector_store_config = VectorStoreConfig(
+            store_provider="milvus",
             collection_name=collection_name,
         )
         return MilvusVectorStore(
@@ -2034,15 +2051,12 @@ def knowledge_base_list(req: KnowledgeBaseListRequest) -> ResponseModel:
             elif status_list and all(doc_status == "indexed" for doc_status in status_list):
                 kb_status = "indexed"
 
-        kb_config = kb_data.get("config") or {}
         items.append(
             KnowledgeBaseListItem(
                 name=kb_data.get("name", ""),
                 desc=kb_data.get("description"),
                 id=kb_id,
                 type="text",
-                embed_model_config=kb_config.get("embed_model_config"),
-                llm_config=kb_config.get("llm_config"),
                 status=kb_status,
                 created_at=_timestamp_to_date_str(kb_data.get("create_time")),
                 updated_at=_timestamp_to_date_str(kb_data.get("update_time")),

@@ -55,7 +55,8 @@ class NativeLocalSearchAPIWrapper(BaseModel):
 
                 # 创建 Vector Store 实例
                 vs_config = VectorStoreConfig(
-                    collection_name=kb_cfg.vector_store.collection_name
+                    store_provider="milvus",
+                    collection_name=kb_cfg.vector_store.collection_name,
                 )
                 
                 vector_store = MilvusVectorStore(

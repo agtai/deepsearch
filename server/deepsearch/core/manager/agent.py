@@ -4,6 +4,7 @@ import logging
 import os
 from typing import Any, Dict, Optional
 
+from fastapi import status
 from openjiuwen.core.session.checkpointer import CheckpointerFactory
 from sqlalchemy.orm import Session
 
@@ -19,7 +20,11 @@ from server.deepsearch.common.exception.exceptions import (
 from server.deepsearch.core.manager.repositories.report_template_repository import ReportTemplateRepository
 from server.deepsearch.core.manager.repositories.web_search_engine_repository import \
     WebSearchEngineRepository
+from server.local_retrieval.core.manager.repositories.knowledge_base_repository import (
+    KnowledgeBaseRepository,
+)
 from server.schemas.deepsearch_run import DeepSearchRequest, WebSearchConfig, LocalSearchConfig
+from server.schemas.knowledge_base import KnowledgeBaseGet
 
 logger = logging.getLogger(__name__)
 
@@ -164,29 +169,64 @@ class DeepSearchAgentManager:
         str, Any]:
         """从请求中的 LocalSearchConfig 构建本地搜索配置"""
         try:
-            if local_search_config.embed_model_config is None:
+            kb_ids = local_search_config.local_search_config_ids or []
+            normalized_ids: list[str] = []
+            for kb_id in kb_ids:
+                kid = kb_id.strip() if isinstance(kb_id, str) else str(kb_id)
+                if kid:
+                    normalized_ids.append(kid)
+
+            if not normalized_ids:
                 raise SearchEngineConfigException(
-                    "local_search_config.embed_model_config is required when using local search."
+                    "local_search_config.local_search_config_ids must contain at least one knowledge base id."
                 )
-            em = local_search_config.embed_model_config
-            api_key = em.api_key
-            if not isinstance(api_key, (bytes, bytearray)):
-                api_key = bytearray(str(api_key).encode("utf-8"))
+
+            repo = KnowledgeBaseRepository(db)
+            kb_row: dict | None = None
+            for kid in normalized_ids:
+                get_result = repo.knowledge_base_get(
+                    KnowledgeBaseGet(space_id=space_id, kb_id=kid)
+                )
+                if get_result.code != status.HTTP_200_OK or not get_result.data:
+                    raise SearchEngineConfigException(
+                        f"知识库 '{kid}' 不属于 space_id={space_id} 或不存在。"
+                        "本地检索仅允许使用当前请求空间下的知识库。"
+                    )
+                if kb_row is None:
+                    kb_row = get_result.data
+
+            if kb_row is None:
+                raise SearchEngineConfigException(
+                    "未能加载本地检索知识库信息，请检查 local_search_config_ids。"
+                )
+            cfg = kb_row.get("config") or {}
+            embed_src = cfg.get("embed_model_config")
+            if not embed_src or not isinstance(embed_src, dict):
+                raise SearchEngineConfigException(
+                    f"知识库 {normalized_ids[0]} 的存储配置中缺少 embed_model_config。"
+                )
+
+            api_key_raw = embed_src.get("api_key") or ""
+            if isinstance(api_key_raw, (bytes, bytearray)):
+                api_key = bytearray(api_key_raw)
             else:
-                api_key = bytearray(api_key)
+                api_key = bytearray(str(api_key_raw).encode("utf-8"))
+
             embed_model_config_dict = {
-                "model_name": em.model_name,
+                "model_name": embed_src.get("model_name") or "",
                 "api_key": api_key,
-                "base_url": em.base_url,
-                "max_batch_size": em.max_batch_size,
+                "base_url": embed_src.get("base_url") or "",
+                "max_batch_size": int(embed_src.get("max_batch_size", 1)),
+                "timeout": int(embed_src.get("timeout", 60)),
+                "max_retries": int(embed_src.get("max_retries", 3)),
             }
 
             kb_configs = []
-            for kb_id in local_search_config.local_search_config_ids:
+            for kid in normalized_ids:
                 kb_configs.append({
-                    "id": kb_id,
+                    "id": kid,
                     "embed_model_config": embed_model_config_dict,
-                    "vector_store": self._create_vector_store_param(kb_id),
+                    "vector_store": self._create_vector_store_param(kid),
                     "index_type": "vector"
                 })
 
