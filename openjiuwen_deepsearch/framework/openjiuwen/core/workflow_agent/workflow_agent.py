@@ -139,17 +139,15 @@ class WorkflowControllerAdapter(Controller):
         session: Any,
         stream_modes: Optional[List[BaseStreamMode]] = None,
         **kwargs,
-    ) -> AsyncIterator[ControllerOutputChunk]:
-        """Delegate to inner invoke and yield a single completion chunk (inner has no stream)."""
+    ) -> AsyncIterator[Any]:
+        """Delegate to inner stream and forward workflow chunks."""
         if self._inner is None:
             raise CustomValueException(
                 StatusCode.WORKFLOW_CONTROLLER_ADAPTER_NOT_INIT.code,
                 StatusCode.WORKFLOW_CONTROLLER_ADAPTER_NOT_INIT.errmsg,
             )
         inputs_dict = _input_event_to_dict(inputs, session)
-        result = await self._inner.invoke(inputs_dict, session)
-        out = _result_to_controller_output(result, getattr(inputs, "event_id", None))
-        for chunk in (out.data if isinstance(out.data, list) else []):
+        async for chunk in self._inner.stream(inputs_dict, session, stream_modes=stream_modes):
             yield chunk
 
     def setup_from_agent(self, agent: Any) -> None:

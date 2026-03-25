@@ -8,6 +8,7 @@ from openjiuwen.core.controller.schema.event import EventType
 from openjiuwen.core.controller.schema.controller_output import (
     ControllerOutputChunk,
 )
+from openjiuwen.core.session.stream.base import BaseStreamMode
 from openjiuwen.core.workflow import WorkflowExecutionState, generate_workflow_key
 from openjiuwen.core.runner import Runner
 from openjiuwen_deepsearch.common.exception import CustomValueException
@@ -140,10 +141,16 @@ async def test_workflow_controller_adapter_invoke_delegates_to_inner_and_wraps_r
 
 
 @pytest.mark.asyncio
-async def test_workflow_controller_adapter_stream_yields_completion_chunk():
+async def test_workflow_controller_adapter_stream_delegates_to_inner_stream():
     adapter = WorkflowControllerAdapter()
     adapter._inner = Mock()
-    adapter._inner.invoke = AsyncMock(return_value="stream-result")
+    yielded = [SimpleNamespace(kind="custom"), SimpleNamespace(kind="output")]
+
+    async def _inner_stream(*args, **kwargs):
+        for item in yielded:
+            yield item
+
+    adapter._inner.stream = _inner_stream
 
     session = Mock()
     session.get_session_id.return_value = "sid-4"
@@ -158,9 +165,7 @@ async def test_workflow_controller_adapter_stream_yields_completion_chunk():
     async for chunk in adapter.stream(inputs=inputs, session=session):
         chunks.append(chunk)
 
-    assert len(chunks) == 1
-    assert chunks[0].last_chunk is True
-    assert chunks[0].payload.metadata == {"result": "stream-result"}
+    assert chunks == yielded
 
 
 class _DummyWorkflowCard:
@@ -250,6 +255,46 @@ async def test_workflow_controller_invoke_fallback_to_unkeyed_workflow(monkeypat
 
     assert first_call["workflow_id"] == generate_workflow_key("wf", "1")
     assert second_call["workflow_id"] == "wf"
+
+
+@pytest.mark.asyncio
+async def test_workflow_controller_stream_uses_runner_streaming(monkeypatch):
+    controller = WorkflowController()
+    workflow_card = _DummyWorkflowCard(id="wf", version="1", input_params={"properties": {"query": {}}})
+    controller.agent_config = WorkflowControllerConfig(
+        id="agent-stream",
+        workflows=[workflow_card],
+    )
+
+    workflow = Mock()
+    dummy_rm = Mock()
+    dummy_rm.get_workflow = AsyncMock(return_value=workflow)
+    _patch_runner_resource_mgr(monkeypatch, dummy_rm)
+
+    yielded = [SimpleNamespace(kind="custom"), SimpleNamespace(kind="output")]
+
+    async def _fake_run_workflow_streaming(**kwargs):
+        assert kwargs["workflow"] is workflow
+        assert kwargs["inputs"] == {"query": "hello"}
+        assert kwargs["session"] == "wf-session"
+        assert kwargs["stream_modes"] == [BaseStreamMode.CUSTOM]
+        for item in yielded:
+            yield item
+
+    monkeypatch.setattr(Runner, "run_workflow_streaming", _fake_run_workflow_streaming, raising=False)
+
+    session = Mock()
+    session.create_workflow_session.return_value = "wf-session"
+
+    chunks = []
+    async for chunk in controller.stream(
+        inputs={"query": "hello"},
+        session=session,
+        stream_modes=[BaseStreamMode.CUSTOM],
+    ):
+        chunks.append(chunk)
+
+    assert chunks == yielded
 
 
 @pytest.mark.asyncio

@@ -102,6 +102,7 @@ def _record_node_debug_log(record: NodeDebugLogRecord):
             "content": record.content
         },
         ensure_ascii=False,
+        default=str,
     )
 
     debug_logger = logging.getLogger(NODE_DEBUG_LOGGER)
