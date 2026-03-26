@@ -39,6 +39,7 @@ from openjiuwen_deepsearch.utils.common_utils.embedding_utils import (
 )
 
 from server.core.database import SessionLocal, milliseconds
+from server.core.kb_obs_requirement import knowledge_base_requires_obs, kb_obs_misconfigured_message
 from server.local_retrieval.core.manager.repositories.knowledge_base_repository import (
     knowledge_base_repository,
 )
@@ -1726,6 +1727,15 @@ async def document_upload(
         logger.warning(f"[DOC_UPLOAD] Knowledge base not found - KB ID: {kb_id}")
         return ResponseModel(code=status.HTTP_404_NOT_FOUND, message="Knowledge base not found")
 
+    obs_required_msg = kb_obs_misconfigured_message()
+    if obs_required_msg:
+        logger.error(f"[DOC_UPLOAD] {obs_required_msg}")
+        return ResponseModel(
+            code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            message=obs_required_msg,
+            data=None,
+        )
+
     # 2. 获取存储路径
     storage_path = _get_storage_path(space_id, kb_id)
 
@@ -1846,16 +1856,46 @@ async def document_upload(
             object_name = obs_manager.obs_name(
                 space_id=space_id, kb_id=kb_id, file_name=file_path.name
             )
-            # 已配置 OBS 时，上传若失败不能仅上传到本地
-            obs_upload_required = bool(obs_manager.bucket and obs_manager.obs_client)
-            if obs_upload_required:
+
+
+            # 仅 CHECKPOINTER_TYPE=redis 时使用 OBS 多实例共享；非 Redis 只写本地，不上传 OBS
+            obs_required = knowledge_base_requires_obs()
+            obs_configured = bool(obs_manager.bucket and obs_manager.obs_client)
+
+            if obs_required:
+                if not obs_configured:
+                    failed_count += 1
+                    logger.error(
+                        f"[DOC_UPLOAD] OBS required when CHECKPOINTER_TYPE=redis but not configured - "
+                        f"File: {filename}, Doc ID: {doc_id}, KB ID: {kb_id}"
+                    )
+                    if file_path.exists():
+                        try:
+                            file_path.unlink()
+                        except OSError as unlink_err:
+                            logger.warning(
+                                f"[DOC_UPLOAD] Failed to remove local file after OBS misconfig - "
+                                f"Path: {file_path}, Error: {unlink_err}"
+                            )
+                    uploaded_docs.append(
+                        DocumentUploadResponse(
+                            id=doc_id,
+                            name=filename,
+                            file_size=file_size,
+                            status=DocumentStatus.FAILED.value,
+                        )
+                    )
+                    continue
                 try:
-                    await obs_manager.upload_document(object_name=object_name, file_path=file_path)
+                    await obs_manager.upload_document(
+                        object_name=object_name,
+                        file_path=file_path,
+                    )
                 except Exception as obs_error:
                     failed_count += 1
                     logger.error(
-                        f"[DOC_UPLOAD] OBS upload failed - File: {filename}, Doc ID: {doc_id}, "
-                        f"KB ID: {kb_id}, Error: {str(obs_error)}",
+                        f"[DOC_UPLOAD] OBS upload failed (required when CHECKPOINTER_TYPE=redis) - "
+                        f"File: {filename}, Doc ID: {doc_id}, KB ID: {kb_id}, Error: {obs_error}",
                         exc_info=True,
                     )
                     if file_path.exists():
@@ -1876,6 +1916,8 @@ async def document_upload(
                     )
                     continue
 
+            obs_stored_name = object_name if obs_required else ""
+
             logger.debug(f"[DOC_UPLOAD] File saved - Path: {file_path}, Size: {file_size} bytes")
 
             # 4.4 创建文档记录
@@ -1886,7 +1928,7 @@ async def document_upload(
                 "doc_id": doc_id,
                 "name": filename,
                 "file_path": str(file_path),
-                "obs_name": object_name,
+                "obs_name": obs_stored_name,
                 "file_size": file_size,
                 "file_type": file_type,
                 "mime_type": mime_type,

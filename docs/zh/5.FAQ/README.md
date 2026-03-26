@@ -145,7 +145,7 @@ citation verify：某条搜索结果的溯源效验
 
 ## 六、服务相关错误
 ### 1. 部署限制
-当前deepsearch服务支持分布式部署，同时限制单机单进程。如果想在单机部署多实例，也请使用redis模式进行部署。
+当前deepsearch服务支持分布式部署，同时限制单机单进程。如果想在单机部署多实例，也请使用redis模式进行部署。使用 `CHECKPOINTER_TYPE=redis` 时，还须完整配置对象存储（`OBS_SERVER`、`OBS_BUCKET`、`OBS_REGION`、`OBS_ACCESS_KEY_ID`、`OBS_SECRET_ACCESS_KEY`），否则服务无法启动；详见安装指导中 Checkpointer / OBS 说明。`in_memory` 与 `persistence` 模式下，知识库上传的文档仅保存在服务本地；即使环境中配置了 `OBS_*`，服务端也不会将其用于知识库上传。
 ### 2. 调用限制
 除同一个任务内的中断恢复场景外，每次调用 deepsearch SDK 的 `run` 接口时，都应使用新的 `conversation_id`，不允许复用旧会话。
 

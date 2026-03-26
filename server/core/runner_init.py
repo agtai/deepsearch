@@ -17,6 +17,7 @@ from openjiuwen.core.session.checkpointer.checkpointer import CheckpointerConfig
 from openjiuwen.core.session.interaction.interactive_input import InteractiveInput
 
 from server.core.config import settings
+from server.core.kb_obs_requirement import assert_kb_obs_configured_for_redis
 
 logger = logging.getLogger(__name__)
 SUPPORTED_CHECKPOINTER_TYPES = {"in_memory", "persistence", "redis"}
@@ -120,6 +121,7 @@ async def init_runner():
 
     # 根据 checkpointer 类型导入对应的 provider 以完成注册
     if cp_type == "redis":
+        assert_kb_obs_configured_for_redis()
         from openjiuwen.extensions.checkpointer.redis import checkpointer  # noqa: F401
         logger.info("Redis checkpointer provider registered.")
     elif cp_type == "persistence":

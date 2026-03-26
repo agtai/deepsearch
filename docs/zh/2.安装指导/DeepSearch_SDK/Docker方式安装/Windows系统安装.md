@@ -223,6 +223,18 @@ Windows 上运行 Docker Desktop 推荐使用 WSL 2（Windows Subsystem for Linu
   | `REDIS_TTL` | 会话状态过期时间 | `7200` |
   | `REDIS_REFRESH_ON_READ` | 每次读取时是否刷新 TTL | `true` |
 
+  ##### 对象存储 OBS（`CHECKPOINTER_TYPE=redis` 时必填）
+
+  分布式（Redis）部署时，知识库文档须写入共享对象存储；下列变量须完整配置，否则服务无法启动。`in_memory` / `persistence` 模式下知识库仅本地存储，无需配置 OBS。
+
+  | 参数 | 说明 | 默认值 |
+  |------|------|--------|
+  | `OBS_SERVER` | S3 兼容 Endpoint URL | （须配置） |
+  | `OBS_REGION` | 区域（`region_name`，如华为云 `cn-north-4`） | （须配置） |
+  | `OBS_BUCKET` | 桶名 | （须配置） |
+  | `OBS_ACCESS_KEY_ID` | 访问密钥 ID | （须配置） |
+  | `OBS_SECRET_ACCESS_KEY` | 访问密钥 Secret | （须配置） |
+
   **使用示例**：
 
   ```bash
@@ -271,11 +283,15 @@ Windows 上运行 Docker Desktop 推荐使用 WSL 2（Windows Subsystem for Linu
     -e REDIS_CLUSTER_MODE=false \
     -e REDIS_TTL=7200 \
     -e REDIS_REFRESH_ON_READ=true \
+    -e OBS_SERVER=https://your-obs-endpoint \
+    -e OBS_REGION=cn-north-4 \
+    -e OBS_BUCKET=your-bucket \
+    -e OBS_ACCESS_KEY_ID=your_access_key \
+    -e OBS_SECRET_ACCESS_KEY=your_secret_key \
     swr.cn-north-4.myhuaweicloud.com/openjiuwen/deepsearch-studio-server-amd64:0.1.2
   ```
 
   **注意事项**：
-  - `in_memory` 模式：无需额外配置，适用于开发测试环境，不支持分布式部署
-  - `persistence` 模式：需要确保数据目录有写权限，适用于单机生产环境
-  - `redis` 模式：需要先部署 Redis 服务，适用于分布式生产环境。如果 Redis 在宿主机上，可以使用 `host.docker.internal` 作为 Redis 主机地址
-  - 若部署 Redis 服务，**多实例时 `DB_TYPE` 必须为 `mysql` 且连接同一 MySQL**（知识库等元数据存于应用数据库；SQLite 为容器内本地文件，实例间不共享，会导致一端创建知识库、另一端查询不到）。
+  - `in_memory` 模式：无需额外配置，适用于开发测试环境，不支持分布式部署；知识库文档仅存容器/数据卷本地，不使用对象存储
+  - `persistence` 模式：需要确保数据目录有写权限，适用于单机生产环境；知识库文档同样仅存本地，不使用对象存储
+  - `redis` 模式：需要先部署 Redis 服务，适用于分布式生产环境；**还须**通过环境变量完整配置 OBS（见上文「对象存储 OBS」），否则服务无法启动。**仅在此模式下**知识库上传会写入对象存储以供多实例共享。如果 Redis 在宿主机上，可以使用 `host.docker.internal` 作为 Redis 主机地址。**多实例时 `DB_TYPE` 必须为 `mysql` 且连接同一 MySQL**（知识库等元数据存于应用数据库；SQLite 为容器内本地文件，实例间不共享，会导致一端创建知识库、另一端查询不到）。
