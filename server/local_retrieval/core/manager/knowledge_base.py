@@ -1837,15 +1837,35 @@ async def document_upload(
             object_name = obs_manager.obs_name(
                 space_id=space_id, kb_id=kb_id, file_name=file_path.name
             )
-            # 上传到OBS
-            try:
-                await obs_manager.upload_document(object_name=object_name, file_path=file_path)
-            except Exception as obs_error:
-                logger.warning(
-                    f"[DOC_UPLOAD] OBS upload failed (continuing with local file) - "
-                    f"File: {filename}, Doc ID: {doc_id}, KB ID: {kb_id}, Error: {str(obs_error)}",
-                    exc_info=True,
-                )
+            # 已配置 OBS 时，上传若失败不能仅上传到本地
+            obs_upload_required = bool(obs_manager.bucket and obs_manager.obs_client)
+            if obs_upload_required:
+                try:
+                    await obs_manager.upload_document(object_name=object_name, file_path=file_path)
+                except Exception as obs_error:
+                    failed_count += 1
+                    logger.error(
+                        f"[DOC_UPLOAD] OBS upload failed - File: {filename}, Doc ID: {doc_id}, "
+                        f"KB ID: {kb_id}, Error: {str(obs_error)}",
+                        exc_info=True,
+                    )
+                    if file_path.exists():
+                        try:
+                            file_path.unlink()
+                        except OSError as unlink_err:
+                            logger.warning(
+                                f"[DOC_UPLOAD] Failed to remove local file after OBS failure - "
+                                f"Path: {file_path}, Error: {unlink_err}"
+                            )
+                    uploaded_docs.append(
+                        DocumentUploadResponse(
+                            id=doc_id,
+                            name=filename,
+                            file_size=file_size,
+                            status=DocumentStatus.FAILED.value,
+                        )
+                    )
+                    continue
 
             logger.debug(f"[DOC_UPLOAD] File saved - Path: {file_path}, Size: {file_size} bytes")
 
