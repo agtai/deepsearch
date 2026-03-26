@@ -34,6 +34,9 @@ from openjiuwen_deepsearch.framework.openjiuwen.llm.llm_model_factory import (
     LLMModelFactory,
     LLMModelParams,
 )
+from openjiuwen_deepsearch.utils.common_utils.embedding_utils import (
+    get_embedding_requests_verify,
+)
 
 from server.core.database import SessionLocal, milliseconds
 from server.local_retrieval.core.manager.repositories.knowledge_base_repository import (
@@ -105,9 +108,10 @@ class OBSDocumentManager:
             return
 
         server = os.getenv("OBS_SERVER")
+        region_name = os.getenv("OBS_REGION")
         access_key_id = SecurityUtils.get_decrypted_secret(
             "OBS_ACCESS_KEY_ID",
-            os.getenv("OBS_SECRET_KEY", None),
+            os.getenv("OBS_ACCESS_KEY_ID", None),
         )
         secret_access_key = SecurityUtils.get_decrypted_secret(
             "OBS_SECRET_ACCESS_KEY",
@@ -117,6 +121,7 @@ class OBSDocumentManager:
             server=server,
             access_key_id=access_key_id,
             secret_access_key=secret_access_key,
+            region_name=region_name,
         )
 
     @staticmethod
@@ -480,12 +485,16 @@ def _create_embed_model(embed_model_config: EmbedModelConfig) -> APIEmbedding:
         api_key=api_key,
         base_url=embed_model_config.base_url,
     )
-    embed_model = APIEmbedding(
-        config=embed_config,
-        timeout=embed_model_config.timeout,
-        max_retries=embed_model_config.max_retries,
-        max_batch_size=embed_model_config.max_batch_size,
-    )
+    api_kwargs: dict = {
+        "config": embed_config,
+        "timeout": embed_model_config.timeout,
+        "max_retries": embed_model_config.max_retries,
+        "max_batch_size": embed_model_config.max_batch_size,
+    }
+    verify = get_embedding_requests_verify(embed_model_config.base_url)
+    if isinstance(verify, str) and verify:
+        os.environ["REQUESTS_CA_BUNDLE"] = verify
+    embed_model = APIEmbedding(**api_kwargs)
     logger.debug("[EMBED_MODEL] Embed model created from request config successfully")
     return embed_model
 
@@ -1047,7 +1056,7 @@ def _check_milvus_connection() -> Tuple[bool, str]:
 
         milvus_host = os.getenv("MILVUS_HOST", "localhost")
         milvus_port = os.getenv("MILVUS_PORT", "19530")
-        milvus_token = os.getenv("MILVUS_TOKEN", None)
+        milvus_token = os.getenv("MILVUS_TOKEN") or ""
 
         # 尝试连接 Milvus
         alias = "kb_connection_test"
@@ -1137,7 +1146,7 @@ def _create_index_manager(collection_name: str) -> MilvusIndexer:
     if index_manager_type == "milvus":
         milvus_host = os.getenv("MILVUS_HOST", "localhost")
         milvus_port = os.getenv("MILVUS_PORT", "19530")
-        milvus_token = os.getenv("MILVUS_TOKEN", None)
+        milvus_token = os.getenv("MILVUS_TOKEN") or ""
 
         # 组合 Milvus URI (格式: http://host:port 或 tcp://host:port)
         # 默认使用 http:// 协议
@@ -1257,7 +1266,7 @@ def _create_vector_store(collection_name: str) -> MilvusVectorStore:
     if index_manager_type == "milvus":
         milvus_host = os.getenv("MILVUS_HOST", "localhost")
         milvus_port = os.getenv("MILVUS_PORT", "19530")
-        milvus_token = os.getenv("MILVUS_TOKEN", None)
+        milvus_token = os.getenv("MILVUS_TOKEN") or ""
 
         # 组合 Milvus URI (格式: http://host:port 或 tcp://host:port)
         # 默认使用 http:// 协议

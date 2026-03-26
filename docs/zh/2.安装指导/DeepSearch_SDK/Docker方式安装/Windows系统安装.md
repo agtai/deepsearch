@@ -114,7 +114,8 @@ Windows 上运行 Docker Desktop 推荐使用 WSL 2（Windows Subsystem for Linu
   docker run \
     -p 8000:8000 \ 
     -e LLM_SSL_VERIFY=False \
-    -e TOOL_SSL_VERIFY=False \ 
+    -e TOOL_SSL_VERIFY=False \
+    -e EMBEDDING_SSL_VERIFY=False \ 
     -e DB_TYPE=sqlite \ 
     swr.cn-north-4.myhuaweicloud.com/openjiuwen/deepsearch-studio-server-amd64:0.1.2
   ```
@@ -178,7 +179,8 @@ Windows 上运行 Docker Desktop 推荐使用 WSL 2（Windows Subsystem for Linu
   docker run \
     -p 8000:8000 \
     -e LLM_SSL_VERIFY=False \
-    -e TOOL_SSL_VERIFY=False \ 
+    -e TOOL_SSL_VERIFY=False \
+    -e EMBEDDING_SSL_VERIFY=False \
     -e DB_TYPE=mysql \
     -e DB_HOST=host.docker.internal \
     -e DB_PORT=3306 \
@@ -227,7 +229,8 @@ Windows 上运行 Docker Desktop 推荐使用 WSL 2（Windows Subsystem for Linu
   # 开发测试环境（默认配置，无需额外参数）
   docker run -p 8000:8000 \
     -e LLM_SSL_VERIFY=False \
-    -e TOOL_SSL_VERIFY=False \ 
+    -e TOOL_SSL_VERIFY=False \
+    -e EMBEDDING_SSL_VERIFY=False \
     -e DB_TYPE=mysql \
     -e DB_HOST=host.docker.internal \
     -e DB_PORT=3306 \
@@ -239,7 +242,8 @@ Windows 上运行 Docker Desktop 推荐使用 WSL 2（Windows Subsystem for Linu
   # 单机生产环境（persistence 模式）
   docker run -p 8000:8000 \
     -e LLM_SSL_VERIFY=False \
-    -e TOOL_SSL_VERIFY=False \ 
+    -e TOOL_SSL_VERIFY=False \
+    -e EMBEDDING_SSL_VERIFY=False \
     -e DB_TYPE=mysql \
     -e DB_HOST=host.docker.internal \
     -e DB_PORT=3306 \
@@ -254,7 +258,8 @@ Windows 上运行 Docker Desktop 推荐使用 WSL 2（Windows Subsystem for Linu
   # 分布式生产环境（redis 模式）
   docker run -p 8000:8000 \
     -e LLM_SSL_VERIFY=False \
-    -e TOOL_SSL_VERIFY=False \ 
+    -e TOOL_SSL_VERIFY=False \
+    -e EMBEDDING_SSL_VERIFY=False \
     -e DB_TYPE=mysql \
     -e DB_HOST=host.docker.internal \
     -e DB_PORT=3306 \

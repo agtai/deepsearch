@@ -64,9 +64,13 @@ openJiuwen-DeepSearch 支持接入四种类型联网增强引擎：
 ## ssl证书配置说明
 
 ---
-在访问LLM大模型服务、以及联网增强引擎服务时，openJiuwen-DeepSearch提供ssl证书配置能力，如需启用，需要在环境变量中，打开`LLM_SSL_VERIFY`设置为`true`，并提供大模型服务访问的证书`LLM_SSL_CERT`。同理，打开`TOOL_SSL_VERIFY`设置为`true`时，需要提供网络搜索服务访问的证书`TOOL_SSL_CERT`。
+在访问LLM大模型服务、联网增强引擎服务、以及知识库 Embedding 服务时，openJiuwen-DeepSearch提供ssl证书配置能力：
 
-如果不需要启用ssl功能，需显式关闭环境变量中`LLM_SSL_VERIFY`和`TOOL_SSL_VERIFY`，设置为`false`，此时不需要提供对应的证书。
+- **LLM**：如需启用，在环境变量中设置`LLM_SSL_VERIFY`为`true`，并提供`LLM_SSL_CERT`。
+- **Tool（联网增强引擎）**：打开`TOOL_SSL_VERIFY`设置为`true`时，需要提供`TOOL_SSL_CERT`。
+- **Embedding（知识库索引构建）**：`EMBEDDING_SSL_VERIFY`为`true`时启用 HTTPS 证书校验；使用系统信任的 CA 时可不配`EMBEDDING_SSL_CERT`。访问自签名或企业自建 CA 的 Embedding 地址时，需设置`EMBEDDING_SSL_CERT`为 PEM 证书路径。通过本仓库`server/main.py`启动时，未设置或空白`EMBEDDING_SSL_VERIFY`会按`false`处理（关闭校验），与`.env.example`默认一致；若显式设为`true`而服务端证书不可信且未配置证书路径，可能导致构建索引失败。
+
+如果不需要启用 SSL 校验，可将`LLM_SSL_VERIFY`、`TOOL_SSL_VERIFY`、`EMBEDDING_SSL_VERIFY`设为`false`（或不配置 Embedding 开关并依赖上述默认），此时不需要提供对应的证书。
 
 ```python
 import os
@@ -74,6 +78,8 @@ os.environ["LLM_SSL_VERIFY"] = "false"
 os.environ["LLM_SSL_CERT"] = ""
 os.environ["TOOL_SSL_VERIFY"] = "false"
 os.environ["TOOL_SSL_CERT"] = ""
+os.environ["EMBEDDING_SSL_VERIFY"] = "false"
+os.environ["EMBEDDING_SSL_CERT"] = ""
 ```
 
 # 实例化 Agent

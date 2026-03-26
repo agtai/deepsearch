@@ -86,7 +86,8 @@
   docker run \
     -p 8000:8000 \ 
     -e LLM_SSL_VERIFY=False \
-    -e TOOL_SSL_VERIFY=False \ 
+    -e TOOL_SSL_VERIFY=False \
+    -e EMBEDDING_SSL_VERIFY=False \ 
     -e DB_TYPE=sqlite \ 
     swr.cn-north-4.myhuaweicloud.com/openjiuwen/deepsearch-studio-server-amd64:0.1.2
   ```
@@ -152,6 +153,7 @@
     --add-host=host.docker.internal:host-gateway \
     -e LLM_SSL_VERIFY=False \
     -e TOOL_SSL_VERIFY=False \
+    -e EMBEDDING_SSL_VERIFY=False \
     -e DB_TYPE=mysql \
     -e DB_HOST=host.docker.internal \
     -e DB_PORT=3306 \
@@ -202,6 +204,7 @@
     --add-host=host.docker.internal:host-gateway \
     -e LLM_SSL_VERIFY=False \
     -e TOOL_SSL_VERIFY=False \
+    -e EMBEDDING_SSL_VERIFY=False \
     -e DB_TYPE=mysql \
     -e DB_HOST=host.docker.internal \
     -e DB_PORT=3306 \
@@ -215,6 +218,7 @@
     --add-host=host.docker.internal:host-gateway \
     -e LLM_SSL_VERIFY=False \
     -e TOOL_SSL_VERIFY=False \
+    -e EMBEDDING_SSL_VERIFY=False \
     -e DB_TYPE=mysql \
     -e DB_HOST=host.docker.internal \
     -e DB_PORT=3306 \
@@ -231,6 +235,7 @@
     --add-host=host.docker.internal:host-gateway \
     -e LLM_SSL_VERIFY=False \
     -e TOOL_SSL_VERIFY=False \
+    -e EMBEDDING_SSL_VERIFY=False \
     -e DB_TYPE=mysql \
     -e DB_HOST=host.docker.internal \
     -e DB_PORT=3306 \

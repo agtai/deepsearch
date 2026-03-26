@@ -92,7 +92,8 @@
   docker run \
     -p 8000:8000 \ 
     -e LLM_SSL_VERIFY=False \
-    -e TOOL_SSL_VERIFY=False \ 
+    -e TOOL_SSL_VERIFY=False \
+    -e EMBEDDING_SSL_VERIFY=False \ 
     -e DB_TYPE=sqlite \ 
     swr.cn-north-4.myhuaweicloud.com/openjiuwen/deepsearch-studio-server-amd64:0.1.2
   ```
@@ -156,7 +157,8 @@
   docker run \
     -p 8000:8000 \
     -e LLM_SSL_VERIFY=False \
-    -e TOOL_SSL_VERIFY=False \ 
+    -e TOOL_SSL_VERIFY=False \
+    -e EMBEDDING_SSL_VERIFY=False \
     -e DB_TYPE=mysql \
     -e DB_HOST=host.docker.internal \
     -e DB_PORT=3306 \
@@ -205,7 +207,8 @@
   # 开发测试环境（默认配置，无需额外参数）
   docker run -p 8000:8000 \
     -e LLM_SSL_VERIFY=False \
-    -e TOOL_SSL_VERIFY=False \ 
+    -e TOOL_SSL_VERIFY=False \
+    -e EMBEDDING_SSL_VERIFY=False \
     -e DB_TYPE=mysql \
     -e DB_HOST=host.docker.internal \
     -e DB_PORT=3306 \
@@ -217,7 +220,8 @@
   # 单机生产环境（persistence 模式）
   docker run -p 8000:8000 \
     -e LLM_SSL_VERIFY=False \
-    -e TOOL_SSL_VERIFY=False \ 
+    -e TOOL_SSL_VERIFY=False \
+    -e EMBEDDING_SSL_VERIFY=False \
     -e DB_TYPE=mysql \
     -e DB_HOST=host.docker.internal \
     -e DB_PORT=3306 \
@@ -232,7 +236,8 @@
   # 分布式生产环境（redis 模式）
   docker run -p 8000:8000 \
     -e LLM_SSL_VERIFY=False \
-    -e TOOL_SSL_VERIFY=False \ 
+    -e TOOL_SSL_VERIFY=False \
+    -e EMBEDDING_SSL_VERIFY=False \
     -e DB_TYPE=mysql \
     -e DB_HOST=host.docker.internal \
     -e DB_PORT=3306 \

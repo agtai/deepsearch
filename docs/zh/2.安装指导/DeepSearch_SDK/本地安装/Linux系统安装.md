@@ -186,6 +186,18 @@
    | **REDIS_CLUSTER_MODE**                | 是否启用Redis Cluster模式（仅 CHECKPOINTER_TYPE=redis 时需要） | `false`                                                         |
    | **REDIS_TTL**                         | Redis中会话状态的默认过期时间（仅 CHECKPOINTER_TYPE=redis 时需要） | `7200`                                                         |
    | **REDIS_REFRESH_ON_READ**             | 每次读取会话状态时是否刷新TTL（仅 CHECKPOINTER_TYPE=redis 时需要） | `true`                                                         |
+   | **INDEX_MANAGER_TYPE**                | 知识库向量索引类型，当前支持：`milvus` | `milvus`                                                         |
+   | **MILVUS_HOST**                       | Milvus 服务地址 | `localhost`                                                         |
+   | **MILVUS_PORT**                       | Milvus 服务端口 | `19530`                                                         |
+   | **MILVUS_TOKEN**                      | Milvus 认证 token，无认证时留空；run 接口要求 token 为字符串，未配置会报错 | 留空或填写实际 token                                                         |
+   | **EMBEDDING_SSL_VERIFY**              | 知识库 Embedding HTTPS 是否校验证书；未设置或空白时视为关闭校验 | `false`                                                         |
+   | **EMBEDDING_SSL_CERT**                | 自定义 CA/证书 PEM 路径（自签或企业 CA 时填写；仅走系统信任链时可留空） | 留空                                                         |
+   | **HUAWEICLOUD_KMS_ENABLED**           | 是否启用华为云 KMS 加解密（用于解密敏感配置） | `false`                                                         |
+   | **OBS_ACCESS_KEY_ID**                 | 对象存储访问密钥 ID | 留空                                                         |
+   | **OBS_SECRET_ACCESS_KEY**             | 对象存储访问密钥 Secret | 留空                                                         |
+   | **OBS_SERVER**                        | S3 兼容 Endpoint URL | 留空                                                         |
+   | **OBS_REGION**                        | 区域名称 | 留空                                                         |
+   | **OBS_BUCKET**                        | 存储桶名称 | 留空                                                         |
 
   > **说明**：Checkpointer 用于管理 Agent 工作流的会话状态，支持工作流的暂停、恢复和状态持久化。
   > - `in_memory` 模式：无需额外配置，适用于开发测试环境，不支持分布式部署

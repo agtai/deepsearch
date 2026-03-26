@@ -118,7 +118,32 @@ citation verify：某条搜索结果的溯源效验
 - 如果只是某一段时间的search_results都为空，则可能该时间段的联网增强引擎服务不可用了
 - 如果只是某几条 search_results 空，则可能是对应query搜索不出结果，几乎没有什么影响
 
-## 五、服务相关错误
+## 五、知识库 / 本地搜索相关错误
+
+### 1. 创建知识库失败或无法连接 Milvus
+
+**> 可能原因**：`MILVUS_HOST`、`MILVUS_PORT` 未正确配置或 Milvus 服务未启动。
+
+**> 解决方案**：在 `.env` 中配置 `MILVUS_HOST` 和 `MILVUS_PORT`，确保与 Milvus 服务地址一致（默认 `localhost:19530`）。
+
+### 2. run 接口报错：token 校验失败
+
+**> 报错信息**：`Input should be a valid string [type=string_type, input_value=None, input_type=NoneType]`，涉及 `vector_store.token`。
+
+**> 可能原因**：`MILVUS_TOKEN` 未配置时，系统传入 `None`，而本地搜索配置要求 token 为字符串类型。
+
+**> 解决方案**：在 `.env` 中显式配置 `MILVUS_TOKEN`。若 Milvus 无认证，留空即可（系统会将空字符串作为默认值）。
+
+### 3. 构建索引失败（Embedding 调用 SSL 错误）
+
+**> 可能原因**：Embedding 服务为 HTTPS，证书校验与 `EMBEDDING_SSL_VERIFY`、`EMBEDDING_SSL_CERT` 不一致；例如显式开启校验但证书不可信、或自签地址未提供 CA 文件。
+
+**> 解决方案**：在 `.env` 中按需配置（可参考 `.env.example`）：
+- 不校验服务端证书：设置 `EMBEDDING_SSL_VERIFY=false`，或留空（通过本仓库 `server/main.py` 启动时，未设置或空白的 `EMBEDDING_SSL_VERIFY` 会按关闭校验处理）。
+- 使用系统信任的公网 CA：可设置 `EMBEDDING_SSL_VERIFY=true`，`EMBEDDING_SSL_CERT` 可留空。
+- 自签名或企业 CA：设置 `EMBEDDING_SSL_VERIFY=true` 且 `EMBEDDING_SSL_CERT=<PEM 证书路径>`。
+
+## 六、服务相关错误
 ### 1. 部署限制
 当前deepsearch服务支持分布式部署，同时限制单机单进程。如果想在单机部署多实例，也请使用redis模式进行部署。
 ### 2. 调用限制
@@ -138,5 +163,5 @@ citation verify：某条搜索结果的溯源效验
 **说明**：`space_id` 由调用方在请求中传入。若需防止客户端伪造他人空间，应在网关或鉴权层将 `space_id` 与登录身份或令牌绑定后再转发。
 
 
-## 六、附录
+## 七、附录
 包含公共类型错误、业务节点的相关错误码信息：[详细错误码链接](https://gitcode.com/openJiuwen/deepsearch/blob/dev/openjiuwen_deepsearch/common/status_code.py)
