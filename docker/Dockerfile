@@ -1,5 +1,7 @@
-# 使用 Python 3.11 作为基础镜像
-FROM python:3.11-slim-bookworm
+ARG BASE_IMAGE=python:3.11-slim-bookworm
+FROM ${BASE_IMAGE}
+
+ARG INDEX_URL=https://pypi.org/simple
 
 # 设置工作目录
 WORKDIR /app
@@ -17,7 +19,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 uv
-RUN pip install uv
+RUN pip install uv -i ${INDEX_URL}
 
 # 先复制依赖文件（利用 Docker 缓存层优化构建）
 COPY pyproject.toml uv.lock* ./
@@ -26,7 +28,7 @@ COPY pyproject.toml uv.lock* ./
 COPY . .
 
 # 使用 uv 安装项目及其依赖
-RUN uv pip install --system -e . --group backend
+RUN uv pip install --system -e . --group backend --index-url ${INDEX_URL}
 
 # 创建必要的目录
 RUN mkdir -p data/databases logs
