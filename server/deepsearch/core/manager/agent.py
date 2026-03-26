@@ -46,7 +46,7 @@ class DeepSearchAgentManager:
     def _create_vector_store_param(kb_id: str):
         milvus_host = os.getenv("MILVUS_HOST", "localhost")
         milvus_port = os.getenv("MILVUS_PORT", "19530")
-        milvus_token = os.getenv("MILVUS_TOKEN", None)
+        milvus_token = os.getenv("MILVUS_TOKEN") or ""
 
         # 组合 Milvus URI (格式: http://host:port 或 tcp://host:port)
         # 默认使用 http:// 协议

@@ -244,6 +244,13 @@ class DocumentProcessRequest(BaseModel):
     parsing_strategy: ParsingStrategy = Field(..., description="解析策略")
     segmentation_strategy: SegmentationStrategy = Field(..., description="分段策略")
     indexing_strategy: IndexingStrategy = Field(..., description="索引策略")
+    llm_config: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "请求级 LLM 配置，覆盖知识库 config 中占位的 llm_config；"
+            "Studio 同步图增强建索引时在此下发解密后的 api_key 等"
+        ),
+    )
 
 
 class DocumentProcessResponse(BaseModel):

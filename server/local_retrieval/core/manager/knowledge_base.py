@@ -32,6 +32,7 @@ from openjiuwen.core.retrieval.embedding.api_embedding import APIEmbedding
 
 from openjiuwen_deepsearch.framework.openjiuwen.llm.llm_model_factory import (
     LLMModelFactory,
+    LLMModelParams,
 )
 
 from server.core.database import SessionLocal, milliseconds
@@ -439,12 +440,17 @@ def _create_llm_client(llm_config: LLMConfig):
         else str(llm_config.api_key)
     )
     timeout = 120  # 图增强索引使用较长超时
-    llm_client = LLMModelFactory().get_model(
+    llm_params = LLMModelParams(
         model_provider=llm_config.model_type,
         api_key=api_key or "",
         api_base=llm_config.base_url or "",
         timeout=timeout,
+        hyper_parameters=llm_config.hyper_parameters or None,
+        extension=llm_config.extension or None,
     )
+    llm_client = LLMModelFactory().get_model(llm_params)
+    if llm_config.model_name and getattr(llm_client, "model_config", None) is not None:
+        llm_client.model_config.model_name = llm_config.model_name
     logger.info(
         f"[LLM_CLIENT] LLM client created - Model: {llm_config.model_name}"
     )
@@ -2447,6 +2453,36 @@ async def document_process(req: DocumentProcessRequest) -> ResponseModel:
             code=status.HTTP_400_BAD_REQUEST,
             message=str(e),
         )
+
+    # Studio 同步建库时 llm_config 为空占位；图增强建索引时在请求体中携带完整 llm_config，须在此覆盖
+    if getattr(req, "llm_config", None):
+        lcd = req.llm_config
+        if isinstance(lcd, dict) and lcd:
+            mt = str(lcd.get("model_type") or llm_config.model_type or "openai").lower()
+            if mt not in ("openai", "siliconflow"):
+                mt = "openai"
+            hp = lcd.get("hyper_parameters")
+            ext = lcd.get("extension")
+            llm_config = LLMConfig(
+                model_name=str(lcd.get("model_name") or llm_config.model_name),
+                model_type=mt,
+                base_url=str(
+                    lcd.get("base_url")
+                    if lcd.get("base_url") is not None
+                    else llm_config.base_url
+                ),
+                api_key=str(
+                    lcd.get("api_key")
+                    if lcd.get("api_key") is not None
+                    else llm_config.api_key
+                ),
+                hyper_parameters=hp if isinstance(hp, dict) else llm_config.hyper_parameters,
+                extension=ext if isinstance(ext, dict) else llm_config.extension,
+            )
+            logger.info(
+                f"[DOC_PROCESS] Applied request-level llm_config - KB ID: {req.kb_id}, "
+                f"model_type={llm_config.model_type}, model_name={llm_config.model_name}"
+            )
 
     processed_count = 0
     failed_count = 0
