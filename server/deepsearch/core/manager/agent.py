@@ -37,8 +37,8 @@ class DeepSearchAgentManager:
 
     def __init__(self, agent_factory: Optional[AgentFactory] = None):
         self._agent_factory = agent_factory or AgentFactory()
-        # 缓存格式: {search_mode:execution_method: agent_instance}
-        # Agent 本身为工作流定义容器，可跨会话复用。
+        # 缓存格式: {space_id:search_mode:execution_method: agent_instance}
+        # 按 space 隔离，防止跨空间复用 Agent 导致知识库/联网引擎被错误访问。
         self._agent_cache: Dict[str, Any] = {}
         self._security_utils = SecurityUtils()
 
@@ -61,20 +61,24 @@ class DeepSearchAgentManager:
     def get_or_create_agent(self, request: DeepSearchRequest, db: Session) -> Any:
         """
         根据请求获取或创建 DeepSearchAgent 实例。
-        
+
+        缓存 key 包含 space_id，确保不同空间（及空间内资源如知识库、联网引擎）
+        使用独立的 Agent 实例，防止跨 space 访问。
+
         Args:
             request: DeepSearch 请求对象
             db: Session 数据库会话对象
-            
+
         Returns:
             Agent 实例
         """
         full_config = self.build_agent_config(request, db)
         execution_method = full_config.get("execution_method", "parallel")
         search_mode = full_config.get("search_mode", "research")
-        cache_key = f"{search_mode}:{execution_method}"
+        space_id = request.space_id
+        # 按 space_id + 搜索模式 + 执行方式缓存，防止跨空间误复用 Agent
+        cache_key = f"{space_id}:{search_mode}:{execution_method}"
 
-        # 按搜索模式+执行方式缓存 agent，避免跨模式误复用
         if cache_key in self._agent_cache:
             return self._agent_cache[cache_key]
 
@@ -192,8 +196,14 @@ class DeepSearchAgentManager:
                         f"知识库 '{kid}' 不属于 space_id={space_id} 或不存在。"
                         "本地检索仅允许使用当前请求空间下的知识库。"
                     )
+                kb_data = get_result.data
+                # 二次校验：确保返回的知识库确实属于当前 space，防止跨空间访问
+                if kb_data.get("space_id") != space_id:
+                    raise SearchEngineConfigException(
+                        f"知识库 '{kid}' 不属于 space_id={space_id}，禁止跨空间访问。"
+                    )
                 if kb_row is None:
-                    kb_row = get_result.data
+                    kb_row = kb_data
 
             if kb_row is None:
                 raise SearchEngineConfigException(

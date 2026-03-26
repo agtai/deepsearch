@@ -129,6 +129,14 @@ citation verify：某条搜索结果的溯源效验
 - 大纲交互恢复。
 - 报告生成完成后的局部优化交互。
 
+### 3. 空间（space_id）与本地知识库
+
+通过 **HTTP 服务**调用 `run` 时，请求体中的 `space_id` 表示租户/工作空间边界。`local_search_config.local_search_config_ids` 中的每个知识库 ID 必须在服务端数据库中登记为**属于该 `space_id`**；服务端会在构建本地检索前做校验，**不属于当前 `space_id` 的知识库无法被访问**。
+
+服务端 `DeepSearchAgentManager` 会按 **`space_id` + 搜索模式 + 执行方式** 缓存 Agent 实例，避免不同空间之间错误复用同一 Agent。
+
+**说明**：`space_id` 由调用方在请求中传入。若需防止客户端伪造他人空间，应在网关或鉴权层将 `space_id` 与登录身份或令牌绑定后再转发。
+
 
 ## 六、附录
 包含公共类型错误、业务节点的相关错误码信息：[详细错误码链接](https://gitcode.com/openJiuwen/deepsearch/blob/dev/openjiuwen_deepsearch/common/status_code.py)

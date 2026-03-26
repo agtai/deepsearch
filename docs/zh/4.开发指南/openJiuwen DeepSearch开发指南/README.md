@@ -415,6 +415,14 @@ SDK 层通过 `agent_config` 接收这些参数。
 }
 ```
 
+### 空间（space_id）与本地知识库
+
+**Server 层 `DeepSearchRequest`** 中的 `space_id` 用于多租户隔离：创建知识库、上传文档等接口均与 `space_id` 关联。调用 `run` 并启用本地检索时，`local_search_config.local_search_config_ids` 中的知识库必须属于请求体中的 **`space_id`**；服务端会查询数据库校验，**跨空间传入 `kb_id` 会失败**。
+
+服务端对 Agent 的缓存键包含 **`space_id`**（与 `search_mode`、`execution_method` 组合），保证不同空间不会共用同一 Agent 实例，避免工作流侧状态与检索配置串用。
+
+若部署在公网或多人共用同一后端，**不应**仅依赖请求体中的 `space_id` 作为唯一信任来源，应在网关或鉴权层校验调用方是否有权使用该空间。
+
 ---
 
 ### Web 模式交互示例
