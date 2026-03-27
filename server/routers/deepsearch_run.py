@@ -14,6 +14,12 @@ from sse_starlette.sse import EventSourceResponse
 from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import cancel_context
 from server.core.cancel_bus import publish_remote_cancel, register_cancel_handler
 from server.core.database import get_db
+from server.deepsearch.common.exception.exceptions import (
+    LocalSearchEngineConfigGetException,
+    ReportTemplateNotFoundException,
+    SearchEngineConfigException,
+    WebSearchEngineConfigGetException,
+)
 from server.deepsearch.core.manager.agent import DeepSearchAgentManager
 from server.schemas.deepsearch_run import DeepSearchRequest
 
@@ -672,6 +678,12 @@ async def run(
         if request.interrupt_feedback == "cancel":
             return await _handle_cancel_request(request)
         return await _start_deepsearch_stream(request, db)
+    except SearchEngineConfigException as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ReportTemplateNotFoundException as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except (WebSearchEngineConfigGetException, LocalSearchEngineConfigGetException) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error("Error during DeepSearch run: %s", str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

@@ -1,5 +1,7 @@
 # -*- coding: UTF-8 -*-
 # Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
+import hashlib
+import json
 import logging
 import os
 from typing import Any, Dict, Optional
@@ -37,8 +39,8 @@ class DeepSearchAgentManager:
 
     def __init__(self, agent_factory: Optional[AgentFactory] = None):
         self._agent_factory = agent_factory or AgentFactory()
-        # 缓存格式: {space_id:search_mode:execution_method: agent_instance}
-        # 按 space 隔离，防止跨空间复用 Agent 导致知识库/联网引擎被错误访问。
+        # 缓存格式: {cache_key: agent_instance}；cache_key 由请求中影响 Agent 构建的字段派生
+        #（含 space_id、本地知识库 ID 列表、联网引擎 ID 等），避免请求里配置变了，但缓存键没变，导致仍用旧 Agent的问题。
         self._agent_cache: Dict[str, Any] = {}
         self._security_utils = SecurityUtils()
 
@@ -58,6 +60,17 @@ class DeepSearchAgentManager:
             "token": milvus_token
         }
 
+    @staticmethod
+    def _compute_agent_cache_key(request: DeepSearchRequest) -> str:
+        """
+        生成 Agent 缓存键。排除仅影响单次对话内容的字段（message、conversation_id），
+        保留与 build_agent_config 相关的全部字段（含 space_id、local_search_config_ids、
+        web_search_config_id、LLM 与各开关），保证换知识库/引擎后不会误复用旧 Agent。
+        """
+        payload = request.model_dump(exclude={"message", "conversation_id", "interrupt_feedback"})
+        serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
     def get_or_create_agent(self, request: DeepSearchRequest, db: Session) -> Any:
         """
         根据请求获取或创建 DeepSearchAgent 实例。
@@ -73,11 +86,7 @@ class DeepSearchAgentManager:
             Agent 实例
         """
         full_config = self.build_agent_config(request, db)
-        execution_method = full_config.get("execution_method", "parallel")
-        search_mode = full_config.get("search_mode", "research")
-        space_id = request.space_id
-        # 按 space_id + 搜索模式 + 执行方式缓存，防止跨空间误复用 Agent
-        cache_key = f"{space_id}:{search_mode}:{execution_method}"
+        cache_key = self._compute_agent_cache_key(request)
 
         if cache_key in self._agent_cache:
             return self._agent_cache[cache_key]

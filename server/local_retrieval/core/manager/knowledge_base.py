@@ -162,8 +162,12 @@ class OBSDocumentManager:
         file_path: str | Path,
     ):
         if not self.bucket or not self.obs_client:
-            return
-        await self.obs_client.upload_file(self.bucket, object_name, file_path)
+            raise RuntimeError(
+                "OBS upload skipped: OBS_BUCKET unset or object storage client unavailable"
+            )
+        ok = await self.obs_client.upload_file(self.bucket, object_name, file_path)
+        if not ok:
+            raise RuntimeError(f"OBS upload failed for object key {object_name!r} (storage returned False)")
 
     async def download_if_updated(
         self,

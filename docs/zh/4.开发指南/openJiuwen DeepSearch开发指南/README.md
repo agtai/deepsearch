@@ -425,9 +425,9 @@ SDK 层通过 `agent_config` 接收这些参数。
 
 **Server 层 `DeepSearchRequest`** 中的 `space_id` 用于多租户隔离：创建知识库、上传文档等接口均与 `space_id` 关联。调用 `run` 并启用本地检索时，`local_search_config.local_search_config_ids` 中的知识库必须属于请求体中的 **`space_id`**；服务端会查询数据库校验，**跨空间传入 `kb_id` 会失败**。
 
-**知识库与对象存储**：仅当服务端环境为 `CHECKPOINTER_TYPE=redis`（分布式）时，上传的知识库文件会写入配置的对象存储以便多实例一致访问；`in_memory` / `persistence` 时文件只落在服务端本地磁盘，不使用 OBS。
+**知识库与对象存储**：仅当服务端环境为 `CHECKPOINTER_TYPE=redis`（分布式）时，上传的知识库文件会写入配置的对象存储以便多实例一致访问；`in_memory` / `persistence` 时文件只落在服务端本地磁盘，不使用 OBS。多实例时应用数据库须为 MySQL 且各实例共用同一库，否则知识库元数据无法在实例间一致（服务端会拒绝 `redis` + `sqlite` 的配置组合）。
 
-服务端对 Agent 的缓存键包含 **`space_id`**（与 `search_mode`、`execution_method` 组合），保证不同空间不会共用同一 Agent 实例，避免工作流侧状态与检索配置串用。
+服务端对 Agent 的缓存键由 **`DeepSearchRequest` 中参与构建 Agent 的字段**（排除 `message`、`conversation_id`、`interrupt_feedback`）经稳定 JSON 序列化后取哈希得到，其中包含 **`space_id`**、**`local_search_config`（含知识库 ID 列表）**、联网检索与 `llm_config`、各类开关等；因此不仅不同空间不会共用同一 Agent，**同一空间下更换本地知识库或检索相关配置也不会误命中旧缓存**。
 
 若部署在公网或多人共用同一后端，**不应**仅依赖请求体中的 `space_id` 作为唯一信任来源，应在网关或鉴权层校验调用方是否有权使用该空间。
 

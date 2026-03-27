@@ -145,7 +145,7 @@ citation verify：某条搜索结果的溯源效验
 
 ## 六、服务相关错误
 ### 1. 部署限制
-当前deepsearch服务支持分布式部署，同时限制单机单进程。如果想在单机部署多实例，也请使用redis模式进行部署。使用 `CHECKPOINTER_TYPE=redis` 时，还须完整配置对象存储（`OBS_SERVER`、`OBS_BUCKET`、`OBS_REGION`、`OBS_ACCESS_KEY_ID`、`OBS_SECRET_ACCESS_KEY`），否则服务无法启动；详见安装指导中 Checkpointer / OBS 说明。`in_memory` 与 `persistence` 模式下，知识库上传的文档仅保存在服务本地；即使环境中配置了 `OBS_*`，服务端也不会将其用于知识库上传。
+当前deepsearch服务支持分布式部署，同时限制单机单进程。如果想在单机部署多实例，也请使用redis模式进行部署。使用 `CHECKPOINTER_TYPE=redis` 时，**必须**将 `DB_TYPE` 设为 `mysql` 且各实例连接**同一** MySQL（知识库等元数据在应用库中）；若与 `DB_TYPE=sqlite` 同时配置，服务端在加载配置阶段即会校验失败、无法启动。此外还须完整配置对象存储（`OBS_SERVER`、`OBS_BUCKET`、`OBS_REGION`、`OBS_ACCESS_KEY_ID`、`OBS_SECRET_ACCESS_KEY`），否则服务无法启动；详见安装指导中 Checkpointer / OBS 说明。`in_memory` 与 `persistence` 模式下，知识库上传的文档仅保存在服务本地；即使环境中配置了 `OBS_*`，服务端也不会将其用于知识库上传。
 ### 2. 调用限制
 除同一个任务内的中断恢复场景外，每次调用 deepsearch SDK 的 `run` 接口时，都应使用新的 `conversation_id`，不允许复用旧会话。
 
@@ -158,7 +158,7 @@ citation verify：某条搜索结果的溯源效验
 
 通过 **HTTP 服务**调用 `run` 时，请求体中的 `space_id` 表示租户/工作空间边界。`local_search_config.local_search_config_ids` 中的每个知识库 ID 必须在服务端数据库中登记为**属于该 `space_id`**；服务端会在构建本地检索前做校验，**不属于当前 `space_id` 的知识库无法被访问**。
 
-服务端 `DeepSearchAgentManager` 会按 **`space_id` + 搜索模式 + 执行方式** 缓存 Agent 实例，避免不同空间之间错误复用同一 Agent。
+服务端 `DeepSearchAgentManager` 对 Agent 实例做进程内缓存时，缓存键由**影响 Agent 构建的请求字段**稳定序列化后哈希得到（会排除 `message`、`conversation_id`、`interrupt_feedback` 等仅与当轮对话/会话标识相关的字段）。其中包含 **`space_id`**、**`local_search_config`（含 `local_search_config_ids`）**、联网检索配置、`llm_config`、工作流与检索相关开关等，因此**同一 `space_id` 下更换知识库或引擎配置也会生成新键**，不会误复用旧 Agent。
 
 **说明**：`space_id` 由调用方在请求中传入。若需防止客户端伪造他人空间，应在网关或鉴权层将 `space_id` 与登录身份或令牌绑定后再转发。
 
