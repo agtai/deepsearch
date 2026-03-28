@@ -16,6 +16,7 @@ from openjiuwen.core.workflow.workflow import Workflow
 from pydantic import ValidationError
 
 from openjiuwen_deepsearch.algorithm.report_template.template_generator import TemplateGenerator
+from openjiuwen_deepsearch.algorithm.user_feedback_processor.action_definitions import _is_report_feedback_payload
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
 from openjiuwen_deepsearch.config.config import AgentConfig, WebSearchEngineConfig, LocalSearchEngineConfig, \
@@ -320,8 +321,9 @@ class DeepresearchAgent(BaseAgent):
         filter_dup_flag = False
         try:
             session_agent_config = session_agent_config.model_dump()
+            is_report_feedback = _is_report_feedback_payload(message)
             # 当有 interrupt_feedback 时，将 message 封装为 JSON 对象
-            if interrupt_feedback:
+            if interrupt_feedback and not is_report_feedback:
                 message = json.dumps({
                     "interrupt_feedback": interrupt_feedback,
                     "feedback": message
@@ -333,6 +335,7 @@ class DeepresearchAgent(BaseAgent):
                             "conversation_id": conversation_id,
                             "report_template": decoded_template,
                             "interrupt_feedback": interrupt_feedback,
+                            "resume_interaction": is_report_feedback,
                             "agent_config": session_agent_config}):
                 # 检查是否是 __interaction__ 类型，如果是则重置过滤标志
                 if getattr(chunk, "type", "") == "__interaction__":

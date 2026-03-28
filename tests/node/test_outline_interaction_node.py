@@ -6,8 +6,8 @@ import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from openjiuwen.core.common.constants.constant import INTERACTIVE_INPUT
 from openjiuwen.core.context_engine.base import ModelContext
-from openjiuwen.core.graph.executable import Input, Output
 from openjiuwen.core.session.node import Session
 
 from openjiuwen_deepsearch.framework.openjiuwen.agent.main_graph_nodes import (
@@ -36,6 +36,7 @@ def mock_session():
     session = MagicMock(spec=Session)
     session.get_global_state = MagicMock(return_value=None)
     session.update_global_state = MagicMock()
+    session.update_state = MagicMock()
     session.interact = AsyncMock()
     session.write_custom_stream = AsyncMock()
     return session
@@ -457,6 +458,7 @@ class TestOutlineInteractionNodeHelperMethods:
 
         # Assert
         mock_session.interact.assert_called_once()
+        mock_session.update_state.assert_called_once_with({INTERACTIVE_INPUT: None})
         assert result == {"interrupt_feedback": "accepted"}
 
     @pytest.mark.asyncio

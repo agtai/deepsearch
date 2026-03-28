@@ -4,6 +4,7 @@ import json
 import logging
 import uuid
 
+from openjiuwen.core.common.constants.constant import INTERACTIVE_INPUT
 from openjiuwen.core.context_engine.base import ModelContext
 from openjiuwen.core.graph.executable import Input, Output
 from openjiuwen.core.session.node import Session
@@ -185,6 +186,7 @@ class FeedbackHandlerNode(BaseNode):
         if feedback_mode == "web":
             # session.interact本质上是raise Exception的方式，FeedbackHandlerNode内不能使用try except
             user_input = await session.interact(prompt)
+            session.update_state({INTERACTIVE_INPUT: None})
             try:
                 user_input = json.loads(user_input)
                 return user_input.get("feedback", "")
@@ -817,6 +819,9 @@ class OutlineInteractionNode(BaseNode):
 
         if feedback_mode == "web":
             user_input = await session.interact(prompt)
+            # Clear the consumed resume input so the same feedback is not replayed
+            # when outline_interaction is reached again in the current workflow run.
+            session.update_state({INTERACTIVE_INPUT: None})
         else:
             user_input = input(prompt)
         try:
@@ -1105,12 +1110,15 @@ class UserFeedbackProcessorNode(BaseNode):
     async def _get_user_feedback(self, feedback_mode: str, session: Session) -> str:
         """按交互模式获取原始用户反馈。"""
         prompt = "\nProvide your feedback: "
+        user_input = ""
         if feedback_mode == "cmd":
-            return input(prompt)
-        if feedback_mode == "web":
-            return await session.interact(prompt)
-        logger.error(f"[UserFeedbackProcessorNode] Invalid feedback_mode: {feedback_mode}")
-        return ""
+            user_input = input(prompt)
+        elif feedback_mode == "web":
+            user_input = await session.interact(prompt)
+            session.update_state({INTERACTIVE_INPUT: None})
+        else:
+            logger.error(f"[UserFeedbackProcessorNode] Invalid feedback_mode: {feedback_mode}")
+        return user_input
 
     async def _notify_user(self, session: Session, message: str, event: StreamEvent):
         await session.write_custom_stream({

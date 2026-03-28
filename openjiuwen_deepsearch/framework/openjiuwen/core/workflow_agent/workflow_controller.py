@@ -77,14 +77,16 @@ class WorkflowController:
     @staticmethod
     def _build_workflow_inputs(schema: Dict, inputs: Dict[str, Any]) -> Any:
         query = inputs.get("query", "") if isinstance(inputs, dict) else ""
-        if isinstance(inputs, dict) and inputs.get("interrupt_feedback"):
+        if isinstance(inputs, dict) and (
+            inputs.get("interrupt_feedback") or inputs.get("resume_interaction")
+        ):
             # Interactive resume must be wrapped as InteractiveInput
             return InteractiveInput(raw_inputs=query)
 
         required_key = WorkflowController._get_required_input_key(schema) or "query"
         user_data = {required_key: query}
         for k, v in (inputs or {}).items():
-            if k not in ("query", "conversation_id", "user_id"):
+            if k not in ("query", "conversation_id", "user_id", "resume_interaction"):
                 user_data.setdefault(k, v)
         return WorkflowController._filter_workflow_inputs(schema, user_data)
 

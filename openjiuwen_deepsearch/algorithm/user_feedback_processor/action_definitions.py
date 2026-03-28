@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from enum import Enum
 
@@ -88,3 +89,17 @@ def resolve_user_input_action(action: str) -> UserInputActionMapping:
     """根据前端 action 获取统一映射定义。"""
 
     return USER_INPUT_ACTION_MAP[action]
+
+
+def _is_report_feedback_payload(message: str) -> bool:
+    """若为报告改写约定的 JSON（顶层含 USER_INPUT_ACTION_MAP 中的 action），则视为报告交互负载。"""
+    if not message or not message.strip().startswith("{"):
+        return False
+    try:
+        data = json.loads(message)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(data, dict):
+        return False
+    action = data.get("action")
+    return isinstance(action, str) and action in USER_INPUT_ACTION_MAP
