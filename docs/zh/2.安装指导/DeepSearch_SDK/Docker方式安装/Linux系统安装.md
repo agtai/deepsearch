@@ -78,6 +78,10 @@
   docker pull swr.cn-north-4.myhuaweicloud.com/openjiuwen/deepsearch-studio-server-arm64:0.1.2
   ```
 
+* **本地构建镜像**：若无法拉取 SWR 或需与仓库源码一致，在 DeepSearch **源码根目录**执行  
+  `docker build -t deepsearch-full -f docker/Dockerfile .`  
+  其中 `deepsearch-full` 仅为示例标签（`-t` 可改为任意名称），须与 `docker run` 最后一行镜像名一致。
+
 ### 2. 启动 DeepSearch 服务（以 x86_64 架构为例）
 
 * 最小化可运行的启动命令如下（以SQLite作为数据库）：
@@ -170,6 +174,25 @@
   | `SQLITE_DB_PATH`  | SQLite 数据文件存储目录，默认`data/databases` |
   | `DEEPSEARCH_SQLITE_DB` | SQLite 数据库文件名，默认`agent.db`   |
 
+#### Milvus（知识库向量索引）
+
+本地知识库依赖向量存储时，需设置 `INDEX_MANAGER_TYPE=milvus` 并配置 Milvus 连接。**DeepSearch 服务镜像内不包含 Milvus**，需要在宿主机或其他容器中**单独部署并启动** Milvus（例如 [Milvus 单机 Docker 说明](https://milvus.io/docs/install_standalone-docker.md)、自写 docker-compose，或 Agent Studio 等环境中已提供的 Milvus 容器）。
+
+  ##### Milvus 相关参数（`INDEX_MANAGER_TYPE=milvus` 时生效）
+
+  | 参数 | 说明 | 默认值 |
+  |------|------|--------|
+  | `INDEX_MANAGER_TYPE` | 向量索引类型，当前为 `milvus` | `milvus` |
+  | `MILVUS_HOST` | Milvus 服务地址（运行 DeepSearch 的容器内须能解析） | 见下文 |
+  | `MILVUS_PORT` | Milvus 端口（gRPC，一般为 `19530`） | `19530` |
+  | `MILVUS_TOKEN` | 启用 Milvus 认证时填写；无认证可留空 | 留空 |
+
+  **网络说明**：
+
+  - **Milvus 在宿主机本机进程监听 `19530`**：DeepSearch 若在 Docker 内，可设 `MILVUS_HOST=host.docker.internal`、`MILVUS_PORT=19530`（或实际监听端口），并配合 `--add-host=host.docker.internal:host-gateway`。
+  - **DeepSearch 与 Milvus 在同一 Docker 自定义网络**：将 `MILVUS_HOST` 设为 Milvus 的 **Compose 服务名**或**容器名**，`MILVUS_PORT` 填 **Milvus 容器内**监听端口（通常为 `19530`），无需使用 `host.docker.internal`。
+  - **Milvus 在另一个 Docker 容器，且已将端口映射到宿主机**（例如 `docker run -p 19530:19530 ...` 或 Compose 中 `ports: "19530:19530"`）：DeepSearch 容器内仍使用 `MILVUS_HOST=host.docker.internal`，`MILVUS_PORT` 填**宿主机上映射的端口**（未改映射时即为 `19530`）。
+
 #### Checkpointer 配置
 
   Checkpointer 用于管理 Agent 工作流的会话状态，支持工作流的暂停、恢复和状态持久化。
@@ -208,10 +231,22 @@
   | `OBS_ACCESS_KEY_ID` | 访问密钥 ID | （须配置） |
   | `OBS_SECRET_ACCESS_KEY` | 访问密钥 Secret | （须配置） |
 
+  **镜像说明**：
+
+  - **官方镜像**：从华为云 SWR 拉取，启动命令最后一行使用已 `docker pull` 的完整镜像名，例如  
+    `swr.cn-north-4.myhuaweicloud.com/openjiuwen/deepsearch-studio-server-arm64:0.1.2`（ARM64）或  
+    `swr.cn-north-4.myhuaweicloud.com/openjiuwen/deepsearch-studio-server-amd64:0.1.2`（x86_64）。拉取失败多为网络或权限问题，可检查代理、镜像加速或改用本地构建。
+  - **本地构建 `deepsearch-full`**：在 DeepSearch **源码仓库根目录**执行  
+    `docker build -t deepsearch-full -f docker/Dockerfile .`  
+    其中 `deepsearch-full` 仅为示例标签（`-t` 可改为任意名称）。
+
+  下文示例以 **`deepsearch-full`** 为例；使用官方镜像时，将每条命令**最后一行**替换为对应的 SWR 镜像地址。Linux 上访问宿主机上的 MySQL / Milvus / Redis 时，每条 `docker run` 建议保留 `--add-host=host.docker.internal:host-gateway`。请先单独启动 **Milvus** 与（若使用 redis 模式）**Redis**，并保证端口可从 DeepSearch 容器访问（配置方式见上文「Milvus（知识库向量索引）」与「Redis 模式相关参数」）。
+
   **使用示例**：
 
   ```bash
   # 开发测试环境（默认配置，无需额外参数）
+  # MySQL
   docker run -p 8000:8000 \
     --add-host=host.docker.internal:host-gateway \
     -e LLM_SSL_VERIFY=False \
@@ -222,10 +257,28 @@
     -e DB_PORT=3306 \
     -e DB_USER=your_user_name \
     -e DB_PASSWORD=your_password \
+    -e INDEX_MANAGER_TYPE=milvus \
+    -e MILVUS_HOST=host.docker.internal \
+    -e MILVUS_PORT=19530 \
     -e DEEPSEARCH_DB_NAME=openjiuwen_deepsearch \
-    swr.cn-north-4.myhuaweicloud.com/openjiuwen/deepsearch-studio-server-amd64:0.1.2
+    deepsearch-full
+
+  # SQLite
+  docker run -p 8000:8000 \
+    --add-host=host.docker.internal:host-gateway \
+    -e LLM_SSL_VERIFY=False \
+    -e TOOL_SSL_VERIFY=False \
+    -e EMBEDDING_SSL_VERIFY=False \
+    -e DB_TYPE=sqlite \
+    -e SQLITE_DB_PATH=data/databases \
+    -e DEEPSEARCH_SQLITE_DB=agent.db \
+    -e INDEX_MANAGER_TYPE=milvus \
+    -e MILVUS_HOST=host.docker.internal \
+    -e MILVUS_PORT=19530 \
+    deepsearch-full
 
   # 单机生产环境（persistence 模式）
+  # MySQL
   docker run -p 8000:8000 \
     --add-host=host.docker.internal:host-gateway \
     -e LLM_SSL_VERIFY=False \
@@ -236,13 +289,34 @@
     -e DB_PORT=3306 \
     -e DB_USER=your_user_name \
     -e DB_PASSWORD=your_password \
+    -e INDEX_MANAGER_TYPE=milvus \
+    -e MILVUS_HOST=host.docker.internal \
+    -e MILVUS_PORT=19530 \
     -e DEEPSEARCH_DB_NAME=openjiuwen_deepsearch \
     -e CHECKPOINTER_TYPE=persistence \
     -e CHECKPOINTER_DB_TYPE=sqlite \
     -e CHECKPOINTER_DB_PATH=data/databases/checkpointer.db \
-    swr.cn-north-4.myhuaweicloud.com/openjiuwen/deepsearch-studio-server-amd64:0.1.2
+    deepsearch-full
+
+  # SQLite
+  docker run -p 8000:8000 \
+    --add-host=host.docker.internal:host-gateway \
+    -e LLM_SSL_VERIFY=False \
+    -e TOOL_SSL_VERIFY=False \
+    -e EMBEDDING_SSL_VERIFY=False \
+    -e DB_TYPE=sqlite \
+    -e SQLITE_DB_PATH=data/databases \
+    -e DEEPSEARCH_SQLITE_DB=agent.db \
+    -e INDEX_MANAGER_TYPE=milvus \
+    -e MILVUS_HOST=host.docker.internal \
+    -e MILVUS_PORT=19530 \
+    -e CHECKPOINTER_TYPE=persistence \
+    -e CHECKPOINTER_DB_TYPE=sqlite \
+    -e CHECKPOINTER_DB_PATH=data/databases/checkpointer.db \
+    deepsearch-full
 
   # 分布式生产环境（redis 模式）
+  # MySQL
   docker run -p 8000:8000 \
     --add-host=host.docker.internal:host-gateway \
     -e LLM_SSL_VERIFY=False \
@@ -254,8 +328,11 @@
     -e DB_USER=your_user_name \
     -e DB_PASSWORD=your_password \
     -e DEEPSEARCH_DB_NAME=openjiuwen_deepsearch \
+    -e INDEX_MANAGER_TYPE=milvus \
+    -e MILVUS_HOST=host.docker.internal \
+    -e MILVUS_PORT=19530 \
     -e CHECKPOINTER_TYPE=redis \
-    -e REDIS_URL=redis://redis-host:6379 \
+    -e REDIS_URL=redis://host.docker.internal:6379 \
     -e REDIS_CLUSTER_MODE=false \
     -e REDIS_TTL=7200 \
     -e REDIS_REFRESH_ON_READ=true \
@@ -264,10 +341,10 @@
     -e OBS_BUCKET=your-bucket \
     -e OBS_ACCESS_KEY_ID=your_access_key \
     -e OBS_SECRET_ACCESS_KEY=your_secret_key \
-    swr.cn-north-4.myhuaweicloud.com/openjiuwen/deepsearch-studio-server-amd64:0.1.2
+    deepsearch-full
   ```
 
   **注意事项**：
   - `in_memory` 模式：无需额外配置，适用于开发测试环境，不支持分布式部署；知识库文档仅存容器/数据卷本地，不使用对象存储
   - `persistence` 模式：需要确保数据目录有写权限，适用于单机生产环境；知识库文档同样仅存本地，不使用对象存储
-  - `redis` 模式：需要先部署 Redis 服务，适用于分布式生产环境；**还须**通过环境变量完整配置 OBS（见上文「对象存储 OBS」），否则服务无法启动。**仅在此模式下**知识库上传会写入对象存储以供多实例共享。如果 Redis 在宿主机上，可以使用 `host.docker.internal` 作为 Redis 主机地址。**多实例时 `DB_TYPE` 必须为 `mysql` 且连接同一 MySQL**（知识库等元数据存于应用数据库；SQLite 为容器内本地文件，实例间不共享，会导致一端创建知识库、另一端查询不到）。
+  - `redis` 模式：需要先部署 Redis 服务，适用于分布式生产环境；**还须**通过环境变量完整配置 OBS（见上文「对象存储 OBS」），否则服务无法启动。**仅在此模式下**知识库上传会写入对象存储以供多实例共享。Redis 若在宿主机或其它容器且端口已映射到宿主机，可使用 `REDIS_URL=redis://host.docker.internal:6379`（或实际端口）。使用本地知识库时，Milvus 须单独部署，见上文「Milvus（知识库向量索引）」。**多实例时 `DB_TYPE` 必须为 `mysql` 且连接同一 MySQL**（知识库等元数据存于应用数据库；SQLite 为容器内本地文件，实例间不共享，会导致一端创建知识库、另一端查询不到）。
