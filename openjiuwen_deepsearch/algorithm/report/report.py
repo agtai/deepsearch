@@ -80,6 +80,14 @@ class Reporter:
         )
 
     @staticmethod
+    def _section_sort_key(section_id) -> tuple[int, int | str]:
+        """Keep report sections ordered numerically when section ids are strings."""
+        text = str(section_id).strip()
+        if text.isdigit():
+            return 0, int(text)
+        return 1, text
+
+    @staticmethod
     def _make_payload(message_id: str, event: str, content: str = "") -> dict:
         payload = {
             "message_id": message_id,
@@ -965,8 +973,10 @@ class Reporter:
 
         outline_renum = MarkdownOutlineRenumber()
 
-        # Sort sub-reports by id
-        sub_report_content_list.sort(key=lambda x: x.section_id)
+        # Keep section ordering stable when section ids are stored as strings.
+        sub_report_content_list.sort(
+            key=lambda x: Reporter._section_sort_key(x.section_id)
+        )
 
         transition_tasks = []
         transition_indices = []
