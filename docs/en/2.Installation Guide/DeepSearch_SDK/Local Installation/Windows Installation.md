@@ -12,7 +12,7 @@ Ensure the machine meets:
 
 * **Software** (install as below)
   * Git 2.40+
-  * Python 3.11.4+
+  * Python 3.11+ (<3.14)
   * uv 0.5.0+
   * MySQL 8.0+
   * PowerShell 5.1+ (check with `$PSVersionTable.PSVersion`)
@@ -89,27 +89,8 @@ Install dependencies first, then clone and configure.
   git clone https://gitcode.com/openJiuwen/deepsearch.git
   cd deepsearch
   ```
-
-##### 2.2. AES master key (optional)
-
-* Skip if you do not need encrypted storage for sensitive fields.
-
-* From repo root:
-
-  ```bash
-  cd backend
-  powershell -ExecutionPolicy Bypass -File .\build_AES_master_key.ps1
-  ```
-
-* Save the printed key; prefer an environment variable:
-
-  ```bash
-  $env:SERVER_AES_MASTER_KEY_ENV = .\build_AES_master_key.ps1
-  ```
-
-* Keep the key stable—rotating it breaks decryption of existing ciphertext.
-
-##### 2.3. Start DeepSearch
+  
+##### 2.2. Start DeepSearch
 
 * In repo root, PowerShell:
 

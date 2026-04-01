@@ -96,7 +96,7 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 - **execute_mode**: `commercial` / `general` (default `commercial`).
 - **execution_method**: `dependency_driving` / `parallel` (default `parallel`).
 - **workflow_human_in_the_loop**: HITL before planning (default `True`).
-- **outliner_max_section_num**: 1–10 (default `5`).
+- **outliner_max_section_num**: 1–15 (default `10`).
 - **outline_interaction_enabled** / **outline_interaction_max_rounds** (1–100, default `3`).
 - **source_tracer_research_trace_source_switch** / **source_tracer_infer_switch** (default `True`).
 - **llm_config**: map `general` | `plan_understanding` | `info_collecting` | `writing_checking` → `LLMConfig`.

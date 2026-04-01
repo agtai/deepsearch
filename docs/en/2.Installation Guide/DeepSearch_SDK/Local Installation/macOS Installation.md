@@ -4,7 +4,7 @@ This guide describes a **local** install of DeepSearch on **macOS**.
 
 * **Hardware**: CPU 2+ cores (4+ recommended); RAM 4 GB+ (8 GB recommended).
 * **OS**: macOS 14.0 (Sonoma)+
-* **Software**: Git 2.40+, Python 3.11.4+, uv 0.5.0+, MySQL 8.0+
+* **Software**: Git 2.40+, Python 3.11+ (<3.14), uv 0.5.0+, MySQL 8.0+
 
 ## 2. Installation
 
@@ -74,18 +74,7 @@ This guide describes a **local** install of DeepSearch on **macOS**.
   cd deepsearch
   ```
 
-##### 2.2. AES key (optional)
-
-  ```bash
-  cd backend
-  bash build_AES_master_key.sh
-  ```
-
-  ```bash
-  export SERVER_AES_MASTER_KEY_ENV=your_aes_key
-  ```
-
-##### 2.3. Start
+##### 2.2. Start
 
   ```bash
   cp .env.example .env

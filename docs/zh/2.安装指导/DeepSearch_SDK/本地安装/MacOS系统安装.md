@@ -12,7 +12,7 @@
 
 * 软件（安装方法详见下文）
   * Git 2.40及以上
-  * Python 3.11.4及以上
+  * Python 3.11及以上，3.14以下
   * uv 0.5.0及以上
   * MySQL 8.0及以上
 
@@ -113,26 +113,7 @@
   cd deepsearch
   ```
 
-##### 2.2. 生成 AES 密钥（可选）
-
-* 如果不需要对关键字段加密存储，可跳过当前步骤
-* 运行以下命令生成密钥：
-
-  ```bash
-  cd backend
-    
-  bash build_AES_master_key.sh
-  ```
-
-* 脚本执行完，会将密钥打屏输出，可按需使用，推荐作为环境变量使用并另行保存。
-
-  ```bash
-  export SERVER_AES_MASTER_KEY_ENV=your_aes_key
-  ```
-
-* 注意，AES密钥需要保持稳定，中途更换密钥会导致已加密数据无法解密。
-
-##### 2.3. 启动 DeepSearch
+##### 2.2. 启动 DeepSearch
 
 * 在源码根目录打开 “终端”；
 

@@ -15,7 +15,7 @@ Ensure the machine meets:
 
 * **Software**
   * Git 2.40+
-  * Python 3.11+
+  * Python 3.11+ (<3.14)
   * uv 0.5.0+
   * MySQL 8.0+
 
@@ -89,20 +89,7 @@ Ensure the machine meets:
   cd deepsearch
   ```
 
-##### 2.2. AES master key (optional)
-
-  ```bash
-  cd backend
-  bash build_AES_master_key.sh
-  ```
-
-  ```bash
-  export SERVER_AES_MASTER_KEY_ENV=your_aes_key
-  ```
-
-  Keep the key stable.
-
-##### 2.3. Start
+##### 2.2. Start
 
   ```bash
   cp .env.example .env

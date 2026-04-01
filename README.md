@@ -77,6 +77,10 @@ openJiuwen Studio作为一站式AI Agent开发平台，提供了从开发到部�
 👉 如需完整清晰的演示视频，可点击下载[完整视频](https://openjiuwen-ci.obs.cn-north-4.myhuaweicloud.com/deepsearch/readme/9e6e857a424167500d4b4277485ea9b1_raw.mp4) <br>
 👉 更多详情指导详见[快速上手](./docs/zh/3.快速上手/3.快速上手.md)。
 
+**_注意：_**
+
+**_建议使用性能较强的模型（如 Qwen3-Max、ChatGPT 5.4、GLM-5等）生成报告，以兼顾生成质量与调用稳定性。若模型能力或并发能力不足，可能影响报告效果或完整性。_**
+
 # 💻 开发指南
 想利用 DeepSearch 源码进行开发，请参考[开发指南](./docs/zh/4.开发指南)，期待您的加入。
 
