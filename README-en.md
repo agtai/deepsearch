@@ -89,6 +89,8 @@ The animation below gives a fast tour of core features and the main workflow.
 👉 For a full demo video, download the [complete video](https://openjiuwen-ci.obs.cn-north-4.myhuaweicloud.com/deepsearch/readme/9e6e857a424167500d4b4277485ea9b1_raw.mp4).  
 👉 Step-by-step UI guide: [Quick Start](./docs/en/3.Quick%20Start/3.Quick%20Start.md).
 
+**Note:** It is recommended to use a more powerful model (such as Qwen3-Max or GLM-5) to generate the report, so as to balance output quality and generation stability. If the model’s capability or concurrency handling is insufficient, it may affect the quality or completeness of the report.
+
 # 💻 Developer guide
 
 To work from source or extend DeepSearch, see the [Developer Guide](./docs/en/4.Developer%20Guide/README.md). Contributions are welcome.
