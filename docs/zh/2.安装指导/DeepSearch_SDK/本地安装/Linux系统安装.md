@@ -15,7 +15,7 @@
 
 * 软件（安装方法详见下文）	 
   * Git 2.40及以上 
-  * Python 3.11及以上 
+  * Python 3.11及以上，3.14以下
   * uv 0.5.0及以上 
   * MySQL 8.0及以上
 
@@ -123,22 +123,7 @@
   cd deepsearch
   ```
 
-##### 2.2. 生成 AES 密钥（可选）
-
-* 如果不需要对关键字段加密存储，可跳过当前步骤
-* 运行以下命令生成密钥：
-  ```bash
-  cd backend
-    
-  bash build_AES_master_key.sh
-  ```
-* 脚本执行完，会将密钥打屏输出，可按需使用，推荐作为环境变量使用并另行保存。
-  ```bash
-  export SERVER_AES_MASTER_KEY_ENV=your_aes_key
-  ```
-* 注意，AES密钥需要保持稳定，中途更换密钥会导致已加密数据无法解密。
-
-##### 2.3. 启动 DeepSearch
+##### 2.2. 启动 DeepSearch
 
 * 进入源码根目录；
 
@@ -186,11 +171,23 @@
    | **REDIS_CLUSTER_MODE**                | 是否启用Redis Cluster模式（仅 CHECKPOINTER_TYPE=redis 时需要） | `false`                                                         |
    | **REDIS_TTL**                         | Redis中会话状态的默认过期时间（仅 CHECKPOINTER_TYPE=redis 时需要） | `7200`                                                         |
    | **REDIS_REFRESH_ON_READ**             | 每次读取会话状态时是否刷新TTL（仅 CHECKPOINTER_TYPE=redis 时需要） | `true`                                                         |
+   | **INDEX_MANAGER_TYPE**                | 知识库向量索引类型，当前支持：`milvus` | `milvus`                                                         |
+   | **MILVUS_HOST**                       | Milvus 服务地址 | `localhost`                                                         |
+   | **MILVUS_PORT**                       | Milvus 服务端口 | `19530`                                                         |
+   | **MILVUS_TOKEN**                      | Milvus 认证 token，无认证时留空；run 接口要求 token 为字符串，未配置会报错 | 留空或填写实际 token                                                         |
+   | **EMBEDDING_SSL_VERIFY**              | 知识库 Embedding HTTPS 是否校验证书；未设置或空白时视为关闭校验 | `false`                                                         |
+   | **EMBEDDING_SSL_CERT**                | 自定义 CA/证书 PEM 路径（自签或企业 CA 时填写；仅走系统信任链时可留空） | 留空                                                         |
+   | **HUAWEICLOUD_KMS_ENABLED**           | 是否启用华为云 KMS 加解密（用于解密敏感配置） | `false`                                                         |
+   | **OBS_ACCESS_KEY_ID**                 | 对象存储访问密钥 ID | 留空                                                         |
+   | **OBS_SECRET_ACCESS_KEY**             | 对象存储访问密钥 Secret | 留空                                                         |
+   | **OBS_SERVER**                        | S3 兼容 Endpoint URL | 留空                                                         |
+   | **OBS_REGION**                        | 区域名称 | 留空                                                         |
+   | **OBS_BUCKET**                        | 存储桶名称 | 留空                                                         |
 
   > **说明**：Checkpointer 用于管理 Agent 工作流的会话状态，支持工作流的暂停、恢复和状态持久化。
-  > - `in_memory` 模式：无需额外配置，适用于开发测试环境，不支持分布式部署
-  > - `persistence` 模式：需要确保数据库目录有写权限，适用于单机生产环境
-  > - `redis` 模式：需要先安装并启动 Redis 服务，适用于分布式生产环境
+  > - `in_memory` 模式：无需额外配置，适用于开发测试环境，不支持分布式部署；知识库上传的文档仅存服务端本地，不使用对象存储
+  > - `persistence` 模式：需要确保数据库目录有写权限，适用于单机生产环境；知识库文档同样仅存本地，不使用对象存储
+  > - `redis` 模式：需要先安装并启动 Redis 服务，适用于分布式生产环境；**还须**在 `.env` 中完整配置 `OBS_SERVER`、`OBS_BUCKET`、`OBS_REGION`、`OBS_ACCESS_KEY_ID`、`OBS_SECRET_ACCESS_KEY`，否则服务无法启动。**仅在此模式下**服务端会将知识库文档上传至对象存储，供多实例共享。**多实例时 `DB_TYPE` 必须为 `mysql` 且连接同一 MySQL**（知识库等元数据存于应用数据库；SQLite 为本地文件，进程间不共享）。
 
 * 在源码根目录下，运行以下命令启动后端服务，并耐心等待：
    

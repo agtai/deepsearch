@@ -13,10 +13,12 @@ openjiuwen_deepsearch/
 │   ├── report_template/            # 报告模板解析与生成
 │   ├── research_collector/         # 信息收集与评估
 │   ├── source_trace/               # 溯源与校验
-│   └── source_tracer_infer/        # 溯源推理
+│   ├── source_tracer_infer/        # 溯源推理
+│   └── user_feedback_processor/    # 报告生成后的用户反馈局部优化
 ├── framework/                      # 框架层实现
 │   └── openjiuwen/
 │       ├── agent/                  # 工作流与节点
+│       ├── core/                   # WorkflowAgent与控制器
 │       ├── tools/                  # 搜索工具封装
 │       └── llm/                    # LLM模型工厂
 ├── config/                         # 配置管理
@@ -36,6 +38,9 @@ openjiuwen_deepsearch/
 **主要子目录**：
 
 - **prompts/** - 提示词模板（`.md`）
+  - `synonym_rewrite_expand.md` - 扩写提示词
+  - `synonym_rewrite_polish.md` - 润色提示词
+  - `synonym_rewrite_shorten.md` - 缩写提示词
 - **query_understanding/** - 查询理解
   - `interpreter.py` - 生成澄清问题
   - `outliner.py` - 生成大纲
@@ -62,12 +67,17 @@ openjiuwen_deepsearch/
   - `source_matcher.py`
   - `source_tracer_preprocessors.py`
 - **source_tracer_infer/** - 溯源推理模块
+  - `generate_html.py`
+  - `html_template.py`
   - `infer.py`
   - `infer_call_model.py`
   - `infer_extract_info.py`
   - `number_node.py`
   - `supplement_graph.py`
-  - `html_template.py`
+- **user_feedback_processor/** - 用户反馈局部优化模块
+  - `action_definitions.py` - 前端 action 与统一动作定义映射
+  - `synonym_rewrite.py` - 扩写、润色、缩写执行逻辑
+  - `user_feedback_processor.py` - 反馈解析、校验、执行与结果发送
 
 ---
 
@@ -83,6 +93,8 @@ openjiuwen_deepsearch/
   - `editor_team_manager_node.py` - 编辑团队子图管理
   - `reasoning_writing_graph/` - 编辑团队子图节点与状态
     - `editor_team_nodes.py`
+    - `dependency_reasoning_team_nodes.py`
+    - `dependency_writing_team_nodes.py`
     - `section_context.py`
   - `collector_graph/` - 信息收集子图
     - `graph_builder.py`
@@ -91,6 +103,11 @@ openjiuwen_deepsearch/
   - `agent_factory.py` - Agent工厂
   - `base_node.py` - 节点基类
   - `search_context.py` - 搜索上下文数据模型
+
+- **openjiuwen/core/workflow_agent/** - 工作流Agent与控制器
+  - `config.py`
+  - `workflow_controller.py`
+  - `workflow_agent.py`
 
 - **openjiuwen/tools/** - 搜索工具封装
   - `web_search.py`
@@ -104,15 +121,9 @@ openjiuwen_deepsearch/
     - `local_search_api/`
     - `native_local_search_api/`
 
-- **openjiuwen/config/** - 工具配置
-  - `tools.py`
-
-- **openjiuwen/utils/** - 框架工具函数
-  - `common_utils.py`
-  - `debug_logger.py`
-
 - **openjiuwen/llm/** - LLM模型工厂
   - `llm_model_factory.py`
+  - `llm_adapter.py`
 
 ---
 
@@ -146,14 +157,14 @@ openjiuwen_deepsearch/
   - `url_utils.py`
 - `constants_utils/` - 常量工具函数
   - `node_constants.py`
-  - `runtime_contextvars.py`
+  - `session_contextvars.py`
   - `search_engine_constants.py`
 - `debug_utils/` - 调试工具函数
   - `node_debug.py`
   - `outline_visualization.py`
   - `result_exporter.py`
 - `log_utils/` - 日志工具函数
-  - `log_commmon.py`
+  - `log_common.py`
   - `log_handlers.py`
   - `log_interface.py`
   - `log_manager.py`
@@ -179,19 +190,24 @@ openjiuwen_deepsearch/
 用户请求
     ↓
 framework/openjiuwen/agent/workflow.py
-    ↓
+    ├── 组装并校验 agent_config
+    ├── 初始化 LLM 与搜索工具
+    └── Runner.run_agent_streaming(...)
+            ↓
 framework/openjiuwen/agent/main_graph_nodes.py
-    ├── StartNode 初始化上下文与配置
+    ├── StartNode （初始化上下文与配置）
     ├── EntryNode → algorithm/query_understanding/router.py
     ├── [GenerateQuestionsNode -> FeedbackHandlerNode]（HITL可选）
-    ├── OutlineNode → algorithm/query_understanding/outliner.py
-    ├── EditorTeamNode → editor_team_manager_node.py
+    ├── OutlineNode / DependencyOutlineNode → algorithm/query_understanding/outliner.py
+    ├── OutlineInteractionNode / DependencyOutlineInteractionNode（大纲交互可选）
+    ├── EditorTeamNode / DependencyReasoningTeamNode / DependencyWritingTeamNode
     │   ├── ResearchPlanReasoningNode → algorithm/query_understanding/planner.py
     │   ├── InfoCollectorNode → collector_graph/
     │   └── SubReporterNode → algorithm/report/report.py
     ├── ReporterNode → algorithm/report/report.py
     ├── SourceTracerNode → algorithm/source_trace/
-    └── SourceTracerInferNode → algorithm/source_tracer_infer/
+    ├── SourceTracerInferNode → algorithm/source_tracer_infer/
+    └── UserFeedbackProcessorNode → algorithm/user_feedback_processor/
 ```
 
 ---

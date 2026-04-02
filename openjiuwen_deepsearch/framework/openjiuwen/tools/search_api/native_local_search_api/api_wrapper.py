@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import os
 from typing import List, Dict, Optional, Any
 from pydantic import BaseModel, ConfigDict
 
@@ -15,6 +16,9 @@ from openjiuwen.core.retrieval.vector_store.milvus_store import MilvusVectorStor
 
 from openjiuwen_deepsearch.config.config import NativeKnowledgeBaseConfig
 from openjiuwen_deepsearch.common.common_constants import MAX_SEARCH_CONTENT_LENGTH
+from openjiuwen_deepsearch.utils.common_utils.embedding_utils import (
+    get_embedding_requests_verify,
+)
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
 
 logger = logging.getLogger(__name__)
@@ -46,16 +50,21 @@ class NativeLocalSearchAPIWrapper(BaseModel):
                     api_key=kb_cfg.embed_model_config.api_key,
                     base_url=kb_cfg.embed_model_config.base_url
                 )
-                embed_model = APIEmbedding(
-                    config=embed_cfg,
-                    max_batch_size=kb_cfg.embed_model_config.max_batch_size,
-                                        timeout=kb_cfg.embed_model_config.timeout,
-                    max_retries=kb_cfg.embed_model_config.max_retries,
-                )
+                embed_api_kwargs: dict = {
+                    "config": embed_cfg,
+                    "max_batch_size": kb_cfg.embed_model_config.max_batch_size,
+                    "timeout": kb_cfg.embed_model_config.timeout,
+                    "max_retries": kb_cfg.embed_model_config.max_retries,
+                }
+                verify = get_embedding_requests_verify(kb_cfg.embed_model_config.base_url)
+                if isinstance(verify, str) and verify:
+                    os.environ["REQUESTS_CA_BUNDLE"] = verify
+                embed_model = APIEmbedding(**embed_api_kwargs)
 
                 # 创建 Vector Store 实例
                 vs_config = VectorStoreConfig(
-                    collection_name=kb_cfg.vector_store.collection_name
+                    store_provider="milvus",
+                    collection_name=kb_cfg.vector_store.collection_name,
                 )
                 
                 vector_store = MilvusVectorStore(

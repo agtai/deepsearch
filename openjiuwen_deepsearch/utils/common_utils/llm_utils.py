@@ -170,8 +170,9 @@ async def llm_astream(llm, messages, model_name, agent_name, tools=None, need_st
                         f"[llm_astream] llm response is too long, truncate to {MAX_LLM_RESP_LENGTH} characters")
                     full_chunk.content = full_chunk.content[:MAX_LLM_RESP_LENGTH]
                     break
-            if can_write_stream and need_stream_out:
-                await session.write_custom_stream(_make_payload(stream_id, StreamEvent.MESSAGE.value, chunk.content))
+            chunk_content = getattr(chunk, "content", "")
+            if can_write_stream and need_stream_out and chunk_content:
+                await session.write_custom_stream(_make_payload(stream_id, StreamEvent.MESSAGE.value, chunk_content))
     except Exception as e:
         if can_write_stream and need_stream_out:
             await session.write_custom_stream(_make_payload(stream_id, StreamEvent.DONE.value, ""))
@@ -280,7 +281,7 @@ def _unify_responnse(response):
             if func and func.get("name"):
                 new_response.get("tool_calls")[idx]["name"] = func.get("name")
             if tool_call.get("type"):
-                new_response.get("tool_calls")[idx]["type"] = "tool_call"
+                new_response.get("tool_calls")[idx]["type"] = "function"
             new_response.get("tool_calls")[idx].pop("index", None)
     return new_response
 
@@ -318,6 +319,10 @@ def transfer_to_jiuwen_messages(origin_messages: list):
             output_messages.append(message)
         else:
             logger.error(f"message type:{type(message)} not support")
+
+    # 部分模型不支持仅传入 system message，缺少 user message 时补一个低语义占位消息兜底。
+    if not any(isinstance(message, UserMessage) for message in output_messages):
+        output_messages.append(UserMessage(content="."))
 
     return output_messages
 

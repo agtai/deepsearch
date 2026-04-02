@@ -22,7 +22,7 @@ class DeepSearchRequest(BaseModel):
     conversation_id: str = Field(..., description="请求对话ID")
     message: str = Field(..., description="用户请求查询或者人机交互时的反馈")
     workflow_human_in_the_loop: bool = Field(default=True, description="是否启用人机交互")
-    outliner_max_section_num: int = Field(default=5, ge=1, le=10, description="最大规划章节数量，取值范围:[1,10]")
+    outliner_max_section_num: int = Field(default=10, ge=1, le=15, description="最大规划章节数量，取值范围:[1,15]")
     source_tracer_research_trace_source_switch: bool = Field(default=True, description="溯源功能开关")
     source_tracer_infer_switch: bool = Field(default=True, description="溯源推理功能开关")
     info_collector_search_method: Literal["web", "local", "all"] = Field(default="web",
@@ -46,3 +46,5 @@ class DeepSearchRequest(BaseModel):
                                                                                      "parallel: 并行工作流执行"
                                                                                      "dependency_driving: 依赖驱动工作流执行")
     web_search_max_qps: float = Field(default=0, description="联网增强引擎最大 QPS，0 表示不限流，支持浮点数如 0.5 表示每 2 秒 1 个请求")
+    user_feedback_processor_enable: bool = Field(default=False, description="是否启用用户反馈优化功能")
+    user_feedback_processor_max_interactions: int = Field(default=3, ge=1, le=5, description="最大交互次数")

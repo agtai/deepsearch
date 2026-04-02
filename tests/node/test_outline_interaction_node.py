@@ -6,8 +6,8 @@ import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from openjiuwen.core.common.constants.constant import INTERACTIVE_INPUT
 from openjiuwen.core.context_engine.base import ModelContext
-from openjiuwen.core.graph.executable import Input, Output
 from openjiuwen.core.session.node import Session
 
 from openjiuwen_deepsearch.framework.openjiuwen.agent.main_graph_nodes import (
@@ -36,6 +36,7 @@ def mock_session():
     session = MagicMock(spec=Session)
     session.get_global_state = MagicMock(return_value=None)
     session.update_global_state = MagicMock()
+    session.update_state = MagicMock()
     session.interact = AsyncMock()
     session.write_custom_stream = AsyncMock()
     return session
@@ -457,6 +458,7 @@ class TestOutlineInteractionNodeHelperMethods:
 
         # Assert
         mock_session.interact.assert_called_once()
+        mock_session.update_state.assert_called_once_with({INTERACTIVE_INPUT: None})
         assert result == {"interrupt_feedback": "accepted"}
 
     @pytest.mark.asyncio
@@ -550,7 +552,7 @@ class TestDependencyOutlineInteractionNode:
     async def test_accepted_redirects_to_dependency_reasoning_team(
         self, dependency_node, mock_session, mock_context
     ):
-        """接受大纲时，跳转到 DEPENDENCY_REASONING_TEAM 而非 EDITOR_TEAM"""
+        """接受大纲时，跳转到 DEPENDENCY_EDITOR_TEAM 而非 EDITOR_TEAM"""
         # Arrange
         config = {
             "feedback_mode": "web",
@@ -564,13 +566,13 @@ class TestDependencyOutlineInteractionNode:
         result = await dependency_node._do_invoke({}, mock_session, mock_context)
 
         # Assert
-        assert result["next_node"] == NodeId.DEPENDENCY_REASONING_TEAM.value
+        assert result["next_node"] == NodeId.DEPENDENCY_EDITOR_TEAM.value
 
     @pytest.mark.asyncio
     async def test_interaction_disabled_redirects_to_dependency_reasoning_team(
         self, dependency_node, mock_session, mock_context
     ):
-        """交互禁用时，跳转到 DEPENDENCY_REASONING_TEAM"""
+        """交互禁用时，跳转到 DEPENDENCY_EDITOR_TEAM"""
         # Arrange
         config = {
             "feedback_mode": "cmd",
@@ -583,7 +585,7 @@ class TestDependencyOutlineInteractionNode:
         result = await dependency_node._do_invoke({}, mock_session, mock_context)
 
         # Assert
-        assert result["next_node"] == NodeId.DEPENDENCY_REASONING_TEAM.value
+        assert result["next_node"] == NodeId.DEPENDENCY_EDITOR_TEAM.value
 
     @pytest.mark.asyncio
     async def test_revise_comment_still_goes_to_outline(

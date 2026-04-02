@@ -1,16 +1,23 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
 import asyncio
 import logging
-from typing import List
+import uuid
+from typing import Any, List, cast
 
 from openjiuwen.core.common.constants.constant import INPUTS_KEY
+from openjiuwen.core.graph.base import CONFIG_KEY
 from openjiuwen.core.workflow.components.flow.end_comp import End
 from openjiuwen.core.workflow.components.flow.start_comp import Start
 from openjiuwen.core.context_engine.base import ModelContext
 from openjiuwen.core.graph.executable import Input, Output
+from openjiuwen.core.session.internal.workflow import WorkflowSession
 from openjiuwen.core.session.node import Session
+from openjiuwen.core.session.state.workflow_state import InMemoryState
 from openjiuwen.core.workflow.workflow import Workflow
 
+from openjiuwen_deepsearch.framework.openjiuwen.agent.collector_graph.graph_builder import (
+    build_info_collector_sub_graph,
+)
 from openjiuwen_deepsearch.framework.openjiuwen.agent.reasoning_writing_graph.editor_team_nodes import (
     BasePlanReasoningNode,
     InfoCollectorNode,
@@ -77,7 +84,7 @@ class DependencyPlanReasoningNode(BasePlanReasoningNode):
         current_inputs["plan_background_knowledge"] = session.get_global_state(
             "section_context.plan_background_knowledge"
         )
-        
+
         return current_inputs
 
     def _post_handle(self, inputs: Input, algorithm_output: dict, session: Session, context: ModelContext):
@@ -142,9 +149,10 @@ class DependencyInfoCollectorNode(InfoCollectorNode):
         current_inputs["step_background_knowledge"] = session.get_global_state(
             "section_context.step_background_knowledge")
         current_inputs["history_plans"] = session.get_global_state("section_context.history_plans")
+        current_inputs["collected_doc_num"] = session.get_global_state("section_context.collected_doc_num")
         current_inputs["added_completed_steps"] = added_completed_steps
         current_inputs["current_plan_is_completed"] = current_plan_is_completed
-        
+
         return current_inputs
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
@@ -170,8 +178,9 @@ class DependencyInfoCollectorNode(InfoCollectorNode):
 
                 collector_inputs = self._build_collector_input(current_plan, step, section_state)
                 plan_executed_steps.append(step)
-                inputs.update({INPUTS_KEY: collector_inputs})
-                task = asyncio.create_task(self._run_collector_graph(inputs, session, context))
+                task = asyncio.create_task(
+                    self._run_dependency_collector_graph(collector_inputs, session, context)
+                )
                 async_collecting_list.append(task)
 
         # 并行执行收集任务
@@ -186,8 +195,58 @@ class DependencyInfoCollectorNode(InfoCollectorNode):
         result = self._post_handle(inputs, section_state, session, context)
         return result
 
+    async def _run_dependency_collector_graph(
+            self, collector_inputs: dict, session: Session, context: ModelContext
+    ) -> dict[str, Any]:
+        """Run dependency collector tasks with isolated workflow state."""
+        collector_graph = build_info_collector_sub_graph()
+        collector_internal = getattr(collector_graph, "_internal")
+        inner_session = getattr(session, "_inner", None)
+        workflow_session = WorkflowSession(
+            workflow_id=collector_graph.card.id,
+            parent=inner_session,
+            session_id=uuid.uuid4().hex,
+            state=InMemoryState(),
+            callback_manager=inner_session.callback_manager() if inner_session else None,
+        )
+
+        if inner_session and inner_session.stream_writer_manager():
+            workflow_session.set_stream_writer_manager(inner_session.stream_writer_manager())
+
+        if hasattr(collector_internal, "auto_complete_abilities"):
+            collector_internal.auto_complete_abilities()
+        workflow_config_getter = getattr(collector_internal, "config", None)
+        if callable(workflow_config_getter):
+            workflow_session.config().add_workflow_config(
+                workflow_id=collector_graph.card.id,
+                workflow_config=workflow_config_getter(),
+            )
+
+        config = session.get_global_state("config")
+        if config is not None:
+            workflow_state = cast(InMemoryState, workflow_session.state())
+            workflow_state.update_global({"config": config})
+            workflow_state.commit()
+
+        try:
+            compiled_graph = collector_internal.compile(workflow_session, context=context)
+            await compiled_graph.invoke({INPUTS_KEY: collector_inputs, CONFIG_KEY: None}, workflow_session)
+            collector_context = workflow_session.state().get_global("collector_context") or {}
+            return {
+                "history_queries": collector_context.get("history_queries", []),
+                "doc_infos": collector_context.get("doc_infos", []),
+                "info_summary": collector_context.get("info_summary", ""),
+                "evaluation": collector_context.get("evaluation", ""),
+                "messages": collector_context.get("messages", []),
+            }
+        finally:
+            await workflow_session.close()
+            await collector_internal.reset()
+
     def _post_handle(self, inputs: Input, algorithm_output: dict, session: Session, context: ModelContext):
         current_plan_is_completed = algorithm_output.get('current_plan_is_completed')
+        session.update_global_state({"section_context.collected_doc_num": algorithm_output.get("collected_doc_num")})
+        session.update_global_state({"section_context.warning_infos": algorithm_output.get("warning_infos")})
         if current_plan_is_completed:
             session.update_global_state(
                 {"section_context.plan_background_knowledge": algorithm_output.get("plan_background_knowledge")})
@@ -245,20 +304,38 @@ class DependencyInfoCollectorNode(InfoCollectorNode):
 
     def _update_section_state(self, state: dict, plan_executed_steps: list, collector_results: list):
         plan_background_knowledge = state.get("plan_background_knowledge", {})
-        plan_completed_steps = state.get("added_completed_steps", [])
+        plan_completed_steps = list(state.get("added_completed_steps") or [])
         current_plan = state.get("current_plan")
         messages = state.get("messages", [])
+        warning_infos = list(state.get("warning_infos") or [])
         current_doc_num = 0
 
-        # 1. 没有任务执行，则所有任务都已执行完成
+        # 1. 没有任务执行，区分是全部完成还是被依赖阻塞
         if not plan_executed_steps:
-            # 填充执行完的steps到current plan，并保存在history plans
-            plan_background_knowledge.update(_extract_plan_background_knowledge(plan_completed_steps))
             history_plans = state.get("history_plans", [])
-            current_plan.steps = plan_completed_steps
+            completed_step_ids = {step.id for step in plan_completed_steps if step.id}
+            pending_steps = [
+                step for step in (current_plan.steps or [])
+                if step.id not in completed_step_ids
+            ]
+
+            if pending_steps:
+                blocked_step_ids = [step.id for step in pending_steps if step.id]
+                blocked_msg = (
+                    f"[{StatusCode.INFO_COLLECTING_EMPTY.code}] {self.log_prefix} "
+                    f"依赖计划存在未满足父步骤的阻塞任务: {blocked_step_ids}"
+                )
+                warning_infos.append(blocked_msg)
+                logger.warning(blocked_msg)
+            else:
+                # 填充执行完的steps到current plan，并保存在history plans
+                plan_background_knowledge.update(_extract_plan_background_knowledge(plan_completed_steps))
+                current_plan.steps = plan_completed_steps
+                state["plan_background_knowledge"] = plan_background_knowledge
+
             history_plans.append(current_plan)
             state["history_plans"] = history_plans
-            state["plan_background_knowledge"] = plan_background_knowledge
+            state["warning_infos"] = warning_infos
             state["current_plan_is_completed"] = True
             return state
 
@@ -288,11 +365,10 @@ class DependencyInfoCollectorNode(InfoCollectorNode):
         if current_doc_num == 0:
             collector_warning = (f"[{StatusCode.INFO_COLLECTING_EMPTY.code}] {self.log_prefix} "
                                  f"{StatusCode.INFO_COLLECTING_EMPTY.errmsg}")
-            warning_infos = state.get("warning_infos", [])
             warning_infos.append(collector_warning)
             logger.warning(collector_warning)
 
-        state["collected_doc_num"] = state.get("collected_doc_num", 0) + current_doc_num
+        state["collected_doc_num"] = (state.get("collected_doc_num") or 0) + current_doc_num
 
         # 记录执行结果
         recording_data = {
@@ -305,6 +381,7 @@ class DependencyInfoCollectorNode(InfoCollectorNode):
 
         state["messages"] = messages
         state["added_completed_steps"] = plan_completed_steps
+        state["warning_infos"] = warning_infos
         step_background_knowledge = state.get("step_background_knowledge", {})
         step_background_knowledge.update(_extract_step_background_knowledge(plan_executed_steps))
         state["step_background_knowledge"] = step_background_knowledge
@@ -326,6 +403,8 @@ class SectionReasoningEndNode(End):
         logger.info(f"{log_prefix} | Start {self.__class__.__name__}")
         section_state = {
             "plans": session.get_global_state("section_context.history_plans"),
+            "warning_infos": session.get_global_state("section_context.warning_infos") or [],
+            "exception_infos": session.get_global_state("section_context.exception_infos") or [],
         }
         logger.info(f"{log_prefix} | End {self.__class__.__name__}")
 

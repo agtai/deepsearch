@@ -3,7 +3,7 @@ name = "openjiuwen-deepsearch"
 version = "0.2.0"
 description = "Built on the openJiuwen agent-core framework, openJiuwen DeepSearch is a system supporting both deep search and research work."
 readme = "README.md"
-requires-python = "==3.11.*"
+requires-python = ">=3.11,<3.14"
 license = { text = "Apache-2.0" }
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -12,17 +12,19 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "License :: OSI Approved :: Apache Software License",
 ]
 
 # SDK依赖
 dependencies = [
     'Jinja2==3.1.6',
-    'json_repair==0.52.4',
+    'json-repair==0.55.0',
     'python-docx==1.2.0',
-    'tenacity==8.5.0',
+    'tenacity==9.1.2',
     'pypdfium2==4.30.0',
-    'openjiuwen==0.1.5',
+    'openjiuwen==0.1.8',
     'pyvis==0.3.2',
     'networkx==3.4.2',
     'aiolimiter==1.1.0',
@@ -42,7 +44,8 @@ openjiuwen_deepsearch = ["**/*"]  # 递归收录所有文件，包括 .md、.jso
 [tool.pytest.ini_options]
 pythonpath = ["."]
 asyncio_mode = "strict"
-addopts = "-ra -q"
+asyncio_default_fixture_loop_scope = "function"
+addopts = ["-ra -q"]
 testpaths = ["tests"]
 filterwarnings = [
     "ignore::pytest.PytestDeprecationWarning",
@@ -81,6 +84,7 @@ backend = [
     "aiomysql==0.2.0",
     "aiosqlite==0.21.0",
     "redis==7.1.1",
+    "aioboto3>=11.0.0",
 ]
 # 开发依赖
 dev = [
@@ -92,6 +96,6 @@ dev = [
     "pytest_asyncio==1.2.0",
     "coverage==7.8.0",
     "pytest-mock==3.15.1",
-    'pandas==2.1.4',
+    'pandas==2.3.3',
     'xlsxwriter==3.2.9'
 ]

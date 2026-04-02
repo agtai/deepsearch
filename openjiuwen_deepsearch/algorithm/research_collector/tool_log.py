@@ -1,5 +1,7 @@
 # -*- coding: UTF-8 -*-
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+import functools
+import inspect
 import logging
 import time
 from typing import TypeVar, Any, Type
@@ -201,6 +203,7 @@ def tool_invoke_log_async(func):
     with enhanced exception handling capabilities.
     """
 
+    @functools.wraps(func)
     async def wrapper(*args, **kwargs):
         # extract function name for logging
         function_name = func.__name__
@@ -224,8 +227,10 @@ def tool_invoke_log_async(func):
             logger.info(f"[TOOL START] {function_name} | Args: {args_text}")
 
         try:
-            # execute the original function asynchronously
-            result = await func(*args, **kwargs)
+            # Execute and await only when the return value is awaitable.
+            # This makes the decorator robust to mixed sync/async wrappers.
+            call_result = func(*args, **kwargs)
+            result = await call_result if inspect.isawaitable(call_result) else call_result
         except Exception as e:
             # log exceptions with stack trace
             error_msg = f"[TOOL ERROR] {function_name} | Args: {args_text} | Exception: {repr(e)}"

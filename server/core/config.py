@@ -2,6 +2,7 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -44,6 +45,18 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"
         case_sensitive = False
         extra = "ignore"  # Ignore extra fields from .env file
+
+    @model_validator(mode="after")
+    def redis_checkpointer_requires_shared_db(self) -> "Settings":
+        """Redis 仅同步工作流会话；知识库等元数据在应用库。SQLite 为进程本地文件，多实例无法共享。"""
+        cp = (self.checkpointer_type or "").strip().lower()
+        db = (self.db_type or "").strip().lower()
+        if cp == "redis" and db != "mysql":
+            raise ValueError(
+                "CHECKPOINTER_TYPE=redis 时必须设置 DB_TYPE=mysql 并让所有实例连接同一 MySQL。"
+                " SQLite 数据库文件仅在单机进程内有效，多实例下知识库等业务数据无法互通。"
+            )
+        return self
 
 
 # Create settings instance

@@ -1,10 +1,12 @@
 # -*- coding: UTF-8 -*-
 # Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
+import hashlib
+import json
 import logging
 import os
 from typing import Any, Dict, Optional
 
-from fastapi import HTTPException
+from fastapi import status
 from openjiuwen.core.session.checkpointer import CheckpointerFactory
 from sqlalchemy.orm import Session
 
@@ -20,7 +22,11 @@ from server.deepsearch.common.exception.exceptions import (
 from server.deepsearch.core.manager.repositories.report_template_repository import ReportTemplateRepository
 from server.deepsearch.core.manager.repositories.web_search_engine_repository import \
     WebSearchEngineRepository
+from server.local_retrieval.core.manager.repositories.knowledge_base_repository import (
+    KnowledgeBaseRepository,
+)
 from server.schemas.deepsearch_run import DeepSearchRequest, WebSearchConfig, LocalSearchConfig
+from server.schemas.knowledge_base import KnowledgeBaseGet
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +39,8 @@ class DeepSearchAgentManager:
 
     def __init__(self, agent_factory: Optional[AgentFactory] = None):
         self._agent_factory = agent_factory or AgentFactory()
-        # 缓存格式: {search_mode:execution_method: agent_instance}
-        # Agent 本身为工作流定义容器，可跨会话复用。
+        # 缓存格式: {cache_key: agent_instance}；cache_key 由请求中影响 Agent 构建的字段派生
+        #（含 space_id、本地知识库 ID 列表、联网引擎 ID 等），避免请求里配置变了，但缓存键没变，导致仍用旧 Agent的问题。
         self._agent_cache: Dict[str, Any] = {}
         self._security_utils = SecurityUtils()
 
@@ -42,35 +48,46 @@ class DeepSearchAgentManager:
     def _create_vector_store_param(kb_id: str):
         milvus_host = os.getenv("MILVUS_HOST", "localhost")
         milvus_port = os.getenv("MILVUS_PORT", "19530")
-        milvus_token = os.getenv("MILVUS_TOKEN", None)
+        milvus_token = os.getenv("MILVUS_TOKEN") or ""
 
         # 组合 Milvus URI (格式: http://host:port 或 tcp://host:port)
         # 默认使用 http:// 协议
         milvus_uri = f"http://{milvus_host}:{milvus_port}"
 
         return {
-            "collection_name": f"kb_{kb_id}_chunks",
+            "collection_name": f"ds_kb_{kb_id}_chunks",
             "uri": milvus_uri,
             "token": milvus_token
         }
 
+    @staticmethod
+    def _compute_agent_cache_key(request: DeepSearchRequest) -> str:
+        """
+        生成 Agent 缓存键。排除仅影响单次对话内容的字段（message、conversation_id），
+        保留与 build_agent_config 相关的全部字段（含 space_id、local_search_config_ids、
+        web_search_config_id、LLM 与各开关），保证换知识库/引擎后不会误复用旧 Agent。
+        """
+        payload = request.model_dump(exclude={"message", "conversation_id", "interrupt_feedback"})
+        serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
     def get_or_create_agent(self, request: DeepSearchRequest, db: Session) -> Any:
         """
         根据请求获取或创建 DeepSearchAgent 实例。
-        
+
+        缓存 key 包含 space_id，确保不同空间（及空间内资源如知识库、联网引擎）
+        使用独立的 Agent 实例，防止跨 space 访问。
+
         Args:
             request: DeepSearch 请求对象
             db: Session 数据库会话对象
-            
+
         Returns:
             Agent 实例
         """
         full_config = self.build_agent_config(request, db)
-        execution_method = full_config.get("execution_method", "parallel")
-        search_mode = full_config.get("search_mode", "research")
-        cache_key = f"{search_mode}:{execution_method}"
+        cache_key = self._compute_agent_cache_key(request)
 
-        # 按搜索模式+执行方式缓存 agent，避免跨模式误复用
         if cache_key in self._agent_cache:
             return self._agent_cache[cache_key]
 
@@ -125,7 +142,9 @@ class DeepSearchAgentManager:
             # 大纲交互配置
             "outline_interaction_enabled": request.outline_interaction_enabled,
             "outline_interaction_max_rounds": request.outline_interaction_max_rounds,
-            "web_search_max_qps": request.web_search_max_qps
+            "web_search_max_qps": request.web_search_max_qps,
+            "user_feedback_processor_enable": request.user_feedback_processor_enable,
+            "user_feedback_processor_max_interactions": request.user_feedback_processor_max_interactions,
         }
         if request.web_search_config:
             res["web_search_engine_config"] = self._load_web_search_config(
@@ -161,10 +180,83 @@ class DeepSearchAgentManager:
 
     def _load_local_search_config(self, space_id: str, local_search_config: LocalSearchConfig, db: Session) -> Dict[
         str, Any]:
+        """从请求中的 LocalSearchConfig 构建本地搜索配置"""
         try:
-            return {}
-        except HTTPException as e:
-            raise e
+            kb_ids = local_search_config.local_search_config_ids or []
+            normalized_ids: list[str] = []
+            for kb_id in kb_ids:
+                kid = kb_id.strip() if isinstance(kb_id, str) else str(kb_id)
+                if kid:
+                    normalized_ids.append(kid)
+
+            if not normalized_ids:
+                raise SearchEngineConfigException(
+                    "local_search_config.local_search_config_ids must contain at least one knowledge base id."
+                )
+
+            repo = KnowledgeBaseRepository(db)
+            kb_row: dict | None = None
+            for kid in normalized_ids:
+                get_result = repo.knowledge_base_get(
+                    KnowledgeBaseGet(space_id=space_id, kb_id=kid)
+                )
+                if get_result.code != status.HTTP_200_OK or not get_result.data:
+                    raise SearchEngineConfigException(
+                        f"知识库 '{kid}' 不属于 space_id={space_id} 或不存在。"
+                        "本地检索仅允许使用当前请求空间下的知识库。"
+                    )
+                kb_data = get_result.data
+                # 二次校验：确保返回的知识库确实属于当前 space，防止跨空间访问
+                if kb_data.get("space_id") != space_id:
+                    raise SearchEngineConfigException(
+                        f"知识库 '{kid}' 不属于 space_id={space_id}，禁止跨空间访问。"
+                    )
+                if kb_row is None:
+                    kb_row = kb_data
+
+            if kb_row is None:
+                raise SearchEngineConfigException(
+                    "未能加载本地检索知识库信息，请检查 local_search_config_ids。"
+                )
+            cfg = kb_row.get("config") or {}
+            embed_src = cfg.get("embed_model_config")
+            if not embed_src or not isinstance(embed_src, dict):
+                raise SearchEngineConfigException(
+                    f"知识库 {normalized_ids[0]} 的存储配置中缺少 embed_model_config。"
+                )
+
+            api_key_raw = embed_src.get("api_key") or ""
+            if isinstance(api_key_raw, (bytes, bytearray)):
+                api_key = bytearray(api_key_raw)
+            else:
+                api_key = bytearray(str(api_key_raw).encode("utf-8"))
+
+            embed_model_config_dict = {
+                "model_name": embed_src.get("model_name") or "",
+                "api_key": api_key,
+                "base_url": embed_src.get("base_url") or "",
+                "max_batch_size": int(embed_src.get("max_batch_size", 1)),
+                "timeout": int(embed_src.get("timeout", 60)),
+                "max_retries": int(embed_src.get("max_retries", 3)),
+            }
+
+            kb_configs = []
+            for kid in normalized_ids:
+                kb_configs.append({
+                    "id": kid,
+                    "embed_model_config": embed_model_config_dict,
+                    "vector_store": self._create_vector_store_param(kid),
+                    "index_type": "vector"
+                })
+
+            return {
+                "search_engine_name": "native",
+                "max_local_search_results": local_search_config.max_local_search_results,
+                "recall_threshold": local_search_config.recall_threshold,
+                "knowledge_base_configs": kb_configs
+            }
+        except SearchEngineConfigException:
+            raise
         except Exception as e:
             logger.error("Failed to load local search config: %s", str(e))
             raise LocalSearchEngineConfigGetException(f"Failed to build config: {str(e)}") from e

@@ -459,3 +459,23 @@ class TestToolInvokeLogAsync:
 
             # 验证敏感模式下的错误日志
             mock_logger.error.assert_called_with("[TOOL ERROR] async_failing_function | Raise exception")
+
+    @pytest.mark.asyncio
+    async def test_tool_invoke_log_async_sync_function_returning_coroutine(self):
+        """测试同步函数返回协程对象时，装饰器仍能正确 await"""
+
+        async def _inner():
+            return {"search_results": [{"content": "ok"}]}
+
+        @tool_invoke_log_async
+        def sync_outer():
+            return _inner()
+
+        with patch(f"{MODULE_PATH}.time.time") as mock_time, \
+                patch(f"{MODULE_PATH}.LogManager.is_sensitive") as mock_sensitive, \
+                patch(f"{MODULE_PATH}.logger"):
+            mock_time.side_effect = [100.0, 100.5]
+            mock_sensitive.return_value = False
+
+            result = await sync_outer()
+            assert result == {"search_results": [{"content": "ok"}]}

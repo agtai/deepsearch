@@ -19,6 +19,16 @@ class LogManager:
     _initialized = False
     _is_sensitive = True
     _SAFE_BASE = os.path.realpath("./output/logs")
+    _THIRD_PARTY_LOGGERS = (
+        "openai",
+        "openai._base_client",
+        "httpx",
+        "httpcore",
+        "httpcore.connection",
+        "httpcore.http11",
+        "httpcore.proxy",
+        "asyncio",
+    )
 
     @classmethod
     def init(
@@ -71,6 +81,7 @@ class LogManager:
                 is_sensitive=is_sensitive
             )
 
+        cls._configure_known_third_party_loggers()
         cls._is_sensitive = is_sensitive
         cls._initialized = True
 
@@ -80,6 +91,15 @@ class LogManager:
         获取敏感信息设置
         """
         return cls._is_sensitive
+
+    @classmethod
+    def _configure_known_third_party_loggers(cls):
+        """Suppress third-party debug/info logs while preserving warning/error logs."""
+        for logger_name in cls._THIRD_PARTY_LOGGERS:
+            third_party_logger = logging.getLogger(logger_name)
+            third_party_logger.disabled = False
+            third_party_logger.setLevel(logging.WARNING)
+            third_party_logger.propagate = True
 
     @classmethod
     def _validate_init_args(

@@ -33,6 +33,18 @@ gpt-4 openai
 >>> # 样例2：使用默认配置
 >>> llm_config = LLMConfig()
 >>> print(llm_config.model_name)
+
+>>> # 样例3：使用extension配置
+>>> llm_config = LLMConfig(
+...     model_name="gpt-4",
+...     model_type="openai",
+...     base_url="https://api.openai.com/v1",
+...     api_key=bytearray("your_api_key", encoding="utf-8"),
+...     extension={
+            'extra_headers': {...} # 假设使用openai的extra_headers参数，还支持extra_body等
+...     }
+... )
+
 ```
 
 ## class openjiuwen_deepsearch.config.config.WebSearchEngineConfig
@@ -69,6 +81,46 @@ petal 5
 tavily
 ```
 
+## class openjiuwen_deepsearch.config.config.EmbedModelConfig
+```python
+class openjiuwen_deepsearch.config.config.EmbedModelConfig()
+```
+**EmbedModelConfig**是原生本地知识库 Embedding 模型配置类。
+
+**字段**：
+
+- **model_name**(str, 必填)：Embedding模型名称。
+- **api_key**(bytearray, 必填)：Embedding模型密钥。
+- **base_url**(str, 必填)：接口地址。
+- **max_batch_size**(int, 必填)：最大批次大小。
+- **timeout**(int, 可选)：请求超时时间。默认值：`60`。
+- **max_retries**(int, 可选)：最大重试次数。默认值：`3`。
+
+## class openjiuwen_deepsearch.config.config.VectorStoreConfig
+```python
+class openjiuwen_deepsearch.config.config.VectorStoreConfig()
+```
+**VectorStoreConfig**是向量数据库连接配置类。
+
+**字段**：
+
+- **uri**(str, 必填)：向量数据库连接地址。
+- **token**(str, 必填)：连接令牌。
+- **collection_name**(str, 必填)：集合名称。
+
+## class openjiuwen_deepsearch.config.config.NativeKnowledgeBaseConfig
+```python
+class openjiuwen_deepsearch.config.config.NativeKnowledgeBaseConfig()
+```
+**NativeKnowledgeBaseConfig**是原生本地知识库配置类。
+
+**字段**：
+
+- **id**(str, 必填)：知识库 ID。
+- **index_type**(Literal["vector"], 可选)：索引类型。默认值：`"vector"`。
+- **embed_model_config**(EmbedModelConfig, 必填)：Embedding模型配置。
+- **vector_store**(VectorStoreConfig, 必填)：向量库配置。
+
 ## class openjiuwen_deepsearch.config.config.LocalSearchEngineConfig
 ```python
 class openjiuwen_deepsearch.config.config.LocalSearchEngineConfig()
@@ -87,6 +139,7 @@ class openjiuwen_deepsearch.config.config.LocalSearchEngineConfig()
 - **knowledge_base_type**(Literal["internal", "external"], 可选)：知识库类型。默认值：`"internal"`。
 - **source**(Literal["KooSearch", "LakeSearch"], 可选)：知识库来源。默认值：`"KooSearch"`。
 - **extension**(dict, 可选)：本地搜索引擎扩展配置项，根据具体搜索引擎接口设置。默认值：`{}`。
+- **knowledge_base_configs**(List[NativeKnowledgeBaseConfig], 可选)：原生本地知识库配置。默认值：`[]`。
 
 **样例**：
 
@@ -182,7 +235,7 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 - **execute_mode**(Literal["commercial", "general"], 可选)：执行模式，可选值：`["commercial", "general"]`。默认值：`"commercial"`。
 - **execution_method**(Literal["dependency_driving", "parallel"], 可选)：执行方法，`dependency_driving`：依赖驱动工作流执行，`parallel`：并行工作流执行。默认值：`"parallel"`。
 - **workflow_human_in_the_loop**(bool, 可选)：工作流是否启用人机交互。默认值：`True`。
-- **outliner_max_section_num**(int, 可选)：最大规划章节数量，取值范围：[1, 10]。默认值：`5`。
+- **outliner_max_section_num**(int, 可选)：最大规划章节数量，取值范围：[1, 15]。默认值：`10`。
 - **outline_interaction_enabled**(bool, 可选)：大纲交互功能开关，开启后用户可对生成的大纲进行多轮修改。默认值：`True`。
 - **outline_interaction_max_rounds**(int, 可选)：大纲交互最大轮次，取值范围：[1, 100]。默认值：`3`。
 - **source_tracer_research_trace_source_switch**(bool, 可选)：溯源功能开关。默认值：`True`。
@@ -194,6 +247,8 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 - **custom_web_search_config**(CustomWebSearchConfig, 可选)：自定义联网增强引擎配置。默认值：`CustomWebSearchConfig()`。
 - **custom_local_search_config**(CustomLocalSearchConfig, 可选)：自定义本地搜索配置。默认值：`CustomLocalSearchConfig()`。
 - **web_search_max_qps**(float, 可选)：联网增强引擎最大 QPS，0 表示不限流，支持浮点数如 0.5 表示每 2 秒 1 个请求。默认值：`0`。
+- **user_feedback_processor_enable**(bool, 可选)：是否启用报告生成后的局部优化能力。默认值：`False`。
+- **user_feedback_processor_max_interactions**(int, 可选)：局部优化最大交互次数。默认值：`3`,可设置范围为1~5。
 
 **样例**：
 
@@ -235,9 +290,14 @@ class openjiuwen_deepsearch.config.config.ServiceConfig()
 ### 服务基础配置
 - **service_allow_origins**(List[str], 可选)：允许的ip范围。默认值：`[]`。
 
+### 模板参数
+- **template_max_generate_retry_num**(int, 可选)：模板生成最大重试次数。默认值：`3`。
+
 ### 工作流基础参数
 - **workflow_execution_timeout**(int, 可选)：工作流执行超时时间，单位秒。默认值：`7200`。
+- **workflow_sub_graph_execution_timeout**(int, 可选)：子图执行超时时间。默认值：`6000`。
 - **workflow_max_plan_executed_num**(int, 可选)：最大计划执行数量。默认值：`2`。
+- **workflow_recursion_limit**(int, 可选)：递归限制。默认值：`30`。
 - **workflow_max_gen_question_retry_num**(int, 可选)：最大生成问题执行数量。默认值：`3`。
 - **workflow_feedback_mode**(str, 可选)：用户反馈途径，可选值：`["web", "cmd"]`。默认值：`"web"`。
 
@@ -258,13 +318,14 @@ class openjiuwen_deepsearch.config.config.ServiceConfig()
 - **sub_report_classify_doc_infos_single_time_num**(int, 可选)：子报告中单次llm处理筛选收集到的数量。默认值：`60`。
 - **sub_report_classify_doc_infos_res_top_k_num**(int, 可选)：子报告中单次llm处理返回的top_k数量。默认值：`10`。
 - **report_max_generate_retry_num**(int, 可选)：生成内容最大重试次数。默认值：`3`。
-
-### 模板参数
-- **template_max_generate_retry_num**(int, 可选)：模板生成最大重试次数。默认值：`3`。
+- **visualization_enable**(bool, 可选)：报告插图可视化开关。默认值：`False`。
 
 ### 溯源节点参数
 - **source_tracer_citation_verify_max_concurrency_num**(int, 可选)：溯源校验最大并发数量。默认值：`30`。
 - **source_tracer_citation_verify_batch_size**(int, 可选)：溯源校验批次大小。默认值：`1`。
+
+### 用户反馈优化节点参数
+- **user_feedback_processor_max_text_length**(int, 可选)：单次选中文本最大长度。默认值：`2000`。
 
 ### 统计信息参数
 - **stats_info_node_duration**(bool, 可选)：节点持续时间统计。默认值：`False`。
@@ -275,10 +336,8 @@ class openjiuwen_deepsearch.config.config.ServiceConfig()
 - **llm_timeout**(int, 可选)：大模型调用超时时间，单位秒。默认值：`300`。
 
 ### Debug参数
-- **debug_enable**(bool, 可选)：节点调试开关。默认值：`False`。
-
-### Visualization参数
-- **visualization_enable**(bool, 可选)：报告插图可视化开关。默认值：`True`。
+- **node_debug_enable**(bool, 可选)：节点格式化记录debug日志开关。默认值：`False`。
+- **export_intermediate_results**(bool, 可选)：可视化任务执行中间结果开关。默认值：`False`。
 
 **样例**：
 
@@ -289,9 +348,9 @@ class openjiuwen_deepsearch.config.config.ServiceConfig()
 >>> service_config = ServiceConfig(
 ...     workflow_execution_timeout=3600,
 ...     llm_timeout=600,
-...     debug_enable=True
+...     node_debug_enable=True
 ... )
->>> print(service_config.workflow_execution_timeout, service_config.debug_enable)
+>>> print(service_config.workflow_execution_timeout, service_config.node_debug_enable)
 3600 True
 
 >>> # 样例2：使用默认配置

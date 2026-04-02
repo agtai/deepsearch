@@ -80,6 +80,14 @@ class Reporter:
         )
 
     @staticmethod
+    def _section_sort_key(section_id) -> tuple[int, int | str]:
+        """Keep report sections ordered numerically when section ids are strings."""
+        text = str(section_id).strip()
+        if text.isdigit():
+            return 0, int(text)
+        return 1, text
+
+    @staticmethod
     def _make_payload(message_id: str, event: str, content: str = "") -> dict:
         payload = {
             "message_id": message_id,
@@ -427,6 +435,40 @@ class Reporter:
 
         return data if is_dict else Outline.model_validate(data)
 
+    @staticmethod
+    def _get_background_knowledge_contents(background_knowledge: list) -> list[str]:
+        """Extract usable text snippets from dependency-writing background knowledge."""
+        if not isinstance(background_knowledge, list):
+            return []
+
+        contents = []
+        for item in background_knowledge:
+            if not isinstance(item, dict):
+                continue
+            content = str(item.get("content_summary", "") or "").strip()
+            if not content:
+                continue
+            section_id = str(item.get("section_id", "") or "").strip()
+            if section_id:
+                content = f"[Parent Section {section_id}] {content}"
+            contents.append(content)
+
+        return contents
+
+    @staticmethod
+    def _is_missing_subsection_report_context(
+        section_task: str,
+        sub_section_outline: str,
+        has_collected_infos: bool,
+        has_background_knowledge: bool,
+    ) -> bool:
+        """Check whether subsection report generation lacks required context."""
+        if not section_task:
+            return True
+        if not sub_section_outline:
+            return True
+        return not (has_collected_infos or has_background_knowledge)
+
     async def generate_report(self, gen_report_context: dict) -> Tuple[bool, str]:
         """
         generate general report according to report_style/report_format/report_lang.
@@ -570,57 +612,72 @@ class Reporter:
                 section_idx,
                 current_inputs.get("doc_infos", []),
             )
-        if not current_inputs.get("doc_infos", []):
-            logger.error(
-                f"{EFFECT_SUB_REPORT_TAG} [generate_sub_report] fail to generate subsection report, "
-                f"section_idx: [{section_idx}], not found doc infos"
-            )
-            return False, "Not found doc infos", "", []
-
-        classify_success, classified_content = await self._classify_doc_infos(
-            current_inputs
+        doc_infos = current_inputs.get("doc_infos", [])
+        background_contents = self._get_background_knowledge_contents(
+            current_inputs.get("sub_report_background_knowledge", [])
         )
-        if LogManager.is_sensitive():
+        if not doc_infos:
+            if not background_contents:
+                logger.error(
+                    f"{EFFECT_SUB_REPORT_TAG} [generate_sub_report] fail to generate subsection report, "
+                    f"section_idx: [{section_idx}], not found doc infos"
+                )
+                return False, "Not found doc infos", "", []
             logger.info(
-                f"{EFFECT_SUB_REPORT_TAG} [generate_sub_report] section_idx: [{section_idx}], "
-                f"classified_content len: {len(classified_content)}"
-            )
-        else:
-            logger.debug(
-                "%s [generate_sub_report] section_idx: [%s], classified_content is %s",
+                "%s [generate_sub_report] section_idx: [%s], no doc_infos found, "
+                "use dependency background knowledge as fallback.",
                 EFFECT_SUB_REPORT_TAG,
                 section_idx,
-                classified_content,
             )
-
-        if classify_success:
-            core_content_urls = classified_content.get("core_content_url_list", [])
-            core_content_urls = list(dict.fromkeys(core_content_urls))
-            if not core_content_urls:
-                logger.error(
-                    f"{EFFECT_SUB_REPORT_TAG} [generate_sub_report] section_idx: [{section_idx}], "
-                    "no core content urls returned from classification"
-                )
-                return False, "no core content urls from classification", "", []
-            classified_infos, classified_doc_infos = _get_classified_infos(
-                current_inputs.get("doc_infos", []), core_content_urls
-            )
-            current_inputs["sub_section_core_content"] = classified_infos.get(
-                "core_content_list", []
-            )
-            current_inputs["sub_section_references"] = classified_infos.get(
-                "references", []
-            )
-            for idx, doc_info in enumerate(classified_doc_infos):
-                doc_info.pop("query", None)
-                doc_info["index"] = idx + 1
-            current_inputs["classified_content"] = classified_doc_infos
+            current_inputs["sub_section_core_content"] = background_contents
+            current_inputs["sub_section_references"] = []
+            current_inputs["classified_content"] = []
+            classified_content = []
         else:
-            logger.error(
-                f"{EFFECT_SUB_REPORT_TAG} [generate_sub_report] Error: Classify doc information failed for "
-                f"[{classified_content}], section_idx: [{section_idx}]"
+            classify_success, classified_content = await self._classify_doc_infos(
+                current_inputs
             )
-            return False, "classify_doc_infos fail", "", []
+            if LogManager.is_sensitive():
+                logger.info(
+                    f"{EFFECT_SUB_REPORT_TAG} [generate_sub_report] section_idx: [{section_idx}], "
+                    f"classified_content len: {len(classified_content)}"
+                )
+            else:
+                logger.debug(
+                    "%s [generate_sub_report] section_idx: [%s], classified_content is %s",
+                    EFFECT_SUB_REPORT_TAG,
+                    section_idx,
+                    classified_content,
+                )
+
+            if classify_success:
+                core_content_urls = classified_content.get("core_content_url_list", [])
+                core_content_urls = list(dict.fromkeys(core_content_urls))
+                if not core_content_urls:
+                    logger.error(
+                        f"{EFFECT_SUB_REPORT_TAG} [generate_sub_report] section_idx: [{section_idx}], "
+                        "no core content urls returned from classification"
+                    )
+                    return False, "no core content urls from classification", "", []
+                classified_infos, classified_doc_infos = _get_classified_infos(
+                    doc_infos, core_content_urls
+                )
+                current_inputs["sub_section_core_content"] = classified_infos.get(
+                    "core_content_list", []
+                )
+                current_inputs["sub_section_references"] = classified_infos.get(
+                    "references", []
+                )
+                for idx, doc_info in enumerate(classified_doc_infos):
+                    doc_info.pop("query", None)
+                    doc_info["index"] = idx + 1
+                current_inputs["classified_content"] = classified_doc_infos
+            else:
+                logger.error(
+                    f"{EFFECT_SUB_REPORT_TAG} [generate_sub_report] Error: Classify doc information failed for "
+                    f"[{classified_content}], section_idx: [{section_idx}]"
+                )
+                return False, "classify_doc_infos fail", "", []
         classified_content = current_inputs.get("classified_content", [])
         if not LogManager.is_sensitive():
             logger.debug(
@@ -916,8 +973,10 @@ class Reporter:
 
         outline_renum = MarkdownOutlineRenumber()
 
-        # Sort sub-reports by id
-        sub_report_content_list.sort(key=lambda x: x.section_id)
+        # Keep section ordering stable when section ids are stored as strings.
+        sub_report_content_list.sort(
+            key=lambda x: Reporter._section_sort_key(x.section_id)
+        )
 
         transition_tasks = []
         transition_indices = []
@@ -1948,12 +2007,28 @@ class Reporter:
             current_inputs.get("section_task", "")
         )  # Current section title
         # Validate required fields
-        if (
-            not section_task
-            or not current_inputs.get("sub_section_outline", "")
-            or not current_inputs.get("classified_content", [])
+        has_collected_infos = bool(current_inputs.get("classified_content", []))
+        background_knowledge_contents = self._get_background_knowledge_contents(
+            current_inputs.get("sub_report_background_knowledge", [])
+        )
+        # 输出背景知识分析
+        logger.debug(
+            "%s [write_subsection_reports] section_idx: %s, background_knowledge_contents: %s",
+            EFFECT_SUB_REPORT_TAG,
+            current_inputs.get("section_idx", 1),
+            background_knowledge_contents,
+            extra={"skip_truncation": True},
+        )
+        has_background_knowledge = bool(background_knowledge_contents)
+        if self._is_missing_subsection_report_context(
+            section_task=section_task,
+            sub_section_outline=current_inputs.get("sub_section_outline", ""),
+            has_collected_infos=has_collected_infos,
+            has_background_knowledge=has_background_knowledge,
         ):
-            error_msg = "Missing 'section_task' or sub section outline or collected infos in context."
+            error_msg = (
+                "Missing 'section_task' or sub section outline or collected infos/background knowledge in context."
+            )
             current_inputs["sub_report_content"] = ""
             logger.error(
                 f"{EFFECT_SUB_REPORT_TAG} [write_subsection_reports] section_idx: "
@@ -1998,7 +2073,7 @@ class Reporter:
             f"References is {current_inputs.get('sub_section_references', '')},"
             f"Current Chapter Outline is "
             f"{current_inputs.get('sub_section_outline', '')},"
-            f"Background Knowledge is {current_inputs.get('sub_report_background_knowledge', [])}"
+            f"Background Knowledge is {background_knowledge_contents}"
         )
         try:
             llm_input = apply_system_prompt(
@@ -2113,6 +2188,7 @@ class Reporter:
                     EFFECT_SUB_REPORT_TAG,
                     current_inputs.get("section_idx", 1),
                     current_inputs["sub_report_content"],
+                    extra={"skip_truncation": True},
                 )
             return dict(success=True, result="success")
         except Exception as e:

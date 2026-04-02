@@ -57,9 +57,10 @@ async run(message: Optional[str] = None, conversation_id: Optional[str] = None, 
   - `"revise_outline"`：大纲交互场景，用户直接修改大纲内容，系统将基于用户修改重新生成
 - `report_template` 若为 base64 字符串会自动解码，解码失败则回退原文。
 
+
 **返回**：
-- **AsyncGenerator[str]**：流式 JSON 字符串（当 `interrupt_feedback=""` 或 `"accepted"` 时）
-- **dict**：JSON 响应（当 `interrupt_feedback="cancel"` 时）
+- **AsyncGenerator[str]**：流式 JSON 字符串（默认执行、HITL 恢复、大纲交互、报告后局部优化场景）。
+- **dict**：JSON 响应（当 `interrupt_feedback="cancel"` 时）。
 
 **行为说明**：
 - 初始化 LLM 与搜索工具上下文。
@@ -68,6 +69,7 @@ async run(message: Optional[str] = None, conversation_id: Optional[str] = None, 
 - 收到 `ALL END` 视为流程完成并清理上下文。
 - 当 `interrupt_feedback="cancel"` 时，接口返回 JSON 响应而非流式输出，用于取消正在运行的任务。取消功能支持单进程和跨进程（Redis 模式）两种场景。
 - 当 `interrupt_feedback` 为 `"revise_comment"` 或 `"revise_outline"` 时，系统会在大纲交互节点处理用户反馈，并重新生成大纲。
+- 当 `agent_config.user_feedback_processor_enable=True` 时，工作流在 `SourceTracerInferNode` 后不会立即结束，而是进入 `UserFeedbackProcessorNode` 进行报告后局部优化交互。
 
 ---
 
@@ -94,6 +96,12 @@ _register_local_search_tool(custom_local: CustomLocalSearchConfig, search_config
 class openjiuwen_deepsearch.framework.openjiuwen.agent.workflow.DeepresearchDependencyAgent(DeepresearchAgent)
 ```
 依赖驱动执行思维链模式的研究工作流 Agent。
+
+**行为说明**：
+- 与 `DeepresearchAgent` 共用 `run` 接口、参数校验和中断恢复机制。
+- 当 `agent_config.execution_method="dependency_driving"` 时启用。
+- 主链路为 `DependencyOutlineNode -> DependencyOutlineInteractionNode -> DependencyEditorTeamNode -> ReporterNode`。
+- `DependencyEditorTeamNode` 内部统一编排依赖驱动的推理子图和写作子图，章节执行遵循依赖层级：上一层章节写作可以与下一层章节推理并行执行。
 
 ---
 

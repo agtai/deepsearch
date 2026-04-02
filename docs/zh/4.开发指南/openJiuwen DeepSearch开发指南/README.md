@@ -1,4 +1,4 @@
-# 初始化DeepResearchAgent配置
+# 初始化 DeepResearch 配置
 
 ---
 配置参数类`Config`包括两种类型的参数变量，一是`AgentConfig`类，这些参数是通过对外接口，用户可修改的配置参数；二是`ServiceConfig`类，这些参数涵盖系统各模块的主要核心配置参数，且已配置默认值。
@@ -8,18 +8,24 @@
 ```python
 from openjiuwen_deepsearch.config.config import Config
 
-# 实例化AgentConfig
 agent_config = Config().agent_config.model_dump()
-# 对必填项进行赋值
-# 1. 配置LLM
+
+# 1. 配置至少一个可用的 LLM
 agent_config["llm_config"]["general"]["model_name"] = ""
 agent_config["llm_config"]["general"]["model_type"] = ""
 agent_config["llm_config"]["general"]["base_url"] = ""
 agent_config["llm_config"]["general"]["api_key"] = ""
+
 # 2. 配置联网增强引擎
 agent_config["web_search_engine_config"]["search_engine_name"] = ""
 agent_config["web_search_engine_config"]["search_url"] = ""
 agent_config["web_search_engine_config"]["search_api_key"] = ""
+
+# 3. 按需覆盖执行参数
+agent_config["workflow_human_in_the_loop"] = False
+agent_config["outline_interaction_enabled"] = False
+agent_config["search_mode"] = "research"
+agent_config["execution_method"] = "parallel"
 ```
 
 ## 大模型配置说明
@@ -58,9 +64,13 @@ openJiuwen-DeepSearch 支持接入四种类型联网增强引擎：
 ## ssl证书配置说明
 
 ---
-在访问LLM大模型服务、以及联网增强引擎服务时，openJiuwen-DeepSearch提供ssl证书配置能力，如需启用，需要在环境变量中，打开`LLM_SSL_VERIFY`设置为`true`，并提供大模型服务访问的证书`LLM_SSL_CERT`。同理，打开`TOOL_SSL_VERIFY`设置为`true`时，需要提供网络搜索服务访问的证书`TOOL_SSL_CERT`。
+在访问LLM大模型服务、联网增强引擎服务、以及知识库 Embedding 服务时，openJiuwen-DeepSearch提供ssl证书配置能力：
 
-如果不需要启用ssl功能，需显式关闭环境变量中`LLM_SSL_VERIFY`和`TOOL_SSL_VERIFY`，设置为`false`，此时不需要提供对应的证书。
+- **LLM**：如需启用，在环境变量中设置`LLM_SSL_VERIFY`为`true`，并提供`LLM_SSL_CERT`。
+- **Tool（联网增强引擎）**：打开`TOOL_SSL_VERIFY`设置为`true`时，需要提供`TOOL_SSL_CERT`。
+- **Embedding（知识库索引构建）**：`EMBEDDING_SSL_VERIFY`为`true`时启用 HTTPS 证书校验；使用系统信任的 CA 时可不配`EMBEDDING_SSL_CERT`。访问自签名或企业自建 CA 的 Embedding 地址时，需设置`EMBEDDING_SSL_CERT`为 PEM 证书路径。通过本仓库`server/main.py`启动时，未设置或空白`EMBEDDING_SSL_VERIFY`会按`false`处理（关闭校验），与`.env.example`默认一致；若显式设为`true`而服务端证书不可信且未配置证书路径，可能导致构建索引失败。
+
+如果不需要启用 SSL 校验，可将`LLM_SSL_VERIFY`、`TOOL_SSL_VERIFY`、`EMBEDDING_SSL_VERIFY`设为`false`（或不配置 Embedding 开关并依赖上述默认），此时不需要提供对应的证书。
 
 ```python
 import os
@@ -68,18 +78,20 @@ os.environ["LLM_SSL_VERIFY"] = "false"
 os.environ["LLM_SSL_CERT"] = ""
 os.environ["TOOL_SSL_VERIFY"] = "false"
 os.environ["TOOL_SSL_CERT"] = ""
+os.environ["EMBEDDING_SSL_VERIFY"] = "false"
+os.environ["EMBEDDING_SSL_CERT"] = ""
 ```
 
-# 实例化DeepResearchAgent类
+# 实例化 Agent
 
 ---
-`DeepResearchAgent`是系统基于openJiuwen开发框架，开发并预置的深度研究智能体。能够根据用户查询进行研究报告生成。
+系统基于 openJiuwen 开发框架预置了深度研究 Agent，能够根据用户查询完成分析规划、信息收集和研究报告生成。
 
 ## 通过AgentFactory方式创建
 
 ---
 
-`AgentFactory`类支持根据配置`agent_config`，实例化`DeepResearchAgent`类，获取`DeepResearchAgent`对象。
+`AgentFactory` 会根据 `agent_config` 中的 `execution_method` 等配置，返回当前应使用的 Agent 实例。研究模式下，通常返回 `DeepresearchAgent` 或 `DeepresearchDependencyAgent`。
 
 ```python
 from openjiuwen_deepsearch.framework.openjiuwen.agent.agent_factory import AgentFactory
@@ -88,24 +100,24 @@ agent_factory = AgentFactory()
 agent = agent_factory.create_agent(agent_config)
 ```
 
-获取的agent是一个`DeepResearchAgent`实例。
+这是当前最推荐的创建方式，因为它会自动根据执行模式选择合适的 Agent 实现。
 
 ## 通过构造函数方式创建
 
 ---
-直接通过`DeepResearchAgent`的构造函数，获取实例化对象。
+如果你明确希望直接使用并行研究 Agent，也可以手动实例化 `DeepresearchAgent`。
 
 ```python
-from openjiuwen_deepsearch.framework.openjiuwen.agent.workflow import DeepResearchAgent
+from openjiuwen_deepsearch.framework.openjiuwen.agent.workflow import DeepresearchAgent
 
-agent = DeepResearchAgent(agent_config)
+agent = DeepresearchAgent()
 ```
 
 # 生成研究报告
 
 ---
 
-`DeepResearchAgent`可以根据用户查询，进行深度研究和分析规划，通过网络搜索等任务完成信息收集，并生成研究报告。用户的输入，可以分为三种情况：
+`DeepresearchAgent` 的 `run()` 和 `generate_template()` 可以覆盖当前文档中的主要使用场景。用户输入通常分为三种情况：
  - 用户查询，描述用户的需求或者问题。
  - 用户查询和用户已有模板，期望系统遵循已有模板进行研究报告生成。
  - 用户查询和用户已有报告，期望系统遵循已有报告的章节格式进行研究报告生成。
@@ -114,9 +126,9 @@ agent = DeepResearchAgent(agent_config)
 
 ---
 
-`DeepResearchAgent`的`run`函数，可接收用户查询`message`，数据类型是`str`。`conversation_id`参数是会话标识id。深度研究过程，遵循`agent_config`的参数配置。
+`DeepresearchAgent` 的 `run` 函数可接收用户查询 `message`，数据类型是 `str`。`conversation_id` 是会话标识，整个深度研究过程遵循 `agent_config` 的参数配置。
 
-`run`函数按照流式数据的模式，逐帧输出系统内部结果。每帧数据是`dict`类型，key值`agent`记录当前帧数据的生产者角色；key值`content`来记录当前帧数据的具体内容。最终的研究报告生产者角色为`NodeId.END.value`。
+`run`函数按照流式数据的模式，逐帧输出系统内部结果。每帧数据是`dict`类型，key值`agent`记录当前帧数据的生产者角色；key值`content`来记录当前帧数据的具体内容。默认情况下，最终结果由`NodeId.END.value`输出；当开启报告后局部优化能力时，`user_feedback_processor`节点会在结束前额外承担一轮交互。
 
 ```python
 import json
@@ -182,7 +194,7 @@ async for chunk in agent.run(message=message, conversation_id=str(uuid.uuid4()),
 > 功能概述：上游供应链分析和下游客户结构分析
 ```
 
-`DeepResearchAgent`的`generate_template`函数，可以对用户提供的模板文件进行规范化校验和处理。其中，入参`is_template`标识用户提供的文件是否为模板文件，此处取值为`True`。
+`DeepresearchAgent` 的 `generate_template` 函数可以对用户提供的模板文件进行规范化校验和处理。其中，入参 `is_template` 标识用户提供的文件是否为模板文件，此处取值为 `True`。
 
 ```python
 import base64
@@ -202,7 +214,7 @@ result = await agent.generate_template(file_name=file_path, file_stream=file_str
 user_template_content = result["template_content"]
 ```
 
-`DeepResearchAgent`的`run`函数，参数`report_template`可接收系统规范化后的模板文件内容`user_template_content`，数据类型是`str`，是一份base64编码。
+`DeepresearchAgent` 的 `run` 函数支持通过参数 `report_template` 接收系统规范化后的模板内容 `user_template_content`，数据类型是 `str`，内容为一份 base64 编码字符串。
 
 ```python
 import json
@@ -233,7 +245,7 @@ async for chunk in agent.run(message=message, conversation_id=conversation_id, a
 
 用户提供的样例报告文件，与期望生成研究报告遵循相同模板。样例报告文件格式支持markdown、docx、pdf、html。
 
-与上一小节“根据用户查询和用户已有模板生成研究报告”不同的是，`DeepResearchAgent`的`generate_template`函数，入参`is_template`标识应取值为`False`，标识用户提供的文件为样例报告文件。
+与上一小节“根据用户查询和用户已有模板生成研究报告”不同的是，`DeepresearchAgent` 的 `generate_template` 函数中，入参 `is_template` 应取值为 `False`，表示用户提供的是样例报告文件。
 
 ```python
 import base64
@@ -253,7 +265,7 @@ result = await agent.generate_template(file_name=file_path, file_stream=file_str
 user_template_content = result["template_content"]
 ```
 
-提取出规范化后的模板文件内容`user_template_content`之后，继续通过`DeepResearchAgent`的`run`函数，进行研究报告生成。
+提取出规范化后的模板文件内容 `user_template_content` 之后，再通过 `DeepresearchAgent` 的 `run` 函数继续生成研究报告。
 
 ```python
 import json
@@ -300,8 +312,8 @@ async for chunk in agent.run(message=message, conversation_id=conversation_id, a
 当配置参数：
 
 ```python
-agent_config.workflow_human_in_the_loop = True
-````
+agent_config["workflow_human_in_the_loop"] = True
+```
 
 系统将执行用户查询意图交互流程，该功能 **默认开启**。
 
@@ -365,7 +377,7 @@ service_config.workflow_feedback_mode = "cmd"
 当配置参数：
 
 ```python
-outline_interaction_enabled = True
+agent_config["outline_interaction_enabled"] = True
 ```
 
 系统在生成大纲后会暂停执行，并等待用户反馈，该功能 **默认开启**。
@@ -408,6 +420,16 @@ SDK 层通过 `agent_config` 接收这些参数。
     ...
 }
 ```
+
+### 空间（space_id）与本地知识库
+
+**Server 层 `DeepSearchRequest`** 中的 `space_id` 用于多租户隔离：创建知识库、上传文档等接口均与 `space_id` 关联。调用 `run` 并启用本地检索时，`local_search_config.local_search_config_ids` 中的知识库必须属于请求体中的 **`space_id`**；服务端会查询数据库校验，**跨空间传入 `kb_id` 会失败**。
+
+**知识库与对象存储**：仅当服务端环境为 `CHECKPOINTER_TYPE=redis`（分布式）时，上传的知识库文件会写入配置的对象存储以便多实例一致访问；`in_memory` / `persistence` 时文件只落在服务端本地磁盘，不使用 OBS。多实例时应用数据库须为 MySQL 且各实例共用同一库，否则知识库元数据无法在实例间一致（服务端会拒绝 `redis` + `sqlite` 的配置组合）。
+
+服务端对 Agent 的缓存键由 **`DeepSearchRequest` 中参与构建 Agent 的字段**（排除 `message`、`conversation_id`、`interrupt_feedback`）经稳定 JSON 序列化后取哈希得到，其中包含 **`space_id`**、**`local_search_config`（含知识库 ID 列表）**、联网检索与 `llm_config`、各类开关等；因此不仅不同空间不会共用同一 Agent，**同一空间下更换本地知识库或检索相关配置也不会误命中旧缓存**。
+
+若部署在公网或多人共用同一后端，**不应**仅依赖请求体中的 `space_id` 作为唯一信任来源，应在网关或鉴权层校验调用方是否有权使用该空间。
 
 ---
 
@@ -457,6 +479,74 @@ SDK 层通过 `agent_config` 接收这些参数。
 * 大纲交互存在最大轮次限制 `outline_interaction_max_rounds`，超过后将自动进入报告生成阶段。
 
 ---
+# 报告后局部优化
+
+---
+
+本功能支持在报告生成完成后，针对用户选中的局部文本继续进行扩写、润色或缩写。开启方式是在`agent_config`中设置：
+
+```python
+agent_config["user_feedback_processor_enable"] = True
+agent_config["user_feedback_processor_max_interactions"] = 3
+```
+
+该功能与前置 HITL 不同，它发生在报告和溯源结果已经生成之后。工作流会在内部进入`UserFeedbackProcessorNode`：
+- 首次进入时，系统会先向前端发送完整的`final_result`快照。
+- 后续前端继续使用同一个`conversation_id`，把用户动作作为 JSON 字符串传给`message`。
+- 每次改写成功后，系统会返回局部替换信息和最新的`final_result`，前端可据此增量刷新内容。
+- 当用户发送`finish`或达到最大交互次数时，流程结束。
+
+当前支持的动作如下：
+- `expand`：扩写选中文本。
+- `polish`：润色选中文本。
+- `shorten`：缩写选中文本。
+- `finish`：结束当前局部优化会话。
+
+其中，前三种动作的请求体建议包含以下字段：
+- `action`：动作类型。
+- `selected_text`：用户当前选中的原始文本。
+- `start_offset`：选中文本在当前报告中的起始偏移。
+- `end_offset`：选中文本在当前报告中的结束偏移。
+- `user_instruction`：附加改写要求，可选。
+
+```python
+import json
+import uuid
+from openjiuwen_deepsearch.framework.openjiuwen.agent.agent_factory import AgentFactory
+
+agent_factory = AgentFactory()
+agent = agent_factory.create_agent(agent_config)
+
+conversation_id = str(uuid.uuid4())
+message = "请生成一份某行业研究报告"
+
+# 第一轮：正常生成报告
+async for chunk in agent.run(message=message, conversation_id=conversation_id, agent_config=agent_config):
+    logger.debug("[Stream message from node: %s]", chunk)
+
+# 第二轮：对报告局部内容执行扩写
+feedback_message = json.dumps({
+    "action": "expand",
+    "selected_text": "需要扩写的原文片段",
+    "start_offset": 120,
+    "end_offset": 136,
+    "user_instruction": "补充行业背景和数据解释"
+}, ensure_ascii=False)
+
+async for chunk in agent.run(message=feedback_message, conversation_id=conversation_id, agent_config=agent_config):
+    logger.debug("[Rewrite stream message: %s]", chunk)
+
+# 第三轮：结束局部优化
+finish_message = json.dumps({"action": "finish"}, ensure_ascii=False)
+async for chunk in agent.run(message=finish_message, conversation_id=conversation_id, agent_config=agent_config):
+    logger.debug("[Finish stream message: %s]", chunk)
+```
+
+说明：
+- `selected_text`必须与当前报告中`[start_offset, end_offset)`范围内的文本完全一致，否则会返回偏移校验错误。
+- 选中文本最大长度受`service_config.user_feedback_processor_max_text_length`控制，默认值为`2000`。
+- 局部改写会同步维护引用和溯源推理的偏移信息，因此前端应始终以最新返回的`final_result`为准继续交互。
+
 
 
 # 更多参考

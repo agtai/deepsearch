@@ -112,7 +112,7 @@ def validate_config_parameter(config_key, invalid_value, error_code, error_msg_f
 
 @pytest.mark.parametrize("invalid_value, error_code, error_msg_fragment", [
     (0, 200009, "Input should be greater than or equal to 1"),
-    (11, 200009, "Input should be less than or equal to 10"),
+    (16, 200009, "Input should be less than or equal to 15"),
     ("invalid type", 200009, "Input should be a valid integer, unable to parse string as an integer"),
 ])
 def test_agent_factory_set_outliner_max_section_num(invalid_value, error_code, error_msg_fragment):

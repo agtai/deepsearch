@@ -115,7 +115,7 @@ class DependencyOutlineInteractionNode(OutlineInteractionNode)
 
 **功能**：
 - 继承自 `OutlineInteractionNode`，交互逻辑与父类相同。
-- 区别在于：用户接受大纲时，跳转到 `DependencyReasoningTeamNode`。
+- 区别在于：用户接受大纲时，跳转到 `DependencyEditorTeamNode`。
 - 修改评论时，仍然跳转到 `OutlineNode`。
 
 ---
@@ -132,27 +132,16 @@ class EditorTeamNode(BaseNode)
 
 ---
 
-### class DependencyReasoningTeamNode
+### class DependencyEditorTeamNode
 ```python
-class DependencyReasoningTeamNode(EditorTeamNode)
+class DependencyEditorTeamNode(EditorTeamNode)
 ```
-**DependencyReasoningTeamNode** 依赖驱动工作流编辑团队子图管理节点（定义在 `editor_team_manager_node.py`）。
+**DependencyEditorTeamNode** 依赖驱动工作流编辑团队节点（定义在 `editor_team_manager_node.py`）。
 
 **功能**：
-- 基于前置依赖关系构建子工作流并汇聚结果。
-- 透传子图流式输出信息收集结果。
-
----
-
-### class DependencyWritingTeamNode
-```python
-class DependencyWritingTeamNode(EditorTeamNode)
-```
-**DependencyWritingTeamNode** 依赖驱动工作流子报告撰写子图管理节点（定义在 `editor_team_manager_node.py`）。
-
-**功能**：
-- 构建子报告撰写子工作流并汇聚结果。
-- 透传子图流式输出报告内容与溯源信息。
+- 按依赖层级流水线并行执行：每层同时执行「上一层的写作」与「本层的推理」（如 1 推理完成后，1 的写作与 2、3 的推理并行）。
+- 基于前置依赖关系构建推理子工作流与写作子工作流并汇聚结果。
+- 透传子图流式输出信息收集与报告内容。
 
 ---
 
@@ -179,7 +168,25 @@ class SourceTracerNode(BaseNode)
 - 若 `source_tracer_research_trace_source_switch` 关闭则跳过。
 - 预处理后调用校验逻辑，生成引用信息。
 - 写入 `final_result.response_content` 与 `citation_messages`。
+- 引用结果中的文本引用会携带 `citation_start_offset` 与 `citation_end_offset`，供后续局部改写使用。
 - 校验失败时写入 `exception_info`。
+
+
+---
+
+### class UserFeedbackProcessorNode
+```python
+class UserFeedbackProcessorNode(BaseNode)
+```
+**UserFeedbackProcessorNode** 在报告生成完成后，处理用户对局部文本的迭代改写请求。
+
+**功能**：
+- 根据 `user_feedback_processor_enable` 决定是否启用报告后局部优化。
+- 首次进入时先向前端发送完整的 `final_result` 快照。
+- 读取用户 JSON 反馈，支持 `expand`、`shorten`、`polish`、`finish`。
+- 调用 `UserFeedbackProcessor` 完成局部改写，并同步更新 `citation_messages` 与 `infer_messages`。
+- 维护 `search_context.feedback_interaction_count` 与 `search_context.rewrite_history`。
+- 达到 `user_feedback_processor_max_interactions` 或收到 `finish` 后结束流程。
 
 ---
 
@@ -235,7 +242,7 @@ class EndNode(End)
 
 ---
 
-## 依赖驱动工作流编辑团队子图节点（Dependency Driven Reasoning Team Subgraph Nodes）
+## 依赖驱动工作流推理子图节点（Dependency Driven Reasoning Subgraph Nodes）
 
 定义在 `reasoning_writing_graph/dependency_reasoning_team_nodes.py`：
 
@@ -263,7 +270,19 @@ class EndNode(End)
 ```
 StartNode -> EntryNode -> [GenerateQuestionsNode -> FeedbackHandlerNode] -> OutlineNode
 -> [OutlineInteractionNode -> OutlineNode]* -> EditorTeamNode -> ReporterNode -> SourceTracerNode -> EndNode
+-> SourceTracerInferNode -> UserFeedbackProcessorNode -> EndNode
 ```
+
+### 主工作流（依赖驱动）
+```text
+StartNode -> EntryNode -> [GenerateQuestionsNode -> FeedbackHandlerNode] -> DependencyOutlineNode
+-> [DependencyOutlineInteractionNode -> DependencyOutlineNode]*
+-> DependencyEditorTeamNode -> ReporterNode -> SourceTracerNode
+-> SourceTracerInferNode -> UserFeedbackProcessorNode -> EndNode
+```
+
+说明：`DependencyEditorTeamNode` 会在内部同时编排依赖驱动的推理子图与写作子图，
+按章节依赖层级执行“上一层写作 + 本层推理”的流水线并行调度。
 
 ### 编辑团队子图
 ```

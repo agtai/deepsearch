@@ -241,7 +241,8 @@ class Planner:
 
                     logger.info(
                         f"{log_prefix}The plan generation is completed{progress_bar}: "
-                        f"{'**' if LogManager.is_sensitive() else plan.model_dump_json(indent=4)}"
+                        f"{'**' if LogManager.is_sensitive() else plan.model_dump_json(indent=4)}",
+                        extra={"skip_truncation": True},
                     )
                     break  # only one toolcall
 
