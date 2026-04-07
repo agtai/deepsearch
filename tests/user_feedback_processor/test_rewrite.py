@@ -215,7 +215,7 @@ class TestRewriteFlow:
 
         assert result["rewritten_text"] == "改写后的文本"
         assert result["new_report"] == "改写后的文本后续内容"
-        assert result["updated_messages"] == {}
+        assert result["updated_citation_messages"] == {}
         assert result["updated_infer_messages"] == []
 
     @pytest.mark.asyncio
@@ -248,7 +248,7 @@ class TestRewriteFlow:
             user_instruction="",
         )
         assert result["new_report"] == "前缀改写后的段落尾部"
-        assert result["updated_messages"] == {}
+        assert result["updated_citation_messages"] == {}
         assert result["updated_infer_messages"] == []
 
     @pytest.mark.asyncio
@@ -297,9 +297,9 @@ class TestRewriteFlow:
         assert "[[1]]" in result["new_report"]
         assert "[[2]]" not in result["new_report"]
         assert result["rewritten_text"] == "这是经过详细扩写后的段落内容，补充了技术细节和实现方案。"
-        assert result["start_offset"] == start
-        assert result["new_end_offset"] == start + len(result["rewritten_text"])
-        assert result["updated_messages"]["data"] == []
+        assert result["rewritten_start_offset"] == start
+        assert result["rewritten_end_offset"] == start + len(result["rewritten_text"])
+        assert result["updated_citation_messages"]["data"] == []
 
     @pytest.mark.asyncio
     async def test_full_rewrite_expand_flow_removes_multiple_selected_citations_and_shifts_trailing_offsets(self):
@@ -360,9 +360,9 @@ class TestRewriteFlow:
         assert "[[2]]" not in result["new_report"]
         assert "[[3]]" not in result["new_report"]
         assert "[[4]]" in result["new_report"]
-        assert [item["reference_index"] for item in result["updated_messages"]["data"]] == [4]
-        assert result["updated_messages"]["data"][0]["id"] == 0
-        assert result["updated_messages"]["data"][0]["citation_start_offset"] < report.index("[[4]]")
+        assert [item["reference_index"] for item in result["updated_citation_messages"]["data"]] == [4]
+        assert result["updated_citation_messages"]["data"][0]["id"] == 0
+        assert result["updated_citation_messages"]["data"][0]["citation_start_offset"] < report.index("[[4]]")
 
     @pytest.mark.asyncio
     async def test_synonym_rewrite_with_shorten_shifts_trailing_citation_backward(self, synonym_rewriter):
@@ -399,7 +399,7 @@ class TestRewriteFlow:
             )
 
         assert result["new_report"] == "前言精简后尾注[[4]](https://d.com)"
-        assert result["updated_messages"]["data"][0]["citation_start_offset"] < report.index("[[4]]")
+        assert result["updated_citation_messages"]["data"][0]["citation_start_offset"] < report.index("[[4]]")
 
     @pytest.mark.asyncio
     async def test_synonym_rewrite_keeps_unselected_duplicate_reference_instances(self, synonym_rewriter):
@@ -450,7 +450,7 @@ class TestRewriteFlow:
             )
 
         assert "[[1]](https://shared.com)" in result["new_report"]
-        assert result["updated_messages"]["data"] == [
+        assert result["updated_citation_messages"]["data"] == [
             {
                 "id": 0,
                 "reference_index": 1,
@@ -506,7 +506,7 @@ class TestRewriteFlow:
         assert "[已选结论](#inference:1)" not in result["new_report"]
         assert "[保留结论](#inference:0)" in result["new_report"]
         assert result["updated_infer_messages"] == [{"id": 0, "content": "保留结论"}]
-        assert result["updated_messages"]["data"][0]["citation_start_offset"] < trailing_citation_start
+        assert result["updated_citation_messages"]["data"][0]["citation_start_offset"] < trailing_citation_start
 
     @pytest.mark.asyncio
     async def test_synonym_rewrite_remaps_inference_10_to_9_and_shifts_trailing_citation_offsets(self, synonym_rewriter):
@@ -554,5 +554,5 @@ class TestRewriteFlow:
         base_delta = len("改写后") - len(selected)
         assert "[保留结论](#inference:9)" in result["new_report"]
         assert result["updated_infer_messages"][9]["id"] == 9
-        assert result["updated_messages"]["data"][0]["citation_start_offset"] == original_citation_start + base_delta - 1
-        assert result["updated_messages"]["data"][0]["citation_end_offset"] == original_citation_end + base_delta - 1
+        assert result["updated_citation_messages"]["data"][0]["citation_start_offset"] == original_citation_start + base_delta - 1
+        assert result["updated_citation_messages"]["data"][0]["citation_end_offset"] == original_citation_end + base_delta - 1

@@ -34,7 +34,7 @@ from openjiuwen_deepsearch.utils.common_utils.stream_utils import get_current_ti
     custom_stream_output
 from openjiuwen_deepsearch.utils.common_utils.text_utils import truncate_string
 from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
-from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import session_context
+from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import model_context, session_context
 from openjiuwen_deepsearch.utils.debug_utils.node_debug import add_debug_log_wrapper, NodeType, NodeDebugData
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
 
@@ -1014,15 +1014,18 @@ class UserFeedbackProcessorNode(BaseNode):
         )
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
+        """注入 session/model 到上下文变量，便于补充搜索等链路复用信息采集能力。"""
+        session_context.set(session)
+        model_context.set(context)
         current_inputs = self._pre_handle(inputs, session, context)
 
         # 确定 algorithm_output，包含 next_node 以供 _post_handle 路由
-        algorithm_output = await self._build_algorithm_output(current_inputs, session)
+        algorithm_output = await self._build_algorithm_output(current_inputs, session, context)
 
         return self._post_handle(inputs, algorithm_output, session, context)
 
-    async def _build_algorithm_output(self, current_inputs: dict, session: Session) -> dict:
-        """执行业务逻辑，并返回包含路由信息的节点输出。"""
+    async def _build_algorithm_output(self, current_inputs: dict, session: Session, context: ModelContext) -> dict:
+        """解析校验反馈、执行改写并推送流式结果；``context`` 随节点传入，供子链路使用（与 ``_do_invoke`` 中 contextvar 一致）。"""
         if current_inputs.get("disabled"):
             logger.info("[UserFeedbackProcessorNode] Feature disabled, routing to EndNode.")
             return dict(next_node=NodeId.END.value)
@@ -1051,7 +1054,10 @@ class UserFeedbackProcessorNode(BaseNode):
         raw_feedback = await self._get_user_feedback(current_inputs["feedback_mode"], session)
         try:
             feedback = UserFeedbackProcessor.parse_feedback(raw_feedback)
-            UserFeedbackProcessor.validate(feedback, report_content, current_inputs["max_text_length"])
+            processor = UserFeedbackProcessor(current_inputs["llm_model_name"])
+            UserFeedbackProcessor.validate(
+                feedback, report_content, current_inputs["max_text_length"]
+            )
 
             action = feedback.get("action", "")
             if action == "finish":
@@ -1059,14 +1065,13 @@ class UserFeedbackProcessorNode(BaseNode):
                 await self._notify_user(session, "User feedback finished.", StreamEvent.USER_INPUT_ENDED)
                 return dict(next_node=NodeId.END.value)
 
-            processor = UserFeedbackProcessor(current_inputs["llm_model_name"])
             action_result = await processor.execute(
                 feedback=feedback,
                 final_result=final_result,
                 language=current_inputs["language"],
             )
         except CustomException as e:
-            logger.warning(f"[UserFeedbackProcessorNode] User feedback failed: {e}")
+            logger.error(f"[UserFeedbackProcessorNode] User feedback failed: {e}")
             await UserFeedbackProcessor.send_error(session, e)
             return dict(
                 next_node=NodeId.USER_FEEDBACK_PROCESSOR.value,
@@ -1098,6 +1103,7 @@ class UserFeedbackProcessorNode(BaseNode):
             feedback=feedback,
             result=stream_result,
             final_result=updated_final_result,
+            feedback_interaction_count=interaction_count + 1,
         )
 
         return dict(
@@ -1147,8 +1153,8 @@ class UserFeedbackProcessorNode(BaseNode):
 
         new_report = algorithm_output["new_report"]
         rewritten_text = algorithm_output["rewritten_text"]
-        rewritten_start_offset = algorithm_output["start_offset"]
-        rewritten_end_offset = algorithm_output["new_end_offset"]
+        rewritten_start_offset = algorithm_output["rewritten_start_offset"]
+        rewritten_end_offset = algorithm_output["rewritten_end_offset"]
         updated_citation_messages = algorithm_output["updated_citation_messages"]
         updated_infer_messages = algorithm_output.get("updated_infer_messages")
         feedback = algorithm_output["feedback"]
@@ -1160,23 +1166,38 @@ class UserFeedbackProcessorNode(BaseNode):
 
         # 记录每次局部改写的关键信息，便于问题排查和后续审计。
         history = session.get_global_state("search_context.rewrite_history") or []
-        history.append({
+        history_item = {
             "action": feedback.get("action"),
+            "rewrite_scope": feedback.get("rewrite_scope"),
             "selected_text": feedback.get("selected_text"),
             "selected_text_clean": selected_text_clean,
-            "original_start_offset": feedback.get("start_offset"),
-            "original_end_offset": feedback.get("end_offset"),
+            "original_start_offset": algorithm_output["original_start_offset"],
+            "original_end_offset": algorithm_output["original_end_offset"],
             "rewritten_text": rewritten_text,
             "rewritten_start_offset": rewritten_start_offset,
             "rewritten_end_offset": rewritten_end_offset,
             "user_instruction": feedback.get("user_instruction", ""),
-        })
+        }
+        if "section_start_offset" in algorithm_output:
+            history_item["section_start_offset"] = algorithm_output.get("section_start_offset")
+        if "section_end_offset" in algorithm_output:
+            history_item["section_end_offset"] = algorithm_output.get("section_end_offset")
+        if "collector_summary" in algorithm_output:
+            history_item["collector_summary"] = algorithm_output.get("collector_summary", "")
+        history.append(history_item)
         session.update_global_state({"search_context.rewrite_history": history})
 
         add_debug_log_wrapper(session, NodeDebugData(
             NodeId.USER_FEEDBACK_PROCESSOR.value, 0, NodeType.MAIN.value,
-            output_content=json.dumps({"start_offset": rewritten_start_offset, "end_offset": rewritten_end_offset},
-                                      ensure_ascii=False)
+            output_content=json.dumps(
+                {
+                    "selected_text": feedback.get("selected_text"),
+                    "rewritten_text": rewritten_text,
+                    "rewritten_start_offset": rewritten_start_offset,
+                    "rewritten_end_offset": rewritten_end_offset,
+                },
+                ensure_ascii=False,
+            )
         ))
 
         logger.info("[UserFeedbackProcessorNode] Rewrite completed, loop back for next interaction.")

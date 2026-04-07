@@ -1,5 +1,6 @@
 # coding: utf-8
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+import logging
 import json
 import os
 from pathlib import Path
@@ -9,8 +10,9 @@ import aioboto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
-from openjiuwen.core.common.logging import logger
 from server.local_retrieval.core.object.base_storage_client import BaseObjectStorageClient
+
+logger = logging.getLogger(__name__)
 
 
 class AioBotoClient(BaseObjectStorageClient):

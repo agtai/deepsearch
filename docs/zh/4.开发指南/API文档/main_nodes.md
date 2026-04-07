@@ -183,9 +183,11 @@ class UserFeedbackProcessorNode(BaseNode)
 **功能**：
 - 根据 `user_feedback_processor_enable` 决定是否启用报告后局部优化。
 - 首次进入时先向前端发送完整的 `final_result` 快照。
-- 读取用户 JSON 反馈，支持 `expand`、`shorten`、`polish`、`finish`。
+- 读取用户 JSON 反馈，支持 `expand`、`shorten`、`polish`、`supplementary_search`、`finish`。
+- 对改写类动作解析并校验 `action`、`rewrite_scope`、`selected_text`、偏移量等字段。
+- `supplementary_search` 支持 `selected_only` 与 `selected_and_related` 两种改写范围。
 - 调用 `UserFeedbackProcessor` 完成局部改写，并同步更新 `citation_messages` 与 `infer_messages`。
-- 维护 `search_context.feedback_interaction_count` 与 `search_context.rewrite_history`。
+- 维护 `search_context.feedback_interaction_count` 与 `search_context.rewrite_history`，记录动作类型、改写范围和实际替换区间。
 - 达到 `user_feedback_processor_max_interactions` 或收到 `finish` 后结束流程。
 
 ---

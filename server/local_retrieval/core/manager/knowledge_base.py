@@ -3,6 +3,7 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import os
 import re
+import logging
 import uuid
 import time
 import inspect
@@ -13,7 +14,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Union, Tuple, Optional
 from fastapi import status, UploadFile
-from openjiuwen.core.common.logging import logger
 from openjiuwen.core.retrieval.indexing.processor.parser.auto_file_parser import AutoFileParser
 from openjiuwen.core.retrieval.indexing.processor.chunker.chunking import TextChunker
 from openjiuwen.core.retrieval.indexing.processor.extractor.triple_extractor import TripleExtractor
@@ -77,6 +77,7 @@ from server.local_retrieval.models.knowledge_base_document import DocumentStatus
 from server.core.manager.model_manager.utils import SecurityUtils
 from server.local_retrieval.core.object.aioboto_storage_client import AioBotoClient
 
+logger = logging.getLogger(__name__)
 _RESILIENT_PDF_REGISTERED = False
 
 
@@ -949,8 +950,9 @@ async def _parse_file(
 ) -> List[Document]:
     """调用新的知识库系统解析文件，返回Document列表"""
     logger.debug(
-        f"[PARSE] Parsing file - Path: {doc_path}, "
-        f"Strategy type: {parsing_strategy.strategy_type}"
+        "[PARSE] Parsing file - Path: %s, Strategy type: %s",
+        doc_path,
+        parsing_strategy.strategy_type,
     )
 
     if not doc_path:
@@ -984,7 +986,11 @@ async def _parse_file(
                 document.metadata = {}
             document.metadata["doc_id"] = document.id_
 
-        logger.debug(f"[PARSE] Parsed file - Path: {doc_path}, Documents: {len(documents)}")
+        logger.debug(
+            "[PARSE] Parsed file - Path: %s, Documents: %s",
+            doc_path,
+            len(documents),
+        )
         return documents
     finally:
         # 清理临时文件
@@ -993,7 +999,9 @@ async def _parse_file(
                 corrected_path_obj = Path(corrected_path)
                 if corrected_path_obj.exists() and corrected_path_obj != Path(doc_path):
                     corrected_path_obj.unlink()
-                    logger.debug(f"[PARSE] Cleaned up temporary file: {corrected_path}")
+                    logger.debug(
+                        "[PARSE] Cleaned up temporary file: %s", corrected_path
+                    )
             except Exception as e:
                 logger.warning(
                     f"[PARSE] Failed to clean up temporary file {corrected_path}: {str(e)}"
@@ -1034,8 +1042,12 @@ def _create_chunker(segmentation_strategy, embed_model=None) -> TextChunker:
     chunk_overlap = int(chunk_size * (overlap_percent / 100)) if overlap_percent > 0 else 0
 
     logger.debug(
-        f"[CHUNK] Creating chunker - Chunk size: {chunk_size}, Overlap: {chunk_overlap} ({overlap_percent}%), "
-        f"Unit: {chunk_unit}, Preprocess: {preprocess_options}"
+        "[CHUNK] Creating chunker - Chunk size: %s, Overlap: %s (%s%%), Unit: %s, Preprocess: %s",
+        chunk_size,
+        chunk_overlap,
+        overlap_percent,
+        chunk_unit,
+        preprocess_options,
     )
 
     # 如果使用 token 分块，需要提供 embed_model
@@ -1201,7 +1213,9 @@ async def _delete_kb_indices(kb_id: str, space_id: str) -> dict:
             page += 1
 
         if not all_documents:
-            logger.debug(f"[KB_DELETE] No documents to delete indices for KB {kb_id}")
+            logger.debug(
+                "[KB_DELETE] No documents to delete indices for KB %s", kb_id
+            )
             return result
 
         documents = all_documents
@@ -1314,7 +1328,9 @@ async def _delete_document_from_index(
         index_exists = await index_manager.index_exists(index_name)
         if not index_exists:
             logger.debug(
-                f"[DOC_DELETE] {index_type.capitalize()} index does not exist: {index_name}"
+                "[DOC_DELETE] %s index does not exist: %s",
+                index_type.capitalize(),
+                index_name,
             )
             return True
 
@@ -1327,7 +1343,10 @@ async def _delete_document_from_index(
             )
         else:
             logger.debug(
-                f"[DOC_DELETE] No {index_type} found for doc_id: {doc_id} in index: {index_name}"
+                "[DOC_DELETE] No %s found for doc_id: %s in index: %s",
+                index_type,
+                doc_id,
+                index_name,
             )
 
         return True
@@ -1337,7 +1356,10 @@ async def _delete_document_from_index(
         # 如果数据不存在，不算错误
         if "not exist" in error_msg.lower() or "not found" in error_msg.lower():
             logger.debug(
-                f"[DOC_DELETE] No {index_type} found for doc_id: {doc_id} in index: {index_name}"
+                "[DOC_DELETE] No %s found for doc_id: %s in index: %s",
+                index_type,
+                doc_id,
+                index_name,
             )
             return True
         else:
@@ -1475,8 +1497,10 @@ async def _index_documents(
                 estimated_chunks = max(1, total_text_length // chunker.chunk_size)
                 chunk_count = estimated_chunks
                 logger.debug(
-                    f"[INDEX] Estimated chunk count: {chunk_count} "
-                    f"(text length: {total_text_length}, chunk_size: {chunker.chunk_size})"
+                    "[INDEX] Estimated chunk count: %s (text length: %s, chunk_size: %s)",
+                    chunk_count,
+                    total_text_length,
+                    chunker.chunk_size,
                 )
         except Exception as e:
             logger.warning(f"[INDEX] Failed to estimate chunk count: {str(e)}")
@@ -1484,9 +1508,15 @@ async def _index_documents(
             chunk_count = len(documents)
 
         logger.debug(
-            f"[INDEX] Indexing completed - KB ID: {kb_id}, Doc ID: {doc_id}, "
-            f"Chunk index: {chunk_index}, Triple index: {triple_index}, "
-            f"Estimated chunks: {chunk_count}"
+            (
+                "[INDEX] Indexing completed - KB ID: %s, Doc ID: %s, "
+                "Chunk index: %s, Triple index: %s, Estimated chunks: %s"
+            ),
+            kb_id,
+            doc_id,
+            chunk_index,
+            triple_index,
+            chunk_count,
         )
 
         return {
@@ -1922,7 +1952,11 @@ async def document_upload(
 
             obs_stored_name = object_name if obs_required else ""
 
-            logger.debug(f"[DOC_UPLOAD] File saved - Path: {file_path}, Size: {file_size} bytes")
+            logger.debug(
+                "[DOC_UPLOAD] File saved - Path: %s, Size: %s bytes",
+                file_path,
+                file_size,
+            )
 
             # 4.4 创建文档记录
             current_time = milliseconds()

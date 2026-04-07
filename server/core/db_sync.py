@@ -8,13 +8,15 @@
 """
 
 import re
+import logging
 from datetime import datetime
 from typing import Any, Dict, List
 
 from sqlalchemy import inspect, text
 
-from openjiuwen.core.common.logging import logger
 from server.core.database import engine
+
+logger = logging.getLogger(__name__)
 
 
 class DatabaseSync:

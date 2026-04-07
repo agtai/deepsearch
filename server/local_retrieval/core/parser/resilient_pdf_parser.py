@@ -1,11 +1,13 @@
 # -*- coding: UTF-8 -*-
 """PDF parser that tolerates malformed image bounding boxes in pdfplumber."""
 
+import logging
 import os
 from typing import List
 
-from openjiuwen.core.common.logging import logger
 from openjiuwen.core.retrieval.indexing.processor.parser.pdf_parser import PDFParser
+
+logger = logging.getLogger(__name__)
 
 
 class ResilientPDFParser(PDFParser):

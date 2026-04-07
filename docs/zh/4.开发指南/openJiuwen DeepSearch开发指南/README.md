@@ -500,14 +500,23 @@ agent_config["user_feedback_processor_max_interactions"] = 3
 - `expand`：扩写选中文本。
 - `polish`：润色选中文本。
 - `shorten`：缩写选中文本。
+- `supplementary_search`：结合补充检索对选中内容定向增强（见下文「改写范围」）。
 - `finish`：结束当前局部优化会话。
 
-其中，前三种动作的请求体建议包含以下字段：
-- `action`：动作类型。
+**协议约定（与实现一致）：**
+- **`action` 必填**：必须为已注册动作之一，且为非空字符串；不可省略或由后端推断。
+- **`rewrite_scope`（除 `finish` 外建议始终携带）**：通用字段。若省略或传空字符串，后端在解析阶段会默认补为 `selected_only`。当前合法取值：
+  - `selected_only`：仅替换用户选区对应片段（默认）。
+  - `selected_and_related`：替换选区所在**整章**，并允许衔接性联动改写（仅 `supplementary_search` 使用；其它动作即使携带也会在行为上忽略）。
+- 对 `supplementary_search`，`rewrite_scope` 必须为上述二者之一（否则在校验阶段报错）。
+
+除 `finish` 外的改写类动作，请求体需包含以下字段：
+- `action`：动作类型（必填）。
 - `selected_text`：用户当前选中的原始文本。
 - `start_offset`：选中文本在当前报告中的起始偏移。
 - `end_offset`：选中文本在当前报告中的结束偏移。
-- `user_instruction`：附加改写要求，可选。
+- `user_instruction`：附加改写或补充说明，可选；若出现则须为字符串。
+- `rewrite_scope`：可选，默认 `selected_only`；仅 `supplementary_search` 强制消费。
 
 ```python
 import json
@@ -527,6 +536,7 @@ async for chunk in agent.run(message=message, conversation_id=conversation_id, a
 # 第二轮：对报告局部内容执行扩写
 feedback_message = json.dumps({
     "action": "expand",
+    "rewrite_scope": "selected_only",
     "selected_text": "需要扩写的原文片段",
     "start_offset": 120,
     "end_offset": 136,
@@ -535,6 +545,18 @@ feedback_message = json.dumps({
 
 async for chunk in agent.run(message=feedback_message, conversation_id=conversation_id, agent_config=agent_config):
     logger.debug("[Rewrite stream message: %s]", chunk)
+
+# 按需选用补充检索（与 expand 类似，将 message 换为下列之一后同样 agent.run）：
+# - 仅替换选区：rewrite_scope 为 selected_only，或省略 rewrite_scope（等价默认）
+# - 整章联动：rewrite_scope 为 selected_and_related（走后端另一套 prompt 与替换范围）
+# json.dumps({
+#     "action": "supplementary_search",
+#     "rewrite_scope": "selected_only",  # 或 "selected_and_related"
+#     "selected_text": "...",
+#     "start_offset": 0,
+#     "end_offset": 0,
+#     "user_instruction": "可选说明"
+# }, ensure_ascii=False)
 
 # 第三轮：结束局部优化
 finish_message = json.dumps({"action": "finish"}, ensure_ascii=False)
@@ -546,6 +568,8 @@ async for chunk in agent.run(message=finish_message, conversation_id=conversatio
 - `selected_text`必须与当前报告中`[start_offset, end_offset)`范围内的文本完全一致，否则会返回偏移校验错误。
 - 选中文本最大长度受`service_config.user_feedback_processor_max_text_length`控制，默认值为`2000`。
 - 局部改写会同步维护引用和溯源推理的偏移信息，因此前端应始终以最新返回的`final_result`为准继续交互。
+- 每次成功的局部改写会在 `search_context.rewrite_history` 中追加一条记录，其中包含 `action`、`rewrite_scope`（若有）及偏移等信息，便于排查与审计。
+- **兼容性**：省略 `rewrite_scope` 时与显式传 `selected_only` 等价；**`action` 不可省略或为空字符串**，若旧版前端仍依赖后端推断动作，需改为显式传入合法 `action`。
 
 
 

@@ -1,18 +1,19 @@
 from functools import wraps
+import logging
 
 from fastapi import status
 from sqlalchemy import func, or_
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from openjiuwen.core.common.logging import logger
-
-from server.core.database import SessionLocal, milliseconds
 from server.core.config import settings
+from server.core.database import SessionLocal, milliseconds
 from server.local_retrieval.models import knowledge_base as kb_models
 from server.local_retrieval.models import knowledge_base_document as kb_doc_models
 from server.schemas.common import ResponseModel
 from server.schemas.knowledge_base import KnowledgeBaseGet
+
+logger = logging.getLogger(__name__)
 
 
 class KnowledgeBaseRepository:

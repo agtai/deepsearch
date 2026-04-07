@@ -4,6 +4,7 @@
 import contextvars
 
 session_context = contextvars.ContextVar("session")
+model_context = contextvars.ContextVar("model_context")
 llm_context = contextvars.ContextVar("llm")
 web_search_context = contextvars.ContextVar("web_search")
 local_search_context = contextvars.ContextVar("local_search")

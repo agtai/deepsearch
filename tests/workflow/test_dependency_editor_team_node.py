@@ -4,7 +4,7 @@
 
 import asyncio
 import logging
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from openjiuwen.core.context_engine.base import ModelContext
@@ -410,8 +410,8 @@ async def test_normal_info_collector_stays_sequential():
 
     seen_step_titles = []
 
-    async def fake_run_collector(inputs, *_args):
-        step_title = inputs["inputs"]["step_title"]
+    async def fake_run_collector(inputs, *_args, **_kwargs):
+        step_title = inputs["step_title"]
         seen_step_titles.append(step_title)
         return {
             "history_queries": [RetrievalQuery(query=f"query-{step_title}")],
@@ -420,9 +420,12 @@ async def test_normal_info_collector_stays_sequential():
             "evaluation": f"evaluation-{step_title}",
         }
 
-    node._run_collector_graph = fake_run_collector
-
-    result = await node.do_invoke({}, session, context)
+    with patch(
+        "openjiuwen_deepsearch.framework.openjiuwen.agent.collector_graph.collector_execution_service."
+        "run_info_collector_sub_graph",
+        fake_run_collector,
+    ):
+        result = await node.do_invoke({}, session, context)
 
     assert result["next_node"] == NodeId.PLAN_REASONING.value
     assert seen_step_titles == ["Normal Step 1", "Normal Step 2"]

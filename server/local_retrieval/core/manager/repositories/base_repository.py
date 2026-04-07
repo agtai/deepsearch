@@ -1,11 +1,11 @@
 from datetime import datetime, timezone
+import logging
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Query, Session
 
-from openjiuwen.core.common.logging import logger
-
+logger = logging.getLogger(__name__)
 # Generic type variable for type safety
 T = TypeVar('T')
 

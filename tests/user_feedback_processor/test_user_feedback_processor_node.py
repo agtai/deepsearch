@@ -257,10 +257,13 @@ class TestUserFeedbackProcessorNode:
 
         execute_return = {
             "new_report": "扩写后的测试报告内容",
+            "original_text": "这是一段",
+            "original_start_offset": 0,
+            "original_end_offset": 4,
             "original_text_clean": "这是一段",
             "rewritten_text": "扩写后的测试报告内容",
-            "start_offset": 0,
-            "new_end_offset": 10,
+            "rewritten_start_offset": 0,
+            "rewritten_end_offset": 10,
             "updated_citation_messages": {},
             "updated_infer_messages": [{"id": 0, "content": "保留推理"}],
         }
@@ -274,14 +277,14 @@ class TestUserFeedbackProcessorNode:
         mock_send_result.assert_awaited_once()
         kwargs = mock_send_result.await_args.kwargs
         assert kwargs["session"] is session
-        assert kwargs["feedback"] == feedback
+        assert kwargs["feedback"] == {**feedback, "rewrite_scope": "selected_only"}
         assert kwargs["result"] == UserFeedbackRewriteStreamResult(
-            original_text=feedback["selected_text"],
-            original_start_offset=feedback["start_offset"],
-            original_end_offset=feedback["end_offset"],
+            original_text=execute_return["original_text"],
+            original_start_offset=execute_return["original_start_offset"],
+            original_end_offset=execute_return["original_end_offset"],
             rewritten_text=execute_return["rewritten_text"],
-            rewritten_start_offset=execute_return["start_offset"],
-            rewritten_end_offset=execute_return["new_end_offset"],
+            rewritten_start_offset=execute_return["rewritten_start_offset"],
+            rewritten_end_offset=execute_return["rewritten_end_offset"],
             action_category=UserFeedbackActionCategory.SYNONYM_REWRITE,
             action_subcategory=SynonymRewriteActionSubcategory.EXPAND,
         )
@@ -309,13 +312,162 @@ class TestUserFeedbackProcessorNode:
         assert rewrite_history_updates[-1]["search_context.rewrite_history"] == [
             {
                 "action": "expand",
+                "rewrite_scope": "selected_only",
                 "selected_text": "这是一段",
                 "selected_text_clean": "这是一段",
                 "original_start_offset": 0,
                 "original_end_offset": 4,
                 "rewritten_text": execute_return["rewritten_text"],
                 "rewritten_start_offset": 0,
-                "rewritten_end_offset": execute_return["new_end_offset"],
+                "rewritten_end_offset": execute_return["rewritten_end_offset"],
                 "user_instruction": "",
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_do_invoke_supplementary_search_success_updates_final_result_and_history(self, node):
+        session = make_mock_session(search_context_overrides={
+            "final_result": {
+                "response_content": "这是一段测试报告[[1]](https://a.com)内容结束",
+                "citation_messages": {
+                    "code": 0,
+                    "msg": "success",
+                    "data": [
+                        {
+                            "id": 0,
+                            "reference_index": 1,
+                            "citation_start_offset": 8,
+                            "citation_end_offset": 28,
+                        }
+                    ],
+                },
+                "infer_messages": [],
+                "exception_info": "[212405] Rewrite failed: stale error",
+            }
+        })
+        feedback_payload = {
+            "action": "supplementary_search",
+            "rewrite_scope": "selected_only",
+            "selected_text": "这是一段",
+            "start_offset": 0,
+            "end_offset": 4,
+            "user_instruction": "补充行业背景",
+        }
+        session.interact.return_value = json.dumps(feedback_payload)
+
+        execute_return = {
+            "new_report": "新报告",
+            "original_text": "这是一段",
+            "original_start_offset": 0,
+            "original_end_offset": 4,
+            "original_text_clean": "这是一段",
+            "rewritten_text": "## 第一章\n新报告",
+            "rewritten_start_offset": 0,
+            "rewritten_end_offset": 8,
+            "section_start_offset": 0,
+            "section_end_offset": 4,
+            "collector_summary": "补充摘要",
+            "updated_citation_messages": {"data": []},
+            "updated_infer_messages": [],
+        }
+
+        with patch(f"{ALGO_CLASS_PATH}.execute", new_callable=AsyncMock, return_value=execute_return):
+            with patch(f"{ALGO_CLASS_PATH}.send_result", new_callable=AsyncMock) as mock_send_result:
+                with patch(f"{NODE_MODULE_PATH}.add_debug_log_wrapper"):
+                    result = await node._do_invoke(None, session, None)
+
+        assert result["next_node"] == NodeId.USER_FEEDBACK_PROCESSOR.value
+        mock_send_result.assert_awaited_once()
+        session.update_global_state.assert_any_call({"search_context.final_result.response_content": "新报告"})
+        session.update_global_state.assert_any_call({"search_context.final_result.citation_messages": {"data": []}})
+        session.update_global_state.assert_any_call({"search_context.final_result.infer_messages": []})
+
+        rewrite_history_updates = [
+            call.args[0]
+            for call in session.update_global_state.call_args_list
+            if "search_context.rewrite_history" in call.args[0]
+        ]
+        assert rewrite_history_updates
+        assert rewrite_history_updates[-1]["search_context.rewrite_history"] == [
+            {
+                "action": "supplementary_search",
+                "rewrite_scope": "selected_only",
+                "selected_text": "这是一段",
+                "selected_text_clean": "这是一段",
+                "original_start_offset": 0,
+                "original_end_offset": 4,
+                "rewritten_text": "## 第一章\n新报告",
+                "rewritten_start_offset": 0,
+                "rewritten_end_offset": 8,
+                "section_start_offset": 0,
+                "section_end_offset": 4,
+                "collector_summary": "补充摘要",
+                "user_instruction": "补充行业背景",
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_do_invoke_selected_and_related_history_uses_actual_replaced_range(self, node):
+        session = make_mock_session(search_context_overrides={
+            "final_result": {
+                "response_content": "## 第一章\n这是一段测试报告内容结束",
+                "citation_messages": {"data": []},
+                "infer_messages": [],
+            }
+        })
+        feedback_payload = {
+            "action": "supplementary_search",
+            "rewrite_scope": "selected_and_related",
+            "selected_text": "这是一段",
+            "start_offset": 7,
+            "end_offset": 11,
+            "user_instruction": "补充行业背景",
+        }
+        session.interact.return_value = json.dumps(feedback_payload)
+
+        execute_return = {
+            "new_report": "## 第一章\n新报告",
+            "original_text": "## 第一章\n这是一段",
+            "original_start_offset": 0,
+            "original_end_offset": 11,
+            "original_text_clean": "这是一段",
+            "rewritten_text": "## 第一章\n新报告",
+            "rewritten_start_offset": 0,
+            "rewritten_end_offset": 8,
+            "section_start_offset": 0,
+            "section_end_offset": 11,
+            "collector_summary": "补充摘要",
+            "updated_citation_messages": {"data": []},
+            "updated_infer_messages": [],
+        }
+
+        with patch(f"{ALGO_CLASS_PATH}.execute", new_callable=AsyncMock, return_value=execute_return):
+            with patch(f"{ALGO_CLASS_PATH}.send_result", new_callable=AsyncMock):
+                with patch(f"{NODE_MODULE_PATH}.add_debug_log_wrapper"):
+                    result = await node._do_invoke(None, session, None)
+
+        assert result["next_node"] == NodeId.USER_FEEDBACK_PROCESSOR.value
+
+        rewrite_history_updates = [
+            call.args[0]
+            for call in session.update_global_state.call_args_list
+            if "search_context.rewrite_history" in call.args[0]
+        ]
+        assert rewrite_history_updates
+        assert rewrite_history_updates[-1]["search_context.rewrite_history"] == [
+            {
+                "action": "supplementary_search",
+                "rewrite_scope": "selected_and_related",
+                "selected_text": "这是一段",
+                "selected_text_clean": "这是一段",
+                "original_start_offset": 0,
+                "original_end_offset": 11,
+                "rewritten_text": "## 第一章\n新报告",
+                "rewritten_start_offset": 0,
+                "rewritten_end_offset": 8,
+                "section_start_offset": 0,
+                "section_end_offset": 11,
+                "collector_summary": "补充摘要",
+                "user_instruction": "补充行业背景",
             }
         ]

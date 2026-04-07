@@ -41,6 +41,9 @@ openjiuwen_deepsearch/
   - `synonym_rewrite_expand.md` - 扩写提示词
   - `synonym_rewrite_polish.md` - 润色提示词
   - `synonym_rewrite_shorten.md` - 缩写提示词
+  - `supplementary_search_task.md` - 补充检索任务生成提示词
+  - `supplementary_search_rewrite_selected_only.md` - 仅改写选区的补充检索提示词
+  - `supplementary_search_rewrite_selected_and_related.md` - 整章联动改写的补充检索提示词
 - **query_understanding/** - 查询理解
   - `interpreter.py` - 生成澄清问题
   - `outliner.py` - 生成大纲
@@ -76,6 +79,9 @@ openjiuwen_deepsearch/
   - `supplement_graph.py`
 - **user_feedback_processor/** - 用户反馈局部优化模块
   - `action_definitions.py` - 前端 action 与统一动作定义映射
+  - `report_edit_utils.py` - citation / inference 标记剥离与偏移更新工具
+  - `section_locator.py` - 根据选区定位最小 Markdown 标题区块
+  - `supplementary_search.py` - 补充检索与局部/整章改写执行逻辑
   - `synonym_rewrite.py` - 扩写、润色、缩写执行逻辑
   - `user_feedback_processor.py` - 反馈解析、校验、执行与结果发送
 
@@ -97,6 +103,7 @@ openjiuwen_deepsearch/
     - `dependency_writing_team_nodes.py`
     - `section_context.py`
   - `collector_graph/` - 信息收集子图
+    - `collector_execution_service.py` - 复用型信息采集执行服务
     - `graph_builder.py`
     - `info_collector.py`
     - `collector_context.py`

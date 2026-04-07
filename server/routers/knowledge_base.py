@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 # Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
+import logging
 import json
 from typing import List, Optional
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, status, UploadFile, File, Form
 from pydantic import ValidationError
-from openjiuwen.core.common.logging import logger
 
 from server.routers.common import handle_response, validate_request
 import server.local_retrieval.core.manager.knowledge_base as kb_mgr
@@ -34,6 +34,7 @@ from server.schemas.knowledge_base import (
 )
 from server.schemas.common import ResponseModel
 
+logger = logging.getLogger(__name__)
 knowledge_base_router = APIRouter()
 
 

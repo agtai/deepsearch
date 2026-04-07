@@ -157,6 +157,10 @@ class StatusCode(Enum):
         212407, "Invalid parameter type for {param}, expected {expected_type}"
     )
     USER_FEEDBACK_PROCESSOR_INVALID_OFFSET_RANGE = (212408, "Invalid offset range [{start}, {end})")
+    USER_FEEDBACK_PROCESSOR_INVALID_REWRITE_SCOPE = (
+        212409,
+        "Invalid rewrite_scope: {rewrite_scope}, expected selected_only or selected_and_related",
+    )
 
     @property
     def errmsg(self):

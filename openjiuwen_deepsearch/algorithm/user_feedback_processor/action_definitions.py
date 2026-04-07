@@ -21,22 +21,39 @@ class SynonymRewriteActionSubcategory(str, Enum):
     POLISH = "polish"
 
 
+class SupplementarySearchActionSubcategory(str, Enum):
+    """补充搜索小类动作。"""
+
+    SUPPLEMENTARY_SEARCH = "supplementary_search"
+
+
 class FinishActionSubcategory(str, Enum):
     """完成任务小类动作。"""
 
     FINISH = "finish"
 
 
+ResolvedActionSubcategory = (
+    SynonymRewriteActionSubcategory
+    | SupplementarySearchActionSubcategory
+    | FinishActionSubcategory
+)
+
+
 @dataclass(frozen=True)
 class UserInputActionMapping:
-    """将前端 action 字符串映射为统一的大类/小类定义。
-
-    目前只有“同义改写”大类存在小类细分，因此 `action_subcategory`
-    对其他大类允许为空。
-    """
+    """将前端 action 字符串映射为统一动作大类定义。"""
 
     action_category: UserFeedbackActionCategory
-    action_subcategory: SynonymRewriteActionSubcategory | FinishActionSubcategory | None = None
+    action_subcategory: ResolvedActionSubcategory
+
+
+@dataclass(frozen=True)
+class ResolvedUserAction:
+    """由 ``feedback`` 解析得到的规范化动作（大类 + 小类）。"""
+
+    action_category: UserFeedbackActionCategory
+    action_subcategory: ResolvedActionSubcategory
 
 
 @dataclass(frozen=True)
@@ -50,7 +67,7 @@ class UserFeedbackRewriteStreamResult:
     rewritten_start_offset: int
     rewritten_end_offset: int
     action_category: UserFeedbackActionCategory
-    action_subcategory: SynonymRewriteActionSubcategory
+    action_subcategory: ResolvedActionSubcategory
 
 
 # 前端输入动作到统一动作定义的映射表。
@@ -70,6 +87,12 @@ USER_INPUT_ACTION_MAP: dict[str, UserInputActionMapping] = {
         action_subcategory=SynonymRewriteActionSubcategory.POLISH,
     ),
 
+    # 补充搜索
+    "supplementary_search": UserInputActionMapping(
+        action_category=UserFeedbackActionCategory.SUPPLEMENTARY_SEARCH,
+        action_subcategory=SupplementarySearchActionSubcategory.SUPPLEMENTARY_SEARCH,
+    ),
+
     # 完成任务
     "finish": UserInputActionMapping(
         action_category=UserFeedbackActionCategory.FINISH,
@@ -86,9 +109,38 @@ SYNONYM_REWRITE_ACTIONS: frozenset[str] = frozenset(
 
 
 def resolve_user_input_action(action: str) -> UserInputActionMapping:
-    """根据前端 action 获取统一映射定义。"""
+    """根据前端 action 获取统一映射定义。
 
+    Args:
+        action: 前端传入的动作字符串。
+
+    Returns:
+        UserInputActionMapping: 统一的动作映射定义。
+
+    Raises:
+        KeyError: 当 action 不在映射表中时抛出。
+    """
     return USER_INPUT_ACTION_MAP[action]
+
+
+def resolve_feedback_action(feedback: dict) -> ResolvedUserAction:
+    """从 ``feedback["action"]`` 解析出 ``ResolvedUserAction``。
+
+    Args:
+        feedback: 已解析的用户反馈字典，须包含合法字符串键 ``action``。
+
+    Returns:
+        与 ``USER_INPUT_ACTION_MAP`` 一致的大类与小类枚举组合。
+
+    Raises:
+        KeyError: ``action`` 不在映射表中时，由 ``resolve_user_input_action`` 抛出。
+    """
+
+    mapping = resolve_user_input_action(feedback["action"])
+    return ResolvedUserAction(
+        action_category=mapping.action_category,
+        action_subcategory=mapping.action_subcategory,
+    )
 
 
 def _is_report_feedback_payload(message: str) -> bool:
