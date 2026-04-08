@@ -4,6 +4,8 @@ from typing import List, Literal, Dict
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from openjiuwen_deepsearch.config.runtime_api_models import ApiToolsConfig
+
 
 class LLMConfig(BaseModel):
     model_name: str = Field(default="", description="模型名称")
@@ -110,6 +112,7 @@ class AgentConfig(BaseModel):
     local_search_engine_config: LocalSearchEngineConfig = Field(default_factory=LocalSearchEngineConfig)
     custom_web_search_config: CustomWebSearchConfig = Field(default_factory=CustomWebSearchConfig)
     custom_local_search_config: CustomLocalSearchConfig = Field(default_factory=CustomLocalSearchConfig)
+    api_tools_config: ApiToolsConfig = Field(default_factory=ApiToolsConfig, description="API tools config")
 
     # 联网增强引擎 QPS 流控配置
     web_search_max_qps: float = Field(default=0, description="联网增强引擎最大 QPS，0 表示不限流，支持浮点数如 0.5 表示每 2 秒 1 个请求")

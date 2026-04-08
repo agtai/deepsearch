@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 from typing import Any, Dict, Optional
 
 from fastapi import status
@@ -25,7 +26,7 @@ from server.deepsearch.core.manager.repositories.web_search_engine_repository im
 from server.local_retrieval.core.manager.repositories.knowledge_base_repository import (
     KnowledgeBaseRepository,
 )
-from server.schemas.deepsearch_run import DeepSearchRequest, WebSearchConfig, LocalSearchConfig
+from server.schemas.deepsearch_run import DeepSearchRequest, WebSearchConfig, LocalSearchConfig, RuntimeApiToolRequest
 from server.schemas.knowledge_base import KnowledgeBaseGet
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,107 @@ class DeepSearchAgentManager:
         #（含 space_id、本地知识库 ID 列表、联网引擎 ID 等），避免请求里配置变了，但缓存键没变，导致仍用旧 Agent的问题。
         self._agent_cache: Dict[str, Any] = {}
         self._security_utils = SecurityUtils()
+
+    @staticmethod
+    def _sanitize_tool_name(name: str, fallback: str) -> str:
+        normalized = re.sub(r"[^a-zA-Z0-9_-]", "_", (name or "").strip())
+        normalized = re.sub(r"_+", "_", normalized).strip("_")
+        if not normalized:
+            normalized = fallback
+        if normalized[0].isdigit():
+            normalized = f"tool_{normalized}"
+        return normalized
+
+    @staticmethod
+    def _normalize_http_method(method: int | str) -> str:
+        mapping = {
+            1: "get",
+            2: "post",
+            3: "put",
+            4: "delete",
+            "get": "get",
+            "post": "post",
+            "put": "put",
+            "delete": "delete",
+            "patch": "patch",
+            "head": "head",
+            "options": "options",
+        }
+        return mapping.get(str(method).lower() if isinstance(method, str) else method, "post")
+
+    @staticmethod
+    def _normalize_send_method(method: int | None) -> str:
+        mapping = {
+            0: "none",
+            1: "header",
+            2: "query",
+            3: "body",
+        }
+        return mapping.get(method, "none")
+
+    @classmethod
+    def _normalize_runtime_api_tool(cls, tool: RuntimeApiToolRequest, index: int) -> dict[str, Any]:
+        sanitized_name = cls._sanitize_tool_name(tool.name, fallback=f"runtime_api_tool_{index}")
+        if tool.response_params:
+            logger.warning(
+                "Runtime API tool '%s' provided response_params; they are preserved for compatibility but not "
+                "used for response mapping yet. Prefer response_wrapper.",
+                sanitized_name,
+            )
+        return {
+            "tool_id": tool.tool_id,
+            "name": sanitized_name,
+            "description": tool.desc,
+            "response_wrapper": tool.response_wrapper,
+            "path": tool.path,
+            "http_method": cls._normalize_http_method(tool.method),
+            "base_url": tool.url,
+            "plugin_id": tool.plugin_id,
+            "plugin_version": tool.plugin_version or "",
+            "request_params": [
+                {
+                    "name": param.name,
+                    "description": param.desc,
+                    "param_type": param.type,
+                    "required": param.is_required,
+                    "send_method": cls._normalize_send_method(param.method),
+                    "is_runtime": param.is_runtime,
+                    "default_value": param.value,
+                    "priority": param.priority or 0,
+                }
+                for param in tool.request_params
+            ],
+            "response_params": [
+                {
+                    "name": param.name,
+                    "description": param.desc,
+                    "param_type": param.type,
+                    "required": param.is_required,
+                    "send_method": cls._normalize_send_method(param.method),
+                    "is_runtime": param.is_runtime,
+                    "default_value": param.value,
+                    "priority": param.priority or 0,
+                }
+                for param in tool.response_params
+            ],
+            "headers": [
+                {
+                    "name": header.name,
+                    "value": header.value,
+                }
+                for header in tool.headers
+            ],
+        }
+
+    @classmethod
+    def _build_api_tools_config(cls, tools: list[RuntimeApiToolRequest]) -> dict[str, Any]:
+        normalized_tools = [cls._normalize_runtime_api_tool(tool, index) for index, tool in enumerate(tools, start=1)]
+        # Shallow copy so planner vs collector config lists are not the same object (avoids accidental shared mutation).
+        out = {
+            "query_understanding_tools": normalized_tools,
+            "collector_tools": list(normalized_tools),
+        }
+        return out
 
     @staticmethod
     def _create_vector_store_param(kb_id: str):
@@ -154,6 +256,8 @@ class DeepSearchAgentManager:
             res["local_search_engine_config"] = self._load_local_search_config(
                 space_id, request.local_search_config, db
             )
+        if request.tools:
+            res["api_tools_config"] = self._build_api_tools_config(request.tools)
         return res
 
     def _load_web_search_config(self, space_id: str, web_search_config: WebSearchConfig, db: Session) -> Dict[str, Any]:

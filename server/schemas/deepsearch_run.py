@@ -17,6 +17,40 @@ class LocalSearchConfig(BaseModel):
     recall_threshold: float = Field(default=0.5, ge=0.0, le=1.0, description="知识库检索阈值")
 
 
+class PluginToolParam(BaseModel):
+    name: str = Field(..., description="参数名称")
+    desc: str = Field(default="", description="参数描述")
+    type: int = Field(default=1, description="参数类型")
+    is_required: bool = Field(default=False, description="是否必填")
+    method: int = Field(default=0, description="参数发送方式")
+    is_runtime: bool = Field(default=False, description="是否运行时参数")
+    value: str = Field(default="", description="默认值")
+    priority: int = Field(default=0, description="参数优先级")
+
+
+class PluginApiHeader(BaseModel):
+    name: str = Field(..., description="请求头名称")
+    value: str = Field(default="", description="请求头值")
+
+
+class RuntimeApiToolRequest(BaseModel):
+    tool_id: str = Field(..., description="工具ID")
+    name: str = Field(..., description="工具名称")
+    desc: str = Field(default="", description="工具描述")
+    response_wrapper: str = Field(default="", description="响应包装器类型，当前支持 search_result")
+    path: str = Field(..., description="接口路径或完整 URL")
+    method: int | str = Field(..., description="HTTP 方法")
+    request_params: List[PluginToolParam] = Field(default_factory=list, description="请求参数")
+    response_params: List[PluginToolParam] = Field(
+        default_factory=list,
+        description="响应参数定义，当前仅透传保留，实际返回结构请优先使用 response_wrapper 约束",
+    )
+    headers: List[PluginApiHeader] = Field(default_factory=list, description="默认请求头")
+    plugin_id: str = Field(default="", description="插件ID")
+    plugin_version: str | None = Field(default=None, description="插件版本")
+    url: str = Field(default="", description="插件服务基址")
+
+
 class DeepSearchRequest(BaseModel):
     space_id: str = Field(..., description="用户空间ID")
     conversation_id: str = Field(..., description="请求对话ID")
@@ -48,3 +82,4 @@ class DeepSearchRequest(BaseModel):
     web_search_max_qps: float = Field(default=0, description="联网增强引擎最大 QPS，0 表示不限流，支持浮点数如 0.5 表示每 2 秒 1 个请求")
     user_feedback_processor_enable: bool = Field(default=False, description="是否启用用户反馈优化功能")
     user_feedback_processor_max_interactions: int = Field(default=3, ge=1, le=5, description="最大交互次数")
+    tools: List[RuntimeApiToolRequest] = Field(default_factory=list, description="前端传入的 API 工具列表")

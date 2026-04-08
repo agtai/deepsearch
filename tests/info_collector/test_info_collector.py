@@ -145,7 +145,8 @@ class TestInfoCollectorNode:
             "step_title": "测试步骤",
             "search_method": "web",
             "web_search_engine_name": SearchEngine.PETAL.value,
-            "local_search_engine_name": LocalSearch.OPENAPI.value
+            "local_search_engine_name": LocalSearch.OPENAPI.value,
+            "api_tools_config": {},
         }
         assert result == expected_state
 
@@ -546,6 +547,52 @@ class TestInfoCollectorNode:
             assert "local_tool_info" in tool_list
             assert "web_search_tool" in tool_dict
             assert "local_search_tool" in tool_dict
+
+    def test_prepare_collector_tool_with_api_tools_config(self, info_collector_node):
+        """测试 _prepare_collector_tool 方法 - 动态 API 工具"""
+        state = {
+            "search_method": "web",
+            "api_tools_config": {
+                "collector_tools": [
+                    {
+                        "tool_id": "tool-1",
+                        "name": "runtime_collector_tool",
+                        "description": "Runtime collector tool",
+                        "path": "https://example.com/collect",
+                        "http_method": "get",
+                        "request_params": [
+                            {
+                                "name": "query",
+                                "description": "query",
+                                "send_method": "query",
+                                "required": True,
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+
+        with patch(f'{self.MODULE_PATH}.create_web_search_tool') as mock_web, \
+                patch(f'{self.MODULE_PATH}.create_local_search_tool') as mock_local:
+            mock_web_tool = Mock()
+            mock_web_tool.card.tool_info.return_value = "web_tool_info"
+            mock_web.return_value = mock_web_tool
+
+            mock_local_tool = Mock()
+            mock_local_tool.card.tool_info.return_value = "local_tool_info"
+            mock_local.return_value = mock_local_tool
+
+            tool_list, tool_dict = info_collector_node.prepare_collector_tool(state)
+
+        tool_names = [
+            tool.get("name") if isinstance(tool, dict) else getattr(tool, "name", tool)
+            for tool in tool_list
+        ]
+        assert "web_tool_info" in tool_list
+        assert "runtime_collector_tool" in tool_names
+        assert "web_search_tool" in tool_dict
+        assert "runtime_collector_tool" in tool_dict
 
     @pytest.mark.asyncio
     async def test_invoke_llm_with_retry_success(self, info_collector_node):

@@ -104,6 +104,7 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 - **web_search_engine_config**, **local_search_engine_config**, **custom_web_search_config**, **custom_local_search_config**.
 - **web_search_max_qps**: `0` = unlimited; floats like `0.5` = one call every 2s.
 - **user_feedback_processor_enable** (default `False`); **user_feedback_processor_max_interactions** (default `3`, range 1–5).
+- **api_tools_config** (`ApiToolsConfig`): runtime HTTP API tools injected for function calling outside built-in tools.
 
 **Example**
 
@@ -117,6 +118,79 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 ...     web_search_engine_config=WebSearchEngineConfig(search_engine_name="petal"),
 ...     info_collector_search_method="all",
 ... )
+```
+
+## `ApiToolsConfig`
+```python
+class openjiuwen_deepsearch.config.runtime_api_models.ApiToolsConfig()
+```
+**ApiToolsConfig** describes runtime HTTP tools injected into the workflow via **`AgentConfig.api_tools_config`**.
+
+**Fields**
+
+- **query_understanding_tools** (`List[RuntimeApiToolConfig]`, optional): tools used in planner/outliner stages.
+- **collector_tools** (`List[RuntimeApiToolConfig]`, optional): tools used in collector stages.
+
+If tools are passed from the HTTP API with **`DeepSearchRequest.tools`**, the server normalizes them and fills both lists with the same normalized tool definitions.
+
+## `RuntimeApiToolConfig`
+```python
+class openjiuwen_deepsearch.config.runtime_api_models.RuntimeApiToolConfig()
+```
+**RuntimeApiToolConfig** defines how one HTTP API tool is exposed to model function calling.
+
+**Key fields**
+
+- **tool_id**, **name**, **description**: tool identity and display metadata.
+- **base_url**, **path**, **http_method**: request target and HTTP verb (`path` can also be a full URL).
+- **headers**: default request headers.
+- **request_params**: parameter list with routing (`send_method`: `header` / `query` / `body` / `none`), required flag, type, and default.
+- **response_wrapper**: optional response shape adapter (for example `search_result` in collector flows).
+- **response_params**: compatibility field retained in config; not used for the current response mapping pipeline.
+
+**Example: configurable runtime function-call tool**
+
+```python
+from openjiuwen_deepsearch.config.config import AgentConfig
+from openjiuwen_deepsearch.config.runtime_api_models import (
+    ApiToolsConfig,
+    RuntimeApiToolConfig,
+    RuntimeApiToolParamConfig,
+)
+
+company_profile_tool = RuntimeApiToolConfig(
+    tool_id="company_profile",
+    name="company_profile",
+    description="Fetch company profile by ticker symbol.",
+    base_url="https://api.example.com",
+    path="/v1/company/profile",
+    http_method="get",
+    request_params=[
+        RuntimeApiToolParamConfig(
+            key="symbol",
+            description="Ticker symbol, e.g. AAPL",
+            required=True,
+            send_method="query",
+            param_type="string",
+        ),
+        RuntimeApiToolParamConfig(
+            key="x-api-key",
+            description="API key for upstream service",
+            required=False,
+            send_method="header",
+            default_value="",
+            param_type="string",
+        ),
+    ],
+    response_wrapper="search_result",
+)
+
+agent_config = AgentConfig(
+    api_tools_config=ApiToolsConfig(
+        query_understanding_tools=[company_profile_tool],
+        collector_tools=[company_profile_tool],
+    )
+)
 ```
 
 ## `ServiceConfig`

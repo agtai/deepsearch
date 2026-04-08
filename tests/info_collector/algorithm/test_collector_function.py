@@ -228,7 +228,7 @@ class TestExecuteTool:
                 self.step_info
             )
 
-            mock_tool.invoke.assert_called_once_with({"key": "value", "search_engine_name": ""})
+            mock_tool.invoke.assert_called_once_with({"key": "value"})
             mock_process.assert_called_once_with(
                 "test_tool", '{\n    "result": "success"\n}', self.agent_input
             )
@@ -314,7 +314,7 @@ class TestExecuteTool:
             )
 
             # 验证字符串参数被正确解析为字典
-            mock_tool.invoke.assert_called_once_with({"key": "value", "search_engine_name": ""})
+            mock_tool.invoke.assert_called_once_with({"key": "value"})
 
 
 class TestProcessToolResult:
@@ -380,7 +380,40 @@ class TestProcessToolResult:
         assert record["tool_name"] == "other_tool"
         assert record["content"] == tool_content
 
+    def test_process_other_tool_with_runtime_api_search_payload(self):
+        """测试 API 工具返回兼容搜索结构时走搜索后处理"""
+        tool_content = json.dumps({
+            "search_results": [
+                {
+                    "title": "Runtime Result",
+                    "url": "https://example.com/runtime",
+                    "content": "Runtime Content",
+                }
+            ]
+        })
 
+        with patch(f"{MODULE_PATH}.web_search_jiuwen") as mock_web_search:
+            mock_web_search.return_value = (["processed"], self.agent_input)
+
+            result = process_tool_result(
+                "runtime_api_tool",
+                tool_content,
+                self.agent_input,
+            )
+
+        expected_payload = json.dumps({
+            "search_engine": "runtime_api",
+            "search_results": [
+                {
+                    "title": "Runtime Result",
+                    "url": "https://example.com/runtime",
+                    "content": "Runtime Content",
+                }
+            ],
+        }, ensure_ascii=False)
+        mock_web_search.assert_called_once_with(self.agent_input, expected_payload)
+        assert result == ["processed"]
+        assert self.agent_input["other_tool_record"] == []
 class TestSearchResultProcessing:
     """测试各种搜索结果处理函数"""
 

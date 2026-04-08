@@ -116,7 +116,9 @@ def add_debug_log_wrapper(session, debug_data: NodeDebugData):
     if not NODE_DEBUG_ENABLE:
         return
 
-    pre_node = session.get_global_state("search_context.debug_pre_node") or ""
+    pre_node = session.get_global_state("search_context.debug_pre_node")
+    if not isinstance(pre_node, str):
+        pre_node = ""
     cur_node = f"{debug_data.node_name}-{uuid.uuid4()}"
 
     if debug_data.input_content:

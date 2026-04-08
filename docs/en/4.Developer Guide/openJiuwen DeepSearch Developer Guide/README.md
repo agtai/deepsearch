@@ -298,6 +298,8 @@ agent_config["outline_interaction_enabled"] = True
 
 Server fields (`DeepSearchRequest`): `outline_interaction_enabled`, `outline_interaction_max_rounds` (1–100, default 3). SDK passes them through `agent_config`.
 
+**Runtime API tools (optional)**: at the Server layer, `DeepSearchRequest.tools` accepts a list of HTTP API tools (see `RuntimeApiToolRequest`). During agent construction, the server normalizes this list into `api_tools_config`. The normalized tools are then used in both query-understanding stages (planner/outliner) and collector stages.
+
 ### `space_id` and local knowledge bases
 
 `space_id` scopes tenants: KB creation/upload APIs are tied to it. When calling `run` with local search, every id in `local_search_config.local_search_config_ids` must belong to that `space_id`; cross-space ids are rejected.

@@ -407,6 +407,8 @@ agent_config["outline_interaction_enabled"] = True
 
 SDK 层通过 `agent_config` 接收这些参数。
 
+**运行时 API 工具（可选）**：Server 层 **`DeepSearchRequest.tools`** 用于传入 HTTP 接口型工具列表（元素类型见 `RuntimeApiToolRequest`）。服务端在构建 Agent 时会将其规范化为 **`api_tools_config`**。
+
 ---
 
 ### Server 层请求示例

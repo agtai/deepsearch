@@ -93,6 +93,7 @@ class BasePlanReasoningNode(BaseNode):
         max_step_num = session.get_global_state("config.planner_max_step_num")
         max_retry_num = session.get_global_state("config.planner_max_retry_num")
         max_plan_executed_num = session.get_global_state("config.workflow_max_plan_executed_num")
+        api_tools_config = session.get_global_state("config.api_tools_config") or {}
 
         # 封装入参
         return dict(
@@ -108,6 +109,7 @@ class BasePlanReasoningNode(BaseNode):
             exception_infos=exception_infos,
             agent_name=NodeId.PLAN_REASONING.value,
             llm_model_name=llm_model_name,
+            api_tools_config=api_tools_config,
         )
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:

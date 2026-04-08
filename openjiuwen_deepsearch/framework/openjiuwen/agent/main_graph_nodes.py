@@ -91,6 +91,7 @@ class StartNode(Start):
                 "user_feedback_processor_enable", False)
             agent_config["user_feedback_processor_max_interactions"] = origin_agent_config.get(
                 "user_feedback_processor_max_interactions", 3)
+            agent_config["api_tools_config"] = origin_agent_config.get("api_tools_config", {})
 
         service_config = Config().service_config.model_dump()
         service_config["thread_id"] = inputs.get("thread_id", "")
@@ -449,6 +450,7 @@ class OutlineNode(BaseNode):
         
         current_outline = session.get_global_state("search_context.current_outline")
         outline_interaction_enabled = session.get_global_state("config.outline_interaction_enabled")
+        api_tools_config = session.get_global_state("config.api_tools_config") or {}
 
         return dict(
             messages=messages,
@@ -463,6 +465,7 @@ class OutlineNode(BaseNode):
             current_outline=current_outline,
             outline_interaction_enabled=outline_interaction_enabled,
             previous_feedback=previous_feedback,
+            api_tools_config=api_tools_config,
         )
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:

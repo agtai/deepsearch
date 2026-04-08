@@ -249,6 +249,7 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 - **web_search_max_qps**(float, 可选)：联网增强引擎最大 QPS，0 表示不限流，支持浮点数如 0.5 表示每 2 秒 1 个请求。默认值：`0`。
 - **user_feedback_processor_enable**(bool, 可选)：是否启用报告生成后的局部优化能力。默认值：`False`。
 - **user_feedback_processor_max_interactions**(int, 可选)：局部优化最大交互次数。默认值：`3`,可设置范围为1~5。
+- **api_tools_config**(ApiToolsConfig，可选)：运行时 HTTP API 工具配置，用于在默认工具之外注入可调用工具。默认值：`ApiToolsConfig`。
 
 **样例**：
 
@@ -278,6 +279,34 @@ general parallel
 >>> print(agent_config.execute_mode, agent_config.workflow_human_in_the_loop)
 commercial True
 ```
+
+## class openjiuwen_deepsearch.config.runtime_api_models.ApiToolsConfig
+```python
+class openjiuwen_deepsearch.config.runtime_api_models.ApiToolsConfig()
+```
+**ApiToolsConfig** 描述注入到工作流中的两类运行时 HTTP 工具列表，对应 **`AgentConfig.api_tools_config`**。
+
+**字段**：
+
+- **query_understanding_tools**(List[RuntimeApiToolConfig], 可选)：用于 **planner、outliner** 等与 query understanding 相关的阶段（实现上经 `build_runtime_api_tools(..., response_model=Plan|Outline)` 合并）。默认值：`[]`。
+- **collector_tools**(List[RuntimeApiToolConfig], 可选)：用于 **信息收集（collector）** 阶段。默认值：`[]`。
+
+**说明**：HTTP 服务若使用 **`DeepSearchRequest.tools`** 传入工具列表，服务端会将同一组规范化后的工具**同时**填入上述两个列表。
+
+## class openjiuwen_deepsearch.config.runtime_api_models.RuntimeApiToolConfig
+```python
+class openjiuwen_deepsearch.config.runtime_api_models.RuntimeApiToolConfig()
+```
+**RuntimeApiToolConfig** 描述单个 HTTP API 工具的调用方式与参数，由 **`build_runtime_api_tools`** 转为 `LocalFunction`。
+
+**字段**（节选，完整定义见源码 `runtime_api_models.py`）：
+
+- **tool_id**、**name**、**description**：工具标识与展示信息。
+- **path**、**base_url**、**http_method**：请求 URL 与动词；`path` 可为完整 URL。
+- **headers**：默认请求头列表。
+- **request_params**：请求参数（含 `send_method`：`none` / `header` / `query` / `body` 等）。
+- **response_wrapper**：响应包装类型（如 collector 侧 `search_result`）；与 planner/outliner 上传入的 **`response_model`** 路径不同，详见 `runtime_api.py` 实现。
+- **response_params**：保留字段，不参与当前返回映射逻辑。
 
 ## class openjiuwen_deepsearch.config.config.ServiceConfig
 ```python
