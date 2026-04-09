@@ -158,6 +158,22 @@ class ReporterNode(BaseNode)
 
 ---
 
+### class VLMChartGeneratorNode
+```python
+class VLMChartGeneratorNode(BaseNode)
+```
+**VLMChartGeneratorNode** 负责vlm迭代式图表生成。
+
+**功能**：
+- 若 `vlm_chart_generator_enable` 关闭则跳过。
+- 如果开启该功能必须提供vlm模型相关配置：`vlm_model_name`, 
+`vlm_model_type`, `vlm_base_url`, `vlm_api_key`。
+- 系统选择图表插入位置生成图表并完成相应图表优化。
+- 写入 `final_result.chart_messages`。
+- 图表生成错误会写入 `exception_info`。
+
+---
+
 ### class SourceTracerNode
 ```python
 class SourceTracerNode(BaseNode)

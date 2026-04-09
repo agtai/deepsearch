@@ -37,6 +37,7 @@ DeepSearch can assign up to four logical models:
 - **info_collecting** — information gathering (InfoCollector).
 - **writing_checking** — report body and rich content (Sub-reporter).
 - **general** — default for any stage without a specific model (**required**).
+- **vlm_chart_generating** — multimodal model specialized for chart processing, can receive chart image inputs. Currently supports qwen3.5-plus (VLMChartGenerator).
 
 **general must be configured**; other slots fall back to **general**. Prefer a strong model for **general**.
 

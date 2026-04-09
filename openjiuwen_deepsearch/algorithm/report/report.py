@@ -711,7 +711,7 @@ class Reporter:
                 )
                 return False, "generate section outline fail", "", classified_content
 
-        if Config().service_config.visualization_enable:
+        if current_inputs.get("visualization_enable", True):
             try:
                 visualization_result = await self._generate_content_for_visualization(
                     current_inputs
@@ -2115,7 +2115,7 @@ class Reporter:
             current_inputs["sub_report_content"] = llm_output.get("content")
 
             # Insert visualization content
-            if Config().service_config.visualization_enable:
+            if current_inputs.get("visualization_enable", True):
                 if not LogManager.is_sensitive():
                     logger.debug(
                         "%s [write_subsection_reports] section_idx: [%s] "

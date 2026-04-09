@@ -179,7 +179,8 @@ class openjiuwen_deepsearch.framework.openjiuwen.agent.search_context.FinalResul
 **字段**：
 - **response_content**(str)：响应内容。
 - **citation_messages**(dict)：引用信息。
-- **infer_messages**(dict): 溯源推理信息。
+- **infer_messages**(list): 溯源推理信息。
+- **chart_messages**(list): vlm迭代生成图信息。
 - **exception_info**(str)：异常信息。
 - **warning_info**(str)：告警信息。
 

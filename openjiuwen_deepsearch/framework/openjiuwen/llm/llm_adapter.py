@@ -19,6 +19,9 @@ class LlmConfigCategory(enum.Enum):
 
     # 4. 编程、数学能力较强模型，用于准确生成报告及图文渲染，校验溯源
     WRITING_CHECKING = "writing_checking"
+    
+    # 5. 多模态模型，用于处理报告图表迭代生成
+    VLM_CHART_GENERATING = "vlm_chart_generating"
 
 
 NODE_LLM_MAPPING = {
@@ -26,6 +29,7 @@ NODE_LLM_MAPPING = {
     NodeId.PLAN_REASONING.value: LlmConfigCategory.PLAN_UNDERSTANDING.value,
     NodeId.INFO_COLLECTOR.value: LlmConfigCategory.INFO_COLLECTING.value,
     NodeId.SUB_REPORTER.value: LlmConfigCategory.WRITING_CHECKING.value,
+    NodeId.VLM_CHART_GENERATOR.value: LlmConfigCategory.VLM_CHART_GENERATING.value,
 }
 
 

@@ -16,6 +16,7 @@ from openjiuwen_deepsearch.algorithm.query_understanding.outliner import Outline
 from openjiuwen_deepsearch.algorithm.query_understanding.router import classify_query
 from openjiuwen_deepsearch.algorithm.report.config import ReportStyle, ReportFormat
 from openjiuwen_deepsearch.algorithm.report.report import Reporter
+from openjiuwen_deepsearch.algorithm.chart_generation.vlm_chart_generator import VLMChartGenerator
 from openjiuwen_deepsearch.algorithm.source_trace.checker import postprocess_by_citation_checker, preprocess_info
 from openjiuwen_deepsearch.algorithm.source_tracer_infer.infer import SourceTracerInfer
 from openjiuwen_deepsearch.algorithm.user_feedback_processor.user_feedback_processor import (
@@ -92,10 +93,16 @@ class StartNode(Start):
             agent_config["user_feedback_processor_max_interactions"] = origin_agent_config.get(
                 "user_feedback_processor_max_interactions", 100)
             agent_config["api_tools_config"] = origin_agent_config.get("api_tools_config", {})
+            agent_config["vlm_chart_generator_enable"] = origin_agent_config.get(
+                "vlm_chart_generator_enable", False)
+            agent_config["vlm_chart_generator_max_iterations"] = origin_agent_config.get(
+                "vlm_chart_generator_max_iterations", 2)
 
         service_config = Config().service_config.model_dump()
         service_config["thread_id"] = inputs.get("thread_id", "")
         service_config["interrupt_feedback"] = inputs.get("interrupt_feedback", "")
+        # vlm迭代生成图与mermaid图文并茂功能互斥
+        service_config["visualization_enable"] = not agent_config.get("vlm_chart_generator_enable", False)
         merge_config = agent_config | service_config
         session.update_global_state({
             "config": merge_config
@@ -246,6 +253,8 @@ class ReporterNode(BaseNode):
                 else []
             )
         llm_model_name = adapt_llm_model_name(session, NodeId.REPORTER.value)
+        
+        visualization_enable = session.get_global_state("config.visualization_enable")
         return dict(
             thread_id=session.get_global_state("config.thread_id") or "",
             report_style=session.get_global_state("config.report_style") or ReportStyle.SCHOLARLY.value,
@@ -256,7 +265,8 @@ class ReporterNode(BaseNode):
             language=session.get_global_state("search_context.language") or CHINESE,
             report_task=report_task,
             user_query=session.get_global_state("search_context.query"),
-            llm_model_name=llm_model_name
+            llm_model_name=llm_model_name,
+            visualization_enable=visualization_enable,
         )
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext):
@@ -296,7 +306,7 @@ class ReporterNode(BaseNode):
         }
         add_debug_log_wrapper(session, NodeDebugData(NodeId.REPORTER.value, 0, NodeType.MAIN.value,
                               output_content=str(debug_content).replace("\\n", "\n")))
-        return dict(next_node=NodeId.SOURCE_TRACER.value)
+        return dict(next_node=NodeId.VLM_CHART_GENERATOR.value)
 
 
 class EndNode(End):
@@ -1302,3 +1312,170 @@ class UserFeedbackProcessorNode(BaseNode):
 
         logger.info("[UserFeedbackProcessorNode] Rewrite completed, loop back for next interaction.")
         return dict(next_node=next_node)
+
+
+class VLMChartGeneratorNode(BaseNode):
+    def __init__(self) -> None:
+        super().__init__()
+
+    def _pre_handle(self, inputs: Input, session: Session, context: ModelContext) -> dict:
+        logger.info("[VLMChartGeneratorNode] Start VLMChartGeneratorNode.")
+                
+        # 获取vlm迭代生成图参数
+        # 使用子报告生成模型处理文本类数据
+        llm_model_name = adapt_llm_model_name(session, NodeId.SUB_REPORTER.value)
+        vlm_chart_generator_enable = session.get_global_state("config.vlm_chart_generator_enable")
+        vlm_chart_generator_max_iterations = session.get_global_state("config.vlm_chart_generator_max_iterations")
+        vlm_chart_generator_output_dir = "./output/vlm_chart_generator"
+        # 使用多模态模型处理图表类数据
+        if vlm_chart_generator_max_iterations > 0:
+            vlm_model_name = adapt_llm_model_name(session, NodeId.VLM_CHART_GENERATOR.value)
+        else:
+            # 不会进行vlm迭代
+            vlm_model_name = llm_model_name
+        
+        # 获取vlm输入数据
+        current_report = session.get_global_state("search_context.current_report")
+        report_content = getattr(current_report, "report_content", "") if current_report else ""
+        all_classified_contents = getattr(current_report, "all_classified_contents", []) if current_report else []
+        merged_trace_source_datas = getattr(current_report, "merged_trace_source_datas", []) if current_report else []
+        
+        visualization_enable = session.get_global_state("config.visualization_enable")
+        return dict(
+            llm_model_name=llm_model_name,
+            vlm_chart_generator_enable=vlm_chart_generator_enable,
+            vlm_model_name=vlm_model_name,
+            vlm_chart_generator_max_iterations=vlm_chart_generator_max_iterations,
+            vlm_chart_generator_output_dir=vlm_chart_generator_output_dir,
+            report_content=report_content,
+            all_classified_contents=all_classified_contents,
+            trace_source_datas=merged_trace_source_datas,
+            visualization_enable=visualization_enable,
+        )
+
+    async def _run_vlm_chart_generator_handle(
+        self, inputs: Input, 
+        session: Session, 
+        context: ModelContext,
+        current_inputs: dict
+    ) -> dict:
+        logger.info("[VLMChartGeneratorNode] Run VLMChartGeneratorNode.")
+        
+        llm_model_name = current_inputs.get("llm_model_name", "")
+        vlm_model_name = current_inputs.get("vlm_model_name", "")
+        vlm_chart_generator_max_iterations = current_inputs.get("vlm_chart_generator_max_iterations", 2)
+        vlm_chart_generator_output_dir = current_inputs.get("vlm_chart_generator_output_dir", 
+                                                            "./output/vlm_chart_generator")
+        
+        report_content = current_inputs.get("report_content", "")
+        all_classified_contents = current_inputs.get("all_classified_contents", [])
+        trace_source_datas = current_inputs.get("trace_source_datas", [])
+        
+        vlm_chart_generator = VLMChartGenerator(
+                                    llm_model_name=llm_model_name,
+                                    vlm_model_name=vlm_model_name,
+                                    vlm_max_iterations=vlm_chart_generator_max_iterations,
+                                    output_dir=vlm_chart_generator_output_dir
+                                    )
+        (chart_messages, 
+        modified_report, 
+        new_source_trace_datas) = await vlm_chart_generator.run(
+                                                            report_content=report_content,
+                                                            all_classified_contents=all_classified_contents,
+                                                            source_trace_datas=trace_source_datas
+                                                            )
+        
+        return dict(chart_messages=chart_messages,
+                    modified_report=modified_report,
+                    new_source_trace_datas=new_source_trace_datas)
+
+    async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
+        
+        try:
+            current_inputs = self._pre_handle(inputs, session, context)
+            
+            if not current_inputs.get("vlm_chart_generator_enable", False):
+                vlm_chart_generator_output = {"skip_node": True}
+                algorithm_output = {
+                    "vlm_chart_generator_output": vlm_chart_generator_output,
+                    "current_inputs": current_inputs,
+                }
+                result = self._post_handle(inputs, algorithm_output, session, context)
+                return result
+                
+            if current_inputs.get("visualization_enable", True):
+                error_msg = "vlm迭代生成图功能与图文并茂功能互斥，使用vlm迭代生成图需要关闭图文并茂功能，\
+                    具体做法是将 `visualization_enable` 设为 `False`。"
+                # fallback: 添加mermaid内容删除逻辑
+                logger.error(f"[VLMChartGeneratorNode] {error_msg}")
+                raise ValueError(error_msg)
+            
+
+            vlm_chart_generator_output = await self._run_vlm_chart_generator_handle(inputs, session, 
+                                                                                    context, current_inputs)
+            
+        except CustomException as e:
+            if LogManager.is_sensitive():
+                logger.error(f"[VLMChartGeneratorNode] vlm_chart_generator failed.")
+            else:
+                logger.error(f"[VLMChartGeneratorNode] vlm_chart_generator failed: {str(e)}")
+            vlm_chart_generator_output = {
+                "error_msg": f"[{StatusCode.CHART_GENERATION_ERROR.code}] \
+                    {StatusCode.CHART_GENERATION_ERROR.errmsg.format(e=e)}",
+            }
+        except Exception as e:
+            if LogManager.is_sensitive():
+                logger.error(f"[VLMChartGeneratorNode] vlm_chart_generator failed.")
+            else:
+                logger.error(f"[VLMChartGeneratorNode] vlm_chart_generator failed: {str(e)}")
+            vlm_chart_generator_output = {
+                "error_msg": f"[{StatusCode.CHART_GENERATION_ERROR.code}] \
+                    {StatusCode.CHART_GENERATION_ERROR.errmsg.format(e=e)}",
+            }
+        
+        algorithm_output = {
+            "vlm_chart_generator_output": vlm_chart_generator_output,
+            "current_inputs": current_inputs,
+        }
+
+        result = self._post_handle(inputs, algorithm_output, session, context)
+        logger.info("[VLMChartGeneratorNode] VLMChartGeneratorNode completed.")
+        return result
+        
+    def _post_handle(self, inputs: Input, algorithm_output: dict, session: Session, context: ModelContext) -> dict:
+        
+        vlm_chart_generator_output = algorithm_output.get("vlm_chart_generator_output", {})
+        chart_messages = []
+        modified_report = algorithm_output.get("current_inputs", {}).get("report_content", "")
+        new_source_trace_datas = algorithm_output.get("current_inputs", {}).get("trace_source_datas", [])
+        
+        if vlm_chart_generator_output.get("skip_node", False):
+            logger.warning("[VLMChartGeneratorNode] vlm_chart_generator_enable is False, skip VLMChartGeneratorNode.")
+        elif vlm_chart_generator_output.get("error_msg", ""):
+            logger.warning("[VLMChartGeneratorNode] vlm_chart_generator failed: %s", 
+                           vlm_chart_generator_output.get("error_msg", ""))
+            session.update_global_state({"search_context.final_result.warning_info": 
+                vlm_chart_generator_output.get("error_msg", "")})
+        else:
+            # 排除开关和错误信息后，更新报告内容
+            chart_messages = vlm_chart_generator_output.get("chart_messages", [])
+            modified_report = vlm_chart_generator_output.get("modified_report", "")
+            new_source_trace_datas = vlm_chart_generator_output.get("new_source_trace_datas", [])
+            
+            current_report = session.get_global_state("search_context.current_report")
+            current_report.report_content = modified_report
+            current_report.merged_trace_source_datas = new_source_trace_datas
+            session.update_global_state({"search_context.current_report": current_report})
+            session.update_global_state({"search_context.final_result.chart_messages": chart_messages})
+        
+        add_debug_log_wrapper(session, NodeDebugData(
+            NodeId.VLM_CHART_GENERATOR.value, 0, NodeType.MAIN.value,
+            output_content=json.dumps({"chart_messages": chart_messages, 
+                                       "modified_report": modified_report, 
+                                       "new_source_trace_datas": new_source_trace_datas},
+                                      ensure_ascii=False)
+        ))
+        
+        output_str = '*' if LogManager.is_sensitive() else vlm_chart_generator_output
+        logger.debug("[VLMChartGeneratorNode] vlm_chart_generator_node result: \n%s", output_str)
+        return dict(next_node=NodeId.SOURCE_TRACER.value)

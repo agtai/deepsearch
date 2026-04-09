@@ -31,7 +31,7 @@ from openjiuwen_deepsearch.framework.openjiuwen.agent.editor_team_manager_node i
 from openjiuwen_deepsearch.framework.openjiuwen.agent.main_graph_nodes import (
     SourceTracerNode, StartNode, EntryNode, GenerateQuestionsNode, OutlineNode, FeedbackHandlerNode,
     ReporterNode, EndNode, DependencyOutlineNode, OutlineInteractionNode, DependencyOutlineInteractionNode, 
-    SourceTracerInferNode, UserFeedbackProcessorNode
+    SourceTracerInferNode, UserFeedbackProcessorNode, VLMChartGeneratorNode
 )
 from openjiuwen_deepsearch.framework.openjiuwen.tools import update_local_search_mapping, update_web_search_mapping
 from openjiuwen_deepsearch.llm.llm_wrapper import create_llm_obj
@@ -46,7 +46,8 @@ from openjiuwen_deepsearch.utils.log_utils.log_interface import record_interface
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
 from openjiuwen_deepsearch.utils.log_utils.log_metrics import metrics_logger, TIME_LOGGER_TAG
 from openjiuwen_deepsearch.utils.rate_limiter_utils.qps_limiter import qps_rate_limiter
-from openjiuwen_deepsearch.utils.validation_utils.field_validation import validate_agent_required_field
+from openjiuwen_deepsearch.utils.validation_utils.field_validation import validate_agent_required_field, \
+    validate_vlm_chart_generator_field
 from openjiuwen_deepsearch.utils.validation_utils.param_validation import validate_run_agent_params, \
     validate_generate_template_params
 
@@ -105,6 +106,7 @@ class BaseAgent:
         try:
             validate_generate_template_params(file_name, file_stream, is_template)
             validate_agent_required_field(agent_config)
+            validate_vlm_chart_generator_field(agent_config)
             result = await TemplateGenerator.generate_template(
                 file_name=file_name,
                 file_stream=file_stream,
@@ -269,6 +271,7 @@ class DeepresearchAgent(BaseAgent):
                   ):
         validate_run_agent_params(message, conversation_id, report_template, interrupt_feedback)
         validate_agent_required_field(agent_config)
+        validate_vlm_chart_generator_field(agent_config)
 
         start_time = time.time()
 
@@ -468,6 +471,7 @@ class DeepresearchAgent(BaseAgent):
         # 子图节点
         flow.add_workflow_comp(NodeId.EDITOR_TEAM.value, EditorTeamNode())
         flow.add_workflow_comp(NodeId.REPORTER.value, ReporterNode())
+        flow.add_workflow_comp(NodeId.VLM_CHART_GENERATOR.value, VLMChartGeneratorNode())
         flow.add_workflow_comp(NodeId.SOURCE_TRACER.value, SourceTracerNode())
         flow.add_workflow_comp(NodeId.SOURCE_TRACER_INFER.value, SourceTracerInferNode())
         flow.add_workflow_comp(NodeId.USER_FEEDBACK_PROCESSOR.value, UserFeedbackProcessorNode())
@@ -486,7 +490,7 @@ class DeepresearchAgent(BaseAgent):
         outline_interaction_router = init_router(NodeId.OUTLINE_INTERACTION.value,
                                                  [NodeId.OUTLINE.value, NodeId.EDITOR_TEAM.value, NodeId.END.value])
         reporter_router = init_router(NodeId.REPORTER.value, [NodeId.END.value,
-                                                              NodeId.SOURCE_TRACER.value])
+                                                              NodeId.VLM_CHART_GENERATOR.value])
         feedback_handler_router = init_router(NodeId.FEEDBACK_HANDLER.value, [NodeId.OUTLINE.value,
                                                                               NodeId.END.value])
         editor_team_router = init_router(NodeId.EDITOR_TEAM.value, [NodeId.REPORTER.value, NodeId.END.value])
@@ -499,6 +503,7 @@ class DeepresearchAgent(BaseAgent):
         flow.add_conditional_connection(NodeId.REPORTER.value, router=reporter_router)
         flow.add_conditional_connection(NodeId.EDITOR_TEAM.value, router=editor_team_router)
         flow.add_conditional_connection(NodeId.OUTLINE_INTERACTION.value, router=outline_interaction_router)
+        flow.add_connection(NodeId.VLM_CHART_GENERATOR.value, NodeId.SOURCE_TRACER.value)
         flow.add_connection(NodeId.SOURCE_TRACER.value, NodeId.SOURCE_TRACER_INFER.value)
         flow.add_connection(NodeId.SOURCE_TRACER_INFER.value, NodeId.USER_FEEDBACK_PROCESSOR.value)
         flow.add_conditional_connection(NodeId.USER_FEEDBACK_PROCESSOR.value, router=user_feedback_processor_router)
@@ -629,6 +634,7 @@ class DeepresearchDependencyAgent(DeepresearchAgent):
         # 依赖驱动编辑团队节点（推理+写作按层流水线并行）
         flow.add_workflow_comp(NodeId.DEPENDENCY_EDITOR_TEAM.value, DependencyEditorTeamNode())
         flow.add_workflow_comp(NodeId.REPORTER.value, ReporterNode())
+        flow.add_workflow_comp(NodeId.VLM_CHART_GENERATOR.value, VLMChartGeneratorNode())
         flow.add_workflow_comp(NodeId.SOURCE_TRACER.value, SourceTracerNode())
         flow.add_workflow_comp(NodeId.SOURCE_TRACER_INFER.value, SourceTracerInferNode())
         flow.add_workflow_comp(NodeId.USER_FEEDBACK_PROCESSOR.value, UserFeedbackProcessorNode())
@@ -649,7 +655,7 @@ class DeepresearchDependencyAgent(DeepresearchAgent):
             NodeId.OUTLINE_INTERACTION.value,
             [NodeId.OUTLINE.value, NodeId.DEPENDENCY_EDITOR_TEAM.value, NodeId.END.value])
         reporter_router = init_router(NodeId.REPORTER.value, [NodeId.END.value,
-                                                              NodeId.SOURCE_TRACER.value])
+                                                              NodeId.VLM_CHART_GENERATOR.value])
         feedback_handler_router = init_router(NodeId.FEEDBACK_HANDLER.value, [NodeId.OUTLINE.value,
                                                                               NodeId.END.value])
         dependency_editor_router = init_router(NodeId.DEPENDENCY_EDITOR_TEAM.value,
@@ -663,6 +669,7 @@ class DeepresearchDependencyAgent(DeepresearchAgent):
         flow.add_conditional_connection(NodeId.OUTLINE_INTERACTION.value, router=outline_interaction_router)
         flow.add_conditional_connection(NodeId.REPORTER.value, router=reporter_router)
         flow.add_conditional_connection(NodeId.DEPENDENCY_EDITOR_TEAM.value, router=dependency_editor_router)
+        flow.add_connection(NodeId.VLM_CHART_GENERATOR.value, NodeId.SOURCE_TRACER.value)
         flow.add_connection(NodeId.SOURCE_TRACER.value, NodeId.SOURCE_TRACER_INFER.value)
         flow.add_connection(NodeId.SOURCE_TRACER_INFER.value, NodeId.USER_FEEDBACK_PROCESSOR.value)
         flow.add_conditional_connection(NodeId.USER_FEEDBACK_PROCESSOR.value, router=user_feedback_processor_router)

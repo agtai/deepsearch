@@ -37,7 +37,7 @@ Sub-report shell: **section_id**, **section_task**, **background_knowledge** (de
 Aggregated report: **report_task**, **report_template**, **sub_reports**, **report_content**, **all_classified_contents**, **merged_trace_source_datas**, **checked_trace_source_report_content**, **checked_trace_source_datas**.
 
 ## `FinalResult`
-**response_content**, **citation_messages**, **infer_messages**, **exception_info**, **warning_info**.
+**response_content**, **citation_messages**, **infer_messages**, **chart_messages**, **exception_info**, **warning_info**.
 
 ## `SearchContext`
 **Fields**:

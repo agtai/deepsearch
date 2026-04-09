@@ -318,6 +318,9 @@ class SubReporterNode(BaseNode):
 
         llm_model_name = adapt_llm_model_name(session, NodeId.SUB_REPORTER.value)
 
+        # 获取图文并茂开关
+        visualization_enable = session.get_global_state("config.visualization_enable")
+
         return dict(
             thread_id=session.get_global_state("section_context.session_id"),
             has_template=bool(session.get_global_state("section_context.report_template")),
@@ -340,6 +343,7 @@ class SubReporterNode(BaseNode):
             llm_model_name=llm_model_name,
             sub_report_background_knowledge=session.get_global_state(
                 "section_context.sub_report_background_knowledge") or [],
+            visualization_enable=visualization_enable,
         )
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:

@@ -240,7 +240,7 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 - **outline_interaction_max_rounds**(int, 可选)：大纲交互最大轮次，取值范围：[1, 100]。默认值：`3`。
 - **source_tracer_research_trace_source_switch**(bool, 可选)：溯源功能开关。默认值：`True`。
 - **source_tracer_infer_switch**(bool, 可选)：溯源推理功能开关。默认值：`True`。
-- **llm_config**(Dict[Literal["general", "plan_understanding", "info_collecting", "writing_checking"], LLMConfig], 可选)：LLM模型配置。默认值：`dict()`。
+- **llm_config**(Dict[Literal["general", "plan_understanding", "info_collecting", "writing_checking", "vlm_chart_generating"], LLMConfig], 可选)：LLM模型配置。默认值：`dict()`。
 - **info_collector_search_method**(Literal["web", "local", "all"], 可选)：搜索方式，`web`：联网增强搜索，`local`：本地搜索工具搜索，`all`：联网增强+本地融合搜索。默认值：`"web"`。
 - **web_search_engine_config**(WebSearchEngineConfig, 可选)：联网增强引擎配置。默认值：`WebSearchEngineConfig()`。
 - **local_search_engine_config**(LocalSearchEngineConfig, 可选)：本地搜索引擎配置。默认值：`LocalSearchEngineConfig()`。
@@ -250,6 +250,8 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 - **user_feedback_processor_enable**(bool, 可选)：是否启用报告生成后的局部优化能力。默认值：`False`。
 - **user_feedback_processor_max_interactions**(int, 可选)：局部优化最大交互次数。默认值：`100`,可设置范围为1~100。
 - **api_tools_config**(ApiToolsConfig，可选)：运行时 HTTP API 工具配置，用于在默认工具之外注入可调用工具。默认值：`ApiToolsConfig`。
+- **vlm_chart_generator_enable**(bool, 可选)：vlm迭代生成图功能开关，与`visualization_enable`功能互斥。
+- **vlm_chart_generator_max_iterations**(int, 可选)：vlm生成图迭代优化最大次数。默认值：`2`，可设置范围为0~3，0表示生成的图表不进行迭代优化，数值越大，耗时越长。
 
 **样例**：
 

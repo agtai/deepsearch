@@ -101,7 +101,8 @@ class AgentConfig(BaseModel):
     source_tracer_research_trace_source_switch: bool = Field(default=True, description="溯源功能开关")
     source_tracer_infer_switch: bool = Field(default=True, description="溯源推理功能开关")
     llm_config: Dict[
-        Literal["general", "plan_understanding", "info_collecting", "writing_checking"], LLMConfig
+        Literal["general", "plan_understanding", "info_collecting", "writing_checking", 
+                "vlm_chart_generating"], LLMConfig
     ] = Field(default_factory=dict, description="LLM配置")
     info_collector_search_method: Literal["web", "local", "all"] = Field(default="web",
                                                                          description="搜索方式: "
@@ -120,6 +121,10 @@ class AgentConfig(BaseModel):
     # 用户反馈局部优化参数
     user_feedback_processor_enable: bool = Field(default=False, description="是否启用用户反馈优化功能")
     user_feedback_processor_max_interactions: int = Field(default=100, ge=1, le=100, description="最大交互次数")
+
+    # vlm迭代生成图参数
+    vlm_chart_generator_enable: bool = Field(default=False, description="vlm迭代生成图开关")
+    vlm_chart_generator_max_iterations: int = Field(default=2, ge=0, le=3, description="vlm迭代生成图最大迭代次数，0表示不进行迭代")
 
 
 class ServiceConfig(BaseModel):

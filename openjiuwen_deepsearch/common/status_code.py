@@ -36,6 +36,7 @@ class StatusCode(Enum):
     |      22      |  模板功能模块错误         |  模板提取失败异常等                                                |
     |      23      |  溯源推理模块错误         |  溯源推理生成失败等                                                |
     |      24      |  用户反馈处理模块错误      |  UserFeedbackProcessorNode模块异常：改写失败、偏移量不匹配等          |
+    |      25      |  vlm迭代图生成模块错误     |  vlm迭代图生成错误，校验失败等                                      |
 
     """
 
@@ -161,6 +162,13 @@ class StatusCode(Enum):
         212409,
         "Invalid rewrite_scope: {rewrite_scope}, expected selected_only or selected_and_related",
     )
+    
+    
+    CHART_GENERATION_ERROR = (212500, "Error occurred during chart generation, error: {e}")
+    CHART_PLACEHOLDER_ERROR = (212501, "Error occurred when inserting chart placeholders, error: {e}")
+    CHART_DATA_COLLECTION_ERROR = (212502, "Error occurred during chart data collection, error: {e}")
+    CHART_VLM_GENERATION_ERROR = (212503, "Error occurred during VLM chart generation, error: {e}")
+    CHART_INSERT_ERROR = (212504, "Error occurred during chart insertion, error: {e}")
 
     @property
     def errmsg(self):

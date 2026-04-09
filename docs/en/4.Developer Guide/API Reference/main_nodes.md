@@ -79,6 +79,12 @@ class ReporterNode(BaseNode)
 ```
 Final report via `Reporter.generate_report`; failures → `exception_info`; success → `search_context.report` and `all_classified_contents`.
 
+### `VLMChartGeneratorNode`
+```python
+class VLMChartGeneratorNode(BaseNode)
+```
+VLM iterative chart generation. Skips if `vlm_chart_generator_enable` is off. When enabled, requires VLM model config: `vlm_model_name`, `vlm_model_type`,  `vlm_base_url`, `vlm_api_key`. Selects chart insertion points and performs chart optimization. Writes to `final_result.chart_messages`. Chart generation errors written to `exception_info`.
+
 ### `SourceTracerNode`
 ```python
 class SourceTracerNode(BaseNode)

@@ -37,6 +37,7 @@ openJiuwen-DeepSearch 当前可以为全部模块配置四个模型：
 - **info_collecting:** 该模型用于信息收集各个步骤，配置在InfoCollector
 - **writing_checking:** 该模型用于准确生成报告及插入图文，配置在Sub_reporter
 - **general:** 该模型为通用模型，综合能力较强，所有模块都可调用该模型 
+- **vlm_chart_generating** 该模型为专门处理图表的多模态模型，可以接收图表输入，目前仅支持qwen3.5-plus，配置在VLMChartGenerator
 
 其中，**general模型必须配置**，其他模型配置可选，其他模型未配置时，默认使用general模型，因此，建议general配置综合能力较强的模型    
 
