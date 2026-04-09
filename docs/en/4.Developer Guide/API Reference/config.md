@@ -91,22 +91,28 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 ```
 **AgentConfig** is the user-facing agent/runtime toggle set.
 
-**Fields** (all optional unless noted)
+**Fields**:
 
-- **execute_mode**: `commercial` / `general` (default `commercial`).
-- **execution_method**: `dependency_driving` / `parallel` (default `parallel`).
-- **workflow_human_in_the_loop**: HITL before planning (default `True`).
-- **outliner_max_section_num**: 1–15 (default `10`).
-- **outline_interaction_enabled** / **outline_interaction_max_rounds** (1–100, default `3`).
-- **source_tracer_research_trace_source_switch** / **source_tracer_infer_switch** (default `True`).
-- **llm_config**: map `general` | `plan_understanding` | `info_collecting` | `writing_checking` → `LLMConfig`.
-- **info_collector_search_method**: `web` / `local` / `all` (default `web`).
-- **web_search_engine_config**, **local_search_engine_config**, **custom_web_search_config**, **custom_local_search_config**.
-- **web_search_max_qps**: `0` = unlimited; floats like `0.5` = one call every 2s.
-- **user_feedback_processor_enable** (default `False`); **user_feedback_processor_max_interactions** (default `3`, range 1–5).
+- **execute_mode** (Literal["commercial", "general"], optional): Execution mode. Default value: `"commercial"`.
+- **execution_method** (Literal["dependency_driving", "parallel"], optional): Execution method. Default value: `"parallel"`.
+- **workflow_human_in_the_loop** (bool, optional): Whether to enable HITL before planning. Default value: `True`.
+- **outliner_max_section_num** (int, optional): Maximum number of outline sections. Range: `[1, 15]`. Default value: `10`.
+- **outline_interaction_enabled** (bool, optional): Whether to enable outline interaction. Default value: `True`.
+- **outline_interaction_max_rounds** (int, optional): Maximum number of outline interaction rounds. Range: `[1, 100]`. Default value: `3`.
+- **source_tracer_research_trace_source_switch** (bool, optional): Whether to enable citation tracing. Default value: `True`.
+- **source_tracer_infer_switch** (bool, optional): Whether to enable provenance reasoning. Default value: `True`.
+- **llm_config** (Dict[Literal["general", "plan_understanding", "info_collecting", "writing_checking"], LLMConfig], optional): LLM model configuration. Default value: `dict()`.
+- **info_collector_search_method** (Literal["web", "local", "all"], optional): Search method. `web` means web augmentation search, `local` means local search tool, and `all` means hybrid web + local search. Default value: `"web"`.
+- **web_search_engine_config** (WebSearchEngineConfig, optional): Web augmentation engine configuration. Default value: `WebSearchEngineConfig()`.
+- **local_search_engine_config** (LocalSearchEngineConfig, optional): Local search engine configuration. Default value: `LocalSearchEngineConfig()`.
+- **custom_web_search_config** (CustomWebSearchConfig, optional): Custom web augmentation engine configuration. Default value: `CustomWebSearchConfig()`.
+- **custom_local_search_config** (CustomLocalSearchConfig, optional): Custom local search configuration. Default value: `CustomLocalSearchConfig()`.
+- **web_search_max_qps** (float, optional): Maximum QPS for the web augmentation engine. `0` means no rate limit. Floating-point values such as `0.5` are supported and mean one request every 2 seconds. Default value: `0`.
+- **user_feedback_processor_enable** (bool, optional): Whether to enable post-report local optimization. Default value: `False`.
+- **user_feedback_processor_max_interactions** (int, optional): Maximum number of local optimization interactions. Default value: `100`. Allowed range: `1~100`.
 - **api_tools_config** (`ApiToolsConfig`): runtime HTTP API tools injected for function calling outside built-in tools.
 
-**Example**
+**Example**:
 
 ```python
 >>> from openjiuwen_deepsearch.config.config import AgentConfig, LLMConfig, WebSearchEngineConfig
@@ -199,19 +205,56 @@ class openjiuwen_deepsearch.config.config.ServiceConfig()
 ```
 **ServiceConfig** holds SDK/service defaults (timeouts, retries, telemetry).
 
-**Groups**
+**Fields**:
 
-- **Networking**: **service_allow_origins** (`[]`).
-- **Templates**: **template_max_generate_retry_num** (`3`).
-- **Workflow**: **workflow_execution_timeout** (`7200` s), **workflow_sub_graph_execution_timeout** (`6000`), **workflow_max_plan_executed_num** (`2`), **workflow_recursion_limit** (`30`), **workflow_max_gen_question_retry_num** (`3`), **workflow_feedback_mode** (`web` / `cmd`, default `web`).
-- **Outliner / planner**: **outliner_max_generate_outline_retry_num** (`3`); **planner_max_step_num** / **planner_max_retry_num** (`3`).
-- **Collector**: **info_collector_max_react_recursion_limit** (`8`), **info_collector_initial_search_query_count** (`3`), **info_collector_max_research_loops** (`2`), **info_collector_max_retry_num** (`3`).
-- **Reporting**: **sub_report_classify_doc_infos_single_time_num** (`60`), **sub_report_classify_doc_infos_res_top_k_num** (`10`), **report_max_generate_retry_num** (`3`), **visualization_enable** (`False`).
-- **Provenance**: **source_tracer_citation_verify_max_concurrency_num** (`30`), **source_tracer_citation_verify_batch_size** (`1`).
-- **Post-report edits**: **user_feedback_processor_max_text_length** (`2000`).
-- **Stats**: **stats_info_node_duration**, **stats_info_llm**, **stats_info_search** (default `False`).
-- **LLM**: **llm_timeout** (`300` s).
-- **Debug**: **node_debug_enable**, **export_intermediate_results** (default `False`).
+### Basic service settings
+- **service_allow_origins** (List[str], optional): Allowed IP/CORS origin range. Default value: `[]`.
+
+### Template parameters
+- **template_max_generate_retry_num** (int, optional): Maximum retry count for template generation. Default value: `3`.
+
+### Workflow parameters
+- **workflow_execution_timeout** (int, optional): Workflow execution timeout in seconds. Default value: `7200`.
+- **workflow_sub_graph_execution_timeout** (int, optional): Subgraph execution timeout. Default value: `6000`.
+- **workflow_max_plan_executed_num** (int, optional): Maximum number of executed plans. Default value: `2`.
+- **workflow_recursion_limit** (int, optional): Recursion limit. Default value: `30`.
+- **workflow_max_gen_question_retry_num** (int, optional): Maximum retry count for question generation. Default value: `3`.
+- **workflow_feedback_mode** (str, optional): User feedback channel. Available values: `["web", "cmd"]`. Default value: `"web"`.
+
+### Outline node parameters
+- **outliner_max_generate_outline_retry_num** (int, optional): Maximum retry count for outline generation. Default value: `3`.
+
+### Planner node parameters
+- **planner_max_step_num** (int, optional): Maximum number of planner steps. Default value: `3`.
+- **planner_max_retry_num** (int, optional): Maximum retry count. Default value: `3`.
+
+### Information collection parameters
+- **info_collector_max_react_recursion_limit** (int, optional): Maximum recursion limit for the React-style collector agent. Default value: `8`.
+- **info_collector_initial_search_query_count** (int, optional): Initial number of search queries. Default value: `3`.
+- **info_collector_max_research_loops** (int, optional): Maximum number of research loops. Default value: `2`.
+- **info_collector_max_retry_num** (int, optional): Maximum retry count. Default value: `3`.
+
+### Reporting parameters
+- **sub_report_classify_doc_infos_single_time_num** (int, optional): Number of collected documents classified by the LLM in one pass for a sub-report. Default value: `60`.
+- **sub_report_classify_doc_infos_res_top_k_num** (int, optional): Top-k number returned by the LLM classification in one pass for a sub-report. Default value: `10`.
+- **report_max_generate_retry_num** (int, optional): Maximum retry count for content generation. Default value: `3`.
+- **visualization_enable** (bool, optional): Whether to enable visualization illustrations in reports. Default value: `False`.
+
+### Provenance parameters
+- **source_tracer_citation_verify_max_concurrency_num** (int, optional): Maximum concurrency for citation verification. Default value: `30`.
+- **source_tracer_citation_verify_batch_size** (int, optional): Batch size for citation verification. Default value: `1`.
+
+### Statistics parameters
+- **stats_info_node_duration** (bool, optional): Whether to collect node duration statistics. Default value: `False`.
+- **stats_info_llm** (bool, optional): Whether to collect LLM call statistics. Default value: `False`.
+- **stats_info_search** (bool, optional): Whether to collect search tool call statistics. Default value: `False`.
+
+### LLM timeout parameter
+- **llm_timeout** (int, optional): LLM call timeout in seconds. Default value: `300`.
+
+### Debug parameters
+- **node_debug_enable** (bool, optional): Whether to enable formatted node debug logs. Default value: `False`.
+- **export_intermediate_results** (bool, optional): Whether to export intermediate workflow results for visualization. Default value: `False`.
 
 ## `Config`
 ```python

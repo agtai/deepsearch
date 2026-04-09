@@ -8,19 +8,25 @@ from openjiuwen_deepsearch.algorithm.user_feedback_processor.supplementary_searc
 )
 
 @pytest.mark.asyncio
-async def test_supplementary_search_selected_only_replaces_only_span_and_drops_span_citations():
-    report = "# 标题\n\n## 第二章\n前缀选中内容[[1]](https://a.com)后缀\n"
-    selected_text = "选中内容[[1]](https://a.com)"
+async def test_supplementary_search_selected_only_replaces_only_span_and_preserves_metadata():
+    report = "# 标题\n\n## 第二章\n前缀选中内容[checked_citation:0][[1]](https://a.com)后缀\n"
+    selected_text = "选中内容[checked_citation:0][[1]](https://a.com)"
     start_offset = report.index("选中内容")
     end_offset = start_offset + len(selected_text)
-
-    feedback = {
-        "action": "supplementary_search",
-        "selected_text": selected_text,
-        "start_offset": start_offset,
-        "end_offset": end_offset,
-        "user_instruction": "补充这一段的信息",
+    citation_start_offset = report.index("[[1]]")
+    citation_end_offset = citation_start_offset + len("[[1]](https://a.com)")
+    original_citation_messages = {
+        "data": [
+            {
+                "id": 0,
+                "reference_index": 1,
+                "url": "https://a.com",
+                "citation_start_offset": citation_start_offset,
+                "citation_end_offset": citation_end_offset,
+            }
+        ]
     }
+    original_infer_messages = [{"id": 3, "content": "保留推理"}]
 
     searcher = SupplementarySearcher(llm_model_name="mock")
     with patch.object(
@@ -38,48 +44,48 @@ async def test_supplementary_search_selected_only_replaces_only_span_and_drops_s
         "_rewrite_selected_only",
         new_callable=AsyncMock,
         return_value="选中内容已补充",
-    ) as mock_rewrite_only, patch.object(
-        searcher,
-        "_rewrite_selected_and_related",
-        new_callable=AsyncMock,
-    ) as mock_rewrite_related:
+    ) as mock_rewrite_only:
         result = await searcher.supplementary_search(
-            feedback=feedback,
+            feedback={
+                "action": "supplementary_search",
+                "selected_text": selected_text,
+                "start_offset": start_offset,
+                "end_offset": end_offset,
+                "user_instruction": "补充这一段的信息",
+            },
             final_result={
                 "response_content": report,
-                "citation_messages": {
-                    "data": [
-                        {
-                            "id": 0,
-                            "citation_start_offset": report.index("[[1]]"),
-                            "citation_end_offset": report.index("[[1]]") + len("[[1]](https://a.com)"),
-                        }
-                    ]
-                },
-                "infer_messages": [],
+                "citation_messages": original_citation_messages,
+                "infer_messages": original_infer_messages,
             },
             language="zh-CN",
         )
 
     mock_rewrite_only.assert_awaited_once()
-    mock_rewrite_related.assert_not_called()
-    assert "前缀" in result["new_report"]
-    assert "后缀" in result["new_report"]
-    assert "选中内容已补充" in result["new_report"]
-    assert "新章节内容" not in result["new_report"]
-    assert result["updated_citation_messages"]["data"] == []
-    assert result["original_start_offset"] == start_offset
-    assert result["original_end_offset"] == end_offset
+    assert result["new_report"] == "# 标题\n\n## 第二章\n前缀选中内容已补充后缀\n"
     assert result["rewritten_text"] == "选中内容已补充"
-    assert result["rewritten_start_offset"] == start_offset
 
 
 @pytest.mark.asyncio
-async def test_supplementary_search_selected_and_related_rewrites_whole_section():
-    report = "# 标题\n\n## 第一章\nA\n\n## 第二章\n这里是选中内容[[1]](https://a.com)\n更多内容\n"
-    selected_text = "选中内容[[1]](https://a.com)"
+async def test_supplementary_search_selected_and_related_preserves_metadata():
+    report = "# 标题\n\n## 第二章\n这里是选中内容[checked_citation:0][[1]](https://a.com)\n更多内容\n"
+    selected_text = "选中内容[checked_citation:0][[1]](https://a.com)"
     start_offset = report.index("选中内容")
     end_offset = start_offset + len(selected_text)
+    citation_start_offset = report.index("[[1]]")
+    citation_end_offset = citation_start_offset + len("[[1]](https://a.com)")
+    original_citation_messages = {
+        "data": [
+            {
+                "id": 0,
+                "reference_index": 1,
+                "url": "https://a.com",
+                "citation_start_offset": citation_start_offset,
+                "citation_end_offset": citation_end_offset,
+            }
+        ]
+    }
+    original_infer_messages = []
 
     searcher = SupplementarySearcher(llm_model_name="mock")
     with patch.object(
@@ -109,23 +115,15 @@ async def test_supplementary_search_selected_and_related_rewrites_whole_section(
             },
             final_result={
                 "response_content": report,
-                "citation_messages": {
-                    "data": [
-                        {
-                            "id": 0,
-                            "citation_start_offset": report.index("[[1]]"),
-                            "citation_end_offset": report.index("[[1]]") + len("[[1]](https://a.com)"),
-                        }
-                    ]
-                },
-                "infer_messages": [],
+                "citation_messages": original_citation_messages,
+                "infer_messages": original_infer_messages,
             },
             language="zh-CN",
         )
 
     mock_rewrite_related.assert_awaited_once()
-    assert result["new_report"].count("新章节内容") == 1
-    assert result["updated_citation_messages"]["data"] == []
+    assert result["new_report"] == "# 标题\n\n## 第二章\n新章节内容"
+    assert result["rewritten_text"] == "## 第二章\n新章节内容"
 
 
 @pytest.mark.asyncio

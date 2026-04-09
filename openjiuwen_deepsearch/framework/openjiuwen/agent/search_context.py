@@ -175,6 +175,7 @@ class SearchContext(BaseModel):
 
     # 4、用户反馈优化相关参数
     feedback_interaction_count: int = Field(default=0, description="用户反馈优化交互次数")
+    feedback_snapshot_sent: bool = Field(default=False, description="是否已向前端推送初始反馈快照")
     rewrite_history: List[Dict] = Field(default_factory=list, description="用户反馈优化历史记录")
 
     # 5、其他参数

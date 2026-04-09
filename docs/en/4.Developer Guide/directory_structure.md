@@ -33,58 +33,83 @@ openjiuwen_deepsearch/
 
 ### `algorithm/` — core algorithms
 
-**Role**: Algorithms for each research stage.
+**Functions**: Core algorithm implementations for each stage of the research workflow.
 
-**Main subfolders**:
+**Main subdirectories**:
 
-- **`prompts/`** — `.md` prompt templates  
-  - `synonym_rewrite_expand.md` — expansion  
-  - `synonym_rewrite_polish.md` — polish  
-  - `synonym_rewrite_shorten.md` — shorten  
-- **`query_understanding/`** — query understanding  
-  - `interpreter.py` — clarification questions  
-  - `outliner.py` — outline  
-  - `planner.py` — section plans  
-  - `router.py` — deep-search routing  
-- **`report/`** — reporting  
-  - `report.py` — main logic  
-  - `report_utils.py` — helpers  
-  - `config.py` — style/format  
-- **`report_template/`** — templates  
-  - `template_generator.py`  
-  - `template_utils.py`  
-- **`research_collector/`** — collection & scoring  
-  - `collector_function.py`  
-  - `doc_evaluation.py`  
-  - `tool_log.py`  
-- **`source_trace/`** — provenance  
-  - `source_tracer.py`, `checker.py`, `add_source.py`, `citation_checker_research.py`, `citation_verify_research.py`, `content_analyzer.py`, `source_matcher.py`, `source_tracer_preprocessors.py`  
-- **`source_tracer_infer/`** — provenance reasoning  
-  - `generate_html.py`, `html_template.py`, `infer.py`, `infer_call_model.py`, `infer_extract_info.py`, `number_node.py`, `supplement_graph.py`  
-- **`user_feedback_processor/`** — local rewrite after report  
-  - `action_definitions.py` — frontend actions ↔ internal actions  
-  - `synonym_rewrite.py` — expand/polish/shorten  
-  - `user_feedback_processor.py` — parse, validate, execute, respond  
+- **prompts/** - Prompt templates (`.md`)
+  - `synonym_rewrite_expand.md` - Prompt for expansion
+  - `synonym_rewrite_polish.md` - Prompt for polishing
+  - `synonym_rewrite_shorten.md` - Prompt for shortening
+  - `supplementary_search_task.md` - Prompt for supplementary-search task generation
+  - `supplementary_search_rewrite_selected_only.md` - Prompt for supplementary search that rewrites only the selected span
+  - `supplementary_search_rewrite_selected_and_related.md` - Prompt for supplementary search that rewrites the entire related section
+- **query_understanding/** - Query understanding
+  - `interpreter.py` - Generate clarification questions
+  - `outliner.py` - Generate outlines
+  - `planner.py` - Generate section plans
+  - `router.py` - Decide whether to enter deep search
+- **report/** - Report generation
+  - `report.py` - Main report generation logic
+  - `report_utils.py` - Report utility functions
+  - `config.py` - Report style and formatting
+- **report_template/** - Template generation and parsing
+  - `template_generator.py`
+  - `template_utils.py`
+- **research_collector/** - Information collection and evaluation
+  - `collector_function.py`
+  - `doc_evaluation.py`
+  - `tool_log.py`
+- **source_trace/** - Provenance module
+  - `source_tracer.py`
+  - `checker.py`
+  - `add_source.py`
+  - `citation_checker_research.py`
+  - `citation_verify_research.py`
+  - `content_analyzer.py`
+  - `source_matcher.py`
+  - `source_tracer_preprocessors.py`
+- **source_tracer_infer/** - Provenance reasoning module
+  - `generate_html.py`
+  - `html_template.py`
+  - `infer.py`
+  - `infer_call_model.py`
+  - `infer_extract_info.py`
+  - `number_node.py`
+  - `supplement_graph.py`
+- **user_feedback_processor/** - User-feedback local editing module
+  - `action_definitions.py` - Mapping between frontend actions and unified internal actions
+  - `report_edit_utils.py` - Tools for stripping citation / inference markers and updating offsets
+  - `section_locator.py` - Locate the smallest Markdown heading block for a selection
+  - `supplementary_search.py` - Execution logic for supplementary search and local / whole-section rewriting
+  - `synonym_rewrite.py` - Execution logic for expansion, polishing, and shortening
+  - `user_feedback_processor.py` - Parse feedback, validate, execute, and send results
 
 ---
 
 ### `framework/` — orchestration
 
-**Role**: openJiuwen-based workflow and nodes.
+**Functions**: Workflow and node orchestration based on openjiuwen.
 
-**Main subfolders**:
+**Main subdirectories**:
 
-- **`openjiuwen/agent/`** — workflow & nodes  
-  - `workflow.py` — agent/workflow entry  
-  - `main_graph_nodes.py` — main graph (Start/Entry/Outline/Reporter/SourceTracer, …)  
-  - `editor_team_manager_node.py` — editor-team subgraph manager  
-  - `reasoning_writing_graph/` — editor subgraph nodes/state  
-    - `editor_team_nodes.py`, `dependency_reasoning_team_nodes.py`, `dependency_writing_team_nodes.py`, `section_context.py`  
-  - `collector_graph/` — collector subgraph  
-    - `graph_builder.py`, `info_collector.py`, `collector_context.py`  
-  - `agent_factory.py` — agent factory  
-  - `base_node.py` — node base class  
-  - `search_context.py` — search context model  
+- **openjiuwen/agent/** - Workflows and nodes
+  - `workflow.py` - Agent and workflow entry
+  - `main_graph_nodes.py` - Main graph nodes (Start/Entry/Outline/Reporter/SourceTracer, etc.)
+  - `editor_team_manager_node.py` - Editor-team subgraph manager
+  - `reasoning_writing_graph/` - Editor-team subgraph nodes and state
+    - `editor_team_nodes.py`
+    - `dependency_reasoning_team_nodes.py`
+    - `dependency_writing_team_nodes.py`
+    - `section_context.py`
+  - `collector_graph/` - Information-collection subgraph
+    - `collector_execution_service.py` - Reusable information-collection execution service
+    - `graph_builder.py`
+    - `info_collector.py`
+    - `collector_context.py`
+  - `agent_factory.py` - Agent factory
+  - `base_node.py` - Base class for nodes
+  - `search_context.py` - Search context model
 
 - **`openjiuwen/core/workflow_agent/`** — WorkflowAgent & controller  
   - `config.py`, `workflow_controller.py`, `workflow_agent.py`  

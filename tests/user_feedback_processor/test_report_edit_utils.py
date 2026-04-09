@@ -1,61 +1,54 @@
-from openjiuwen_deepsearch.algorithm.user_feedback_processor.report_edit_utils import (
-    adjust_offsets_for_position_changes,
-    remove_citations_from_messages,
-    remap_inference_ids,
-    strip_markup_in_range,
-    update_citation_offsets,
-)
+from openjiuwen_deepsearch.algorithm.user_feedback_processor.report_edit_utils import strip_markup_in_range
 
 
-def test_strip_markup_in_range_removes_citations_and_collects_inference_ids():
-    text = "前缀[[1]](https://a.com)[结论](#inference:2)后缀"
+def test_strip_markup_in_range_supports_checked_citation_tokens():
+    text = "前缀[checked_citation:7][[1]](https://a.com)[结论](#inference:2)后缀"
+
+    stripped, removed_ranges, removed_ids = strip_markup_in_range(text, 0, len(text))
+
+    assert stripped == "前缀结论后缀"
+    assert removed_ids == [2]
+    assert len(removed_ranges) == 1
+
+
+def test_strip_markup_in_range_supports_checked_citation_urls_with_parentheses():
+    text = "前缀[checked_citation:1][[1]](https://example.com/a_(b))后缀"
+
+    stripped, removed_ranges, removed_ids = strip_markup_in_range(text, 0, len(text))
+
+    assert stripped == "前缀后缀"
+    assert removed_ranges == {(2, 54)}
+    assert removed_ids == []
+
+
+def test_strip_markup_in_range_keeps_plain_text_outside_selected_span():
+    text = "开头[checked_citation:1][[1]](https://a.com)正文尾部"
+    start = text.index("正文")
+    end = len(text)
+
+    stripped, removed_ranges, removed_ids = strip_markup_in_range(text, start, end)
+
+    assert stripped == text
+    assert removed_ranges == set()
+    assert removed_ids == []
+
+
+def test_strip_markup_in_range_removes_checked_citations_and_collects_inference_ids():
+    text = "前缀[checked_citation:0][[1]](https://a.com)[结论](#inference:2)后缀"
 
     stripped, removed_ranges, removed_ids = strip_markup_in_range(text, 0, len(text))
 
     assert "[[1]]" not in stripped
     assert "结论" in stripped
-    assert removed_ranges == {(2, 22)}
+    assert removed_ranges == {(2, 42)}
     assert removed_ids == [2]
 
 
-def test_remove_citations_from_messages_and_shift_trailing_offsets():
-    citation_messages = {
-        "data": [
-            {"id": 0, "citation_start_offset": 5, "citation_end_offset": 20},
-            {"id": 1, "citation_start_offset": 30, "citation_end_offset": 45},
-        ]
-    }
+def test_strip_markup_in_range_removes_legacy_citation_tokens_when_trace_source_is_disabled():
+    text = "前缀[citation: 1][结论](#inference:2)后缀"
 
-    updated = remove_citations_from_messages(citation_messages, {(5, 20)})
-    shifted = update_citation_offsets(
-        updated["data"],
-        original_end_offset=20,
-        original_selected_len=15,
-        rewritten_len=3,
-    )
+    stripped, removed_ranges, removed_ids = strip_markup_in_range(text, 0, len(text))
 
-    assert len(shifted) == 1
-    assert shifted[0]["citation_start_offset"] == 18
-
-
-def test_remap_inference_ids_tracks_position_changes():
-    text = "前缀[保留结论](#inference:10)后缀"
-
-    remapped_text, position_changes = remap_inference_ids(text, {10: 9})
-
-    assert remapped_text == "前缀[保留结论](#inference:9)后缀"
-    assert position_changes == [(2, -1)]
-
-
-def test_adjust_offsets_for_position_changes_shifts_trailing_citations():
-    citation_data = [
-        {"id": 0, "citation_start_offset": 20, "citation_end_offset": 35},
-        {"id": 1, "citation_start_offset": 1, "citation_end_offset": 5},
-    ]
-
-    shifted = adjust_offsets_for_position_changes(citation_data, [(10, -1)])
-
-    assert shifted == [
-        {"id": 0, "citation_start_offset": 19, "citation_end_offset": 34},
-        {"id": 1, "citation_start_offset": 1, "citation_end_offset": 5},
-    ]
+    assert stripped == "前缀结论后缀"
+    assert removed_ranges == {(2, 15)}
+    assert removed_ids == [2]

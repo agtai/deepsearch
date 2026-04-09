@@ -90,7 +90,7 @@ class StartNode(Start):
             agent_config["user_feedback_processor_enable"] = origin_agent_config.get(
                 "user_feedback_processor_enable", False)
             agent_config["user_feedback_processor_max_interactions"] = origin_agent_config.get(
-                "user_feedback_processor_max_interactions", 3)
+                "user_feedback_processor_max_interactions", 100)
             agent_config["api_tools_config"] = origin_agent_config.get("api_tools_config", {})
 
         service_config = Config().service_config.model_dump()
@@ -1000,6 +1000,16 @@ class UserFeedbackProcessorNode(BaseNode):
         super().__init__()
 
     def _pre_handle(self, inputs: Input, session: Session, context: ModelContext) -> dict:
+        """收集用户反馈节点执行所需的会话状态。
+
+        Args:
+            inputs: 节点输入。
+            session: 当前会话。
+            context: 模型上下文。
+
+        Returns:
+            包含开关、交互计数、快照标记和最终结果等信息的字典。
+        """
         logger.info("[UserFeedbackProcessorNode] Start UserFeedbackProcessorNode.")
         enable = session.get_global_state("config.user_feedback_processor_enable")
         if not enable:
@@ -1008,16 +1018,28 @@ class UserFeedbackProcessorNode(BaseNode):
         return dict(
             disabled=False,
             max_interactions=session.get_global_state("config.user_feedback_processor_max_interactions"),
-            max_text_length=session.get_global_state("config.user_feedback_processor_max_text_length"),
             feedback_mode=session.get_global_state("config.workflow_feedback_mode"),
             interaction_count=session.get_global_state("search_context.feedback_interaction_count") or 0,
+            feedback_snapshot_sent=session.get_global_state("search_context.feedback_snapshot_sent") or False,
             language=session.get_global_state("search_context.language"),
             final_result=session.get_global_state("search_context.final_result"),
             llm_model_name=adapt_llm_model_name(session, NodeId.USER_FEEDBACK_PROCESSOR.value),
         )
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
-        """注入 session/model 到上下文变量，便于补充搜索等链路复用信息采集能力。"""
+        """执行用户反馈节点主流程并注入上下文变量。
+
+        该方法会先把 ``session`` 与 ``context`` 注入到 contextvar，便于补充搜索
+        子链路复用信息采集能力；随后依次执行预处理、动作构建和状态回写。
+
+        Args:
+            inputs: 节点输入。
+            session: 当前会话。
+            context: 模型上下文。
+
+        Returns:
+            Output: 节点执行后的路由结果。
+        """
         session_context.set(session)
         model_context.set(context)
         current_inputs = self._pre_handle(inputs, session, context)
@@ -1028,26 +1050,32 @@ class UserFeedbackProcessorNode(BaseNode):
         return self._post_handle(inputs, algorithm_output, session, context)
 
     async def _build_algorithm_output(self, current_inputs: dict, session: Session, context: ModelContext) -> dict:
-        """解析校验反馈、执行改写并推送流式结果；``context`` 随节点传入，供子链路使用（与 ``_do_invoke`` 中 contextvar 一致）。"""
+        """解析反馈并构造节点输出。
+
+        Args:
+            current_inputs: `_pre_handle` 产出的节点输入快照。
+            session: 当前会话。
+            context: 模型上下文；供补充搜索等子链路复用。
+
+        Returns:
+            包含路由信息、报告更新结果以及交互消耗标记的字典。
+        """
         if current_inputs.get("disabled"):
             logger.info("[UserFeedbackProcessorNode] Feature disabled, routing to EndNode.")
             return dict(next_node=NodeId.END.value)
 
         interaction_count = current_inputs["interaction_count"]
         max_interactions = current_inputs["max_interactions"]
-        if interaction_count >= max_interactions:
-            logger.info(f"[UserFeedbackProcessorNode] Max interactions reached: {max_interactions}")
-            await self._notify_user(session, "Maximum interaction rounds reached.", StreamEvent.USER_INPUT_ENDED)
-            return dict(next_node=NodeId.END.value)
-
         final_result = current_inputs["final_result"]
+        mark_feedback_snapshot_sent = False
 
-        # 首次进入用户反馈阶段时，先把当前完整报告推给前端。
-        if interaction_count == 0:
+        # 首次进入用户反馈阶段时，先把当前完整报告推给前端；后续由 session 标记避免重复推送。
+        if not current_inputs["feedback_snapshot_sent"]:
             if final_result:
                 final_result_json = json.dumps(final_result, ensure_ascii=False)
                 await custom_stream_output(session, str(uuid.uuid4()), final_result_json,
                 NodeId.USER_FEEDBACK_PROCESSOR.value)
+                mark_feedback_snapshot_sent = True
             else:
                 logger.error("[UserFeedbackProcessorNode] Final result not found")
                 return dict(next_node=NodeId.END.value)
@@ -1055,18 +1083,30 @@ class UserFeedbackProcessorNode(BaseNode):
         report_content = final_result.get("response_content", "") or ""
 
         raw_feedback = await self._get_user_feedback(current_inputs["feedback_mode"], session)
+        consume_interaction = True
         try:
             feedback = UserFeedbackProcessor.parse_feedback(raw_feedback)
-            processor = UserFeedbackProcessor(current_inputs["llm_model_name"])
-            UserFeedbackProcessor.validate(
-                feedback, report_content, current_inputs["max_text_length"]
-            )
-
             action = feedback.get("action", "")
+            consume_interaction = action != "sync"
+            processor = UserFeedbackProcessor(current_inputs["llm_model_name"])
+
             if action == "finish":
                 logger.info("[UserFeedbackProcessorNode] User finished feedback, routing to EndNode.")
                 await self._notify_user(session, "User feedback finished.", StreamEvent.USER_INPUT_ENDED)
-                return dict(next_node=NodeId.END.value)
+                return dict(
+                    next_node=NodeId.END.value,
+                    mark_feedback_snapshot_sent=mark_feedback_snapshot_sent,
+                )
+
+            if consume_interaction and interaction_count >= max_interactions:
+                logger.info(f"[UserFeedbackProcessorNode] Max interactions reached: {max_interactions}")
+                await self._notify_user(session, "Maximum interaction rounds reached.", StreamEvent.USER_INPUT_ENDED)
+                return dict(
+                    next_node=NodeId.END.value,
+                    mark_feedback_snapshot_sent=mark_feedback_snapshot_sent,
+                )
+
+            UserFeedbackProcessor.validate(feedback, report_content)
 
             action_result = await processor.execute(
                 feedback=feedback,
@@ -1074,14 +1114,30 @@ class UserFeedbackProcessorNode(BaseNode):
                 language=current_inputs["language"],
             )
         except CustomException as e:
+            if interaction_count >= max_interactions and consume_interaction:
+                logger.info(f"[UserFeedbackProcessorNode] Max interactions reached: {max_interactions}")
+                await self._notify_user(session, "Maximum interaction rounds reached.", StreamEvent.USER_INPUT_ENDED)
+                return dict(
+                    next_node=NodeId.END.value,
+                    mark_feedback_snapshot_sent=mark_feedback_snapshot_sent,
+                )
             logger.error(f"[UserFeedbackProcessorNode] User feedback failed: {e}")
             await UserFeedbackProcessor.send_error(session, e)
             return dict(
                 next_node=NodeId.USER_FEEDBACK_PROCESSOR.value,
                 interaction_count=interaction_count,
+                consume_interaction=consume_interaction,
+                mark_feedback_snapshot_sent=mark_feedback_snapshot_sent,
                 exception_info=str(e),
             )
         except Exception as e:
+            if interaction_count >= max_interactions and consume_interaction:
+                logger.info(f"[UserFeedbackProcessorNode] Max interactions reached: {max_interactions}")
+                await self._notify_user(session, "Maximum interaction rounds reached.", StreamEvent.USER_INPUT_ENDED)
+                return dict(
+                    next_node=NodeId.END.value,
+                    mark_feedback_snapshot_sent=mark_feedback_snapshot_sent,
+                )
             logger.error(f"[UserFeedbackProcessorNode] Action failed: {e}")
             wrapped_error = CustomValueException(
                 StatusCode.USER_FEEDBACK_PROCESSOR_REWRITE_ERROR.code,
@@ -1091,6 +1147,8 @@ class UserFeedbackProcessorNode(BaseNode):
             return dict(
                 next_node=NodeId.USER_FEEDBACK_PROCESSOR.value,
                 interaction_count=interaction_count,
+                consume_interaction=consume_interaction,
+                mark_feedback_snapshot_sent=mark_feedback_snapshot_sent,
                 exception_info=str(wrapped_error),
             )
 
@@ -1098,26 +1156,34 @@ class UserFeedbackProcessorNode(BaseNode):
         updated_final_result = dict(final_result or {})
         updated_final_result.update({
             "response_content": action_result["new_report"],
-            "citation_messages": action_result["updated_citation_messages"],
-            "infer_messages": action_result["updated_infer_messages"],
         })
         await UserFeedbackProcessor.send_result(
             session=session,
             feedback=feedback,
             result=stream_result,
             final_result=updated_final_result,
-            feedback_interaction_count=interaction_count + 1,
+            feedback_interaction_count=interaction_count if not consume_interaction else interaction_count + 1,
         )
 
         return dict(
             next_node=NodeId.USER_FEEDBACK_PROCESSOR.value,
             interaction_count=interaction_count,
+            consume_interaction=consume_interaction,
+            mark_feedback_snapshot_sent=mark_feedback_snapshot_sent,
             feedback=feedback,
             **action_result,
         )
 
     async def _get_user_feedback(self, feedback_mode: str, session: Session) -> str:
-        """按交互模式获取原始用户反馈。"""
+        """按交互模式获取原始用户反馈。
+
+        Args:
+            feedback_mode: 反馈交互模式，当前支持 ``cmd`` 和 ``web``。
+            session: 当前会话。
+
+        Returns:
+            str: 原始用户输入；当交互模式非法时返回空字符串。
+        """
         prompt = "\nProvide your feedback: "
         user_input = ""
         if feedback_mode == "cmd":
@@ -1130,6 +1196,16 @@ class UserFeedbackProcessorNode(BaseNode):
         return user_input
 
     async def _notify_user(self, session: Session, message: str, event: StreamEvent):
+        """向前端发送一条用户反馈节点的提示消息。
+
+        Args:
+            session: 当前会话。
+            message: 要发送的消息文本。
+            event: 对应的流式事件类型。
+
+        Returns:
+            None
+        """
         await session.write_custom_stream({
             "message_id": str(uuid.uuid4()),
             "agent": NodeId.USER_FEEDBACK_PROCESSOR.value,
@@ -1141,34 +1217,50 @@ class UserFeedbackProcessorNode(BaseNode):
 
     def _post_handle(self, inputs: Input, algorithm_output: dict, session: Session,
                      context: ModelContext) -> dict:
+        """回写用户反馈节点产生的 session 状态。
+
+        Args:
+            inputs: 节点输入。
+            algorithm_output: `_build_algorithm_output` 返回结果。
+            session: 当前会话。
+            context: 模型上下文。
+
+        Returns:
+            仅包含下一跳节点的路由结果。
+        """
         next_node = algorithm_output["next_node"]
         interaction_count = algorithm_output.get("interaction_count")
-        if next_node == NodeId.USER_FEEDBACK_PROCESSOR.value and interaction_count is not None:
+        consume_interaction = algorithm_output.get("consume_interaction", True)
+        if algorithm_output.get("mark_feedback_snapshot_sent"):
+            session.update_global_state({"search_context.feedback_snapshot_sent": True})
+        if next_node == NodeId.USER_FEEDBACK_PROCESSOR.value and interaction_count is not None and consume_interaction:
             session.update_global_state({"search_context.feedback_interaction_count": interaction_count + 1})
 
         exception_info = algorithm_output.get("exception_info")
         if exception_info is not None:
             session.update_global_state({"search_context.final_result.exception_info": exception_info})
 
-        # 非改写成功路径（disabled / finish / error）不需要更新报告状态，直接按 next_node 路由。
+        # 非成功更新报告路径（disabled / finish / error）不需要更新报告状态，直接按 next_node 路由。
         if "new_report" not in algorithm_output:
             return dict(next_node=next_node)
 
         new_report = algorithm_output["new_report"]
+        session.update_global_state({"search_context.final_result.response_content": new_report})
         rewritten_text = algorithm_output["rewritten_text"]
         rewritten_start_offset = algorithm_output["rewritten_start_offset"]
         rewritten_end_offset = algorithm_output["rewritten_end_offset"]
-        updated_citation_messages = algorithm_output["updated_citation_messages"]
-        updated_infer_messages = algorithm_output.get("updated_infer_messages")
         feedback = algorithm_output["feedback"]
         selected_text_clean = algorithm_output.get("original_text_clean", feedback.get("selected_text"))
 
-        session.update_global_state({"search_context.final_result.response_content": new_report})
-        session.update_global_state({"search_context.final_result.citation_messages": updated_citation_messages})
-        session.update_global_state({"search_context.final_result.infer_messages": updated_infer_messages})
-
         # 记录每次局部改写的关键信息，便于问题排查和后续审计。
         history = session.get_global_state("search_context.rewrite_history") or []
+        is_sync = algorithm_output.get("sync_only", False)
+        current_final_result = session.get_global_state("search_context.final_result") or {}
+        current_report_content = current_final_result.get("response_content", "") or ""
+        if is_sync and new_report == current_report_content:
+            logger.info("[UserFeedbackProcessorNode] Rewrite completed, loop back for next interaction.")
+            return dict(next_node=next_node)
+
         history_item = {
             "action": feedback.get("action"),
             "rewrite_scope": feedback.get("rewrite_scope"),
@@ -1188,20 +1280,25 @@ class UserFeedbackProcessorNode(BaseNode):
         if "collector_summary" in algorithm_output:
             history_item["collector_summary"] = algorithm_output.get("collector_summary", "")
         history.append(history_item)
+        if is_sync:
+            non_sync_history = [item for item in history if item.get("action") != "sync"]
+            sync_history = [item for item in history if item.get("action") == "sync"]
+            history = non_sync_history + sync_history[-10:]
         session.update_global_state({"search_context.rewrite_history": history})
 
-        add_debug_log_wrapper(session, NodeDebugData(
-            NodeId.USER_FEEDBACK_PROCESSOR.value, 0, NodeType.MAIN.value,
-            output_content=json.dumps(
-                {
-                    "selected_text": feedback.get("selected_text"),
-                    "rewritten_text": rewritten_text,
-                    "rewritten_start_offset": rewritten_start_offset,
-                    "rewritten_end_offset": rewritten_end_offset,
-                },
-                ensure_ascii=False,
-            )
-        ))
+        if not is_sync:
+            add_debug_log_wrapper(session, NodeDebugData(
+                NodeId.USER_FEEDBACK_PROCESSOR.value, 0, NodeType.MAIN.value,
+                output_content=json.dumps(
+                    {
+                        "selected_text": feedback.get("selected_text"),
+                        "rewritten_text": rewritten_text,
+                        "rewritten_start_offset": rewritten_start_offset,
+                        "rewritten_end_offset": rewritten_end_offset,
+                    },
+                    ensure_ascii=False,
+                )
+            ))
 
         logger.info("[UserFeedbackProcessorNode] Rewrite completed, loop back for next interaction.")
         return dict(next_node=next_node)

@@ -489,7 +489,7 @@ SDK 层通过 `agent_config` 接收这些参数。
 
 ```python
 agent_config["user_feedback_processor_enable"] = True
-agent_config["user_feedback_processor_max_interactions"] = 3
+agent_config["user_feedback_processor_max_interactions"] = 100
 ```
 
 该功能与前置 HITL 不同，它发生在报告和溯源结果已经生成之后。工作流会在内部进入`UserFeedbackProcessorNode`：
@@ -503,6 +503,7 @@ agent_config["user_feedback_processor_max_interactions"] = 3
 - `polish`：润色选中文本。
 - `shorten`：缩写选中文本。
 - `supplementary_search`：结合补充检索对选中内容定向增强（见下文「改写范围」）。
+- `sync`：将前端已编辑完成的整篇报告同步回后端状态。
 - `finish`：结束当前局部优化会话。
 
 **协议约定（与实现一致）：**
@@ -512,13 +513,19 @@ agent_config["user_feedback_processor_max_interactions"] = 3
   - `selected_and_related`：替换选区所在**整章**，并允许衔接性联动改写（仅 `supplementary_search` 使用；其它动作即使携带也会在行为上忽略）。
 - 对 `supplementary_search`，`rewrite_scope` 必须为上述二者之一（否则在校验阶段报错）。
 
-除 `finish` 外的改写类动作，请求体需包含以下字段：
+局部改写动作（`expand`、`polish`、`shorten`、`supplementary_search`）的请求体需包含以下字段：
 - `action`：动作类型（必填）。
 - `selected_text`：用户当前选中的原始文本。
 - `start_offset`：选中文本在当前报告中的起始偏移。
 - `end_offset`：选中文本在当前报告中的结束偏移。
 - `user_instruction`：附加改写或补充说明，可选；若出现则须为字符串。
 - `rewrite_scope`：可选，默认 `selected_only`；仅 `supplementary_search` 强制消费。
+
+`sync` 请求体只需要：
+- `action`：固定为 `sync`。
+- `selected_text`：前端编辑后的完整报告内容。
+
+`sync` 不需要传 `start_offset` / `end_offset`，也不会消耗 `feedback_interaction_count`。
 
 ```python
 import json
@@ -564,13 +571,20 @@ async for chunk in agent.run(message=feedback_message, conversation_id=conversat
 finish_message = json.dumps({"action": "finish"}, ensure_ascii=False)
 async for chunk in agent.run(message=finish_message, conversation_id=conversation_id, agent_config=agent_config):
     logger.debug("[Finish stream message: %s]", chunk)
+
+# 前端也可以在整篇报告编辑完成后发送 sync，同步最新全文到后端状态：
+# json.dumps({
+#     "action": "sync",
+#     "selected_text": "完整编辑后报告"
+# }, ensure_ascii=False)
 ```
 
 说明：
-- `selected_text`必须与当前报告中`[start_offset, end_offset)`范围内的文本完全一致，否则会返回偏移校验错误。
-- 选中文本最大长度受`service_config.user_feedback_processor_max_text_length`控制，默认值为`2000`。
-- 局部改写会同步维护引用和溯源推理的偏移信息，因此前端应始终以最新返回的`final_result`为准继续交互。
-- 每次成功的局部改写会在 `search_context.rewrite_history` 中追加一条记录，其中包含 `action`、`rewrite_scope`（若有）及偏移等信息，便于排查与审计。
+- 局部改写动作要求 `selected_text` 与当前报告中 `[start_offset, end_offset)` 范围内的文本完全一致，否则会返回偏移校验错误。
+- 改写结果仅更新 `final_result.response_content`，原有 citation / infer metadata 保持不变；后端不再额外维护 offset 映射。
+- `sync` 仅更新 `final_result.response_content`，不消耗 `feedback_interaction_count`，且只有整篇报告内容实际变化时才会追加一条 `search_context.rewrite_history` 记录。
+- 后端仅保留最近 10 条 `sync` 历史；内容未变化的 `sync` 不会新增历史记录。
+- 每次成功的普通局部改写会在 `search_context.rewrite_history` 中追加一条记录，其中包含 `action`、`rewrite_scope`（若有）及偏移等信息，便于排查与审计。
 - **兼容性**：省略 `rewrite_scope` 时与显式传 `selected_only` 等价；**`action` 不可省略或为空字符串**，若旧版前端仍依赖后端推断动作，需改为显式传入合法 `action`。
 
 

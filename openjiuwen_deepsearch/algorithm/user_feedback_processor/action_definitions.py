@@ -4,12 +4,13 @@ from enum import Enum
 
 
 class UserFeedbackActionCategory(str, Enum):
-    """用户反馈动作的大类"""
+    """用户反馈动作的大类。"""
 
     SYNONYM_REWRITE = "synonym_rewrite"
     SUPPLEMENTARY_SEARCH = "supplementary_search"
     NEW_TASK = "new_task"
     SECTION_CHANGE = "section_change"
+    SYNC = "sync"
     FINISH = "finish"
 
 
@@ -33,9 +34,16 @@ class FinishActionSubcategory(str, Enum):
     FINISH = "finish"
 
 
+class SyncActionSubcategory(str, Enum):
+    """整篇报告同步小类动作。"""
+
+    SYNC = "sync"
+
+
 ResolvedActionSubcategory = (
     SynonymRewriteActionSubcategory
     | SupplementarySearchActionSubcategory
+    | SyncActionSubcategory
     | FinishActionSubcategory
 )
 
@@ -91,6 +99,12 @@ USER_INPUT_ACTION_MAP: dict[str, UserInputActionMapping] = {
     "supplementary_search": UserInputActionMapping(
         action_category=UserFeedbackActionCategory.SUPPLEMENTARY_SEARCH,
         action_subcategory=SupplementarySearchActionSubcategory.SUPPLEMENTARY_SEARCH,
+    ),
+
+    # 整篇同步
+    "sync": UserInputActionMapping(
+        action_category=UserFeedbackActionCategory.SYNC,
+        action_subcategory=SyncActionSubcategory.SYNC,
     ),
 
     # 完成任务

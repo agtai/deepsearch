@@ -83,13 +83,33 @@ Final report via `Reporter.generate_report`; failures → `exception_info`; succ
 ```python
 class SourceTracerNode(BaseNode)
 ```
-Skips if `source_tracer_research_trace_source_switch` is off; validates citations, fills `final_result.response_content` / `citation_messages` with offsets (`citation_start_offset`, `citation_end_offset`) for later local edits; failures → `exception_info`.
+**SourceTracerNode** handles provenance tracing and verification.
+
+**Functions**:
+- Skip when `source_tracer_research_trace_source_switch` is disabled.
+- Run citation verification after preprocessing and generate citation information.
+- Write results into `final_result.response_content` and `citation_messages`.
+- Insert stable `[checked_citation:id]` markers into the report body and return matching citation metadata, so the frontend can render and continue interaction based on the latest `final_result`.
+- Write failures into `exception_info`.
 
 ### `UserFeedbackProcessorNode`
 ```python
 class UserFeedbackProcessorNode(BaseNode)
 ```
-Post-report local edits when `user_feedback_processor_enable`: first pass emits full `final_result` snapshot; parses JSON actions `expand` / `shorten` / `polish` / `finish`; updates citations/infer messages; tracks `feedback_interaction_count` and `rewrite_history`; stops at max interactions or `finish`.
+**UserFeedbackProcessorNode** handles iterative local rewrite requests after report generation is complete.
+
+**Functions**:
+- Decide whether to enable post-report local editing based on `user_feedback_processor_enable`.
+- On first entry, send a full `final_result` snapshot to the frontend and use `search_context.feedback_snapshot_sent` to ensure it is sent only once.
+- Read JSON user feedback and support `expand`, `shorten`, `polish`, `supplementary_search`, `sync`, and `finish`.
+- Parse and validate rewrite payload fields such as `action`, `rewrite_scope`, `selected_text`, and offsets.
+- Support both `selected_only` and `selected_and_related` as rewrite scopes for `supplementary_search`.
+- Return a lightweight ack for `sync`, without consuming `feedback_interaction_count`; successful sync appends a rewrite-history record only when the full report content actually changes.
+- Call `UserFeedbackProcessor` to complete the local rewrite and update only `final_result.response_content`.
+- For normal rewrite and `supplementary_search` actions, maintain `search_context.feedback_interaction_count` and `search_context.rewrite_history`, including action type, rewrite scope, and actual replacement range.
+- Keep the existing citation / infer metadata unchanged during the rewrite path, without maintaining extra frontend offset mappings.
+- Keep only the latest 10 `sync` history records; unchanged `sync` requests do not create history records.
+- Apply `user_feedback_processor_max_interactions` only to non-`sync` actions; end the flow after receiving `finish`.
 
 ### `SourceTracerInferNode`
 ```python

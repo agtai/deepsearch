@@ -4,13 +4,7 @@
 import logging
 
 from openjiuwen_deepsearch.algorithm.user_feedback_processor.action_definitions import SYNONYM_REWRITE_ACTIONS
-from openjiuwen_deepsearch.algorithm.user_feedback_processor.report_edit_utils import (
-    adjust_offsets_for_position_changes,
-    remove_citations_from_messages,
-    remap_inference_ids,
-    strip_markup_in_range,
-    update_citation_offsets,
-)
+from openjiuwen_deepsearch.algorithm.user_feedback_processor.report_edit_utils import strip_markup_in_range
 from openjiuwen_deepsearch.algorithm.prompts.template import apply_system_prompt
 from openjiuwen_deepsearch.common.exception import CustomException, CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
@@ -35,7 +29,7 @@ def get_llm_instance(llm_model_name: str):
 
 
 class SynonymRewriter:
-    """执行报告级别的同义改写，并同步维护引用元数据。"""
+    """执行报告级别的同义改写，仅返回新的正文片段。"""
 
     def __init__(self, llm_model_name: str):
         self.llm_model_name = llm_model_name
@@ -98,22 +92,27 @@ class SynonymRewriter:
         self,
         feedback: dict,
         report_content: str,
-        citation_messages: dict,
         language: str,
-        infer_messages: list | None = None,
     ) -> dict:
-        """执行报告级别的同义改写。"""
+        """执行报告级别的同义改写。
+
+        Args:
+            feedback: 用户反馈信息。
+            report_content: 当前报告正文。
+            language: 当前报告语言。
+
+        Returns:
+            dict: 仅包含正文改写结果与替换区间信息。
+        """
         action = feedback["action"]
         start_offset = feedback["start_offset"]
         end_offset = feedback["end_offset"]
         user_instruction = feedback.get("user_instruction", "")
-        original_selected_len = end_offset - start_offset
 
-        stripped_text, removed_citation_ranges, removed_inference_ids = self._strip_citations_in_range(
-            report_content, start_offset, end_offset)
+        stripped_text, _, _ = strip_markup_in_range(report_content, start_offset, end_offset)
 
-        removed_citation_len = len(report_content) - len(stripped_text)
-        stripped_end = end_offset - removed_citation_len
+        removed_markup_len = len(report_content) - len(stripped_text)
+        stripped_end = end_offset - removed_markup_len
         original_text_clean = stripped_text[start_offset:stripped_end]
 
         rewritten_text = await self._generate_synonym_rewrite_text(
@@ -126,36 +125,6 @@ class SynonymRewriter:
         new_report = stripped_text[:start_offset] + rewritten_text + stripped_text[stripped_end:]
         rewritten_end_offset = start_offset + len(rewritten_text)
 
-        updated_citation_messages = self._remove_citations_from_messages(
-            dict(citation_messages), removed_citation_ranges)
-
-        if "data" in updated_citation_messages:
-            updated_citation_messages["data"] = self._update_citation_offsets(
-                updated_citation_messages["data"],
-                original_end_offset=end_offset,
-                original_selected_len=original_selected_len,
-                rewritten_len=len(rewritten_text),
-            )
-
-        removed_ids_set = set(removed_inference_ids)
-        id_remap: dict[int, int] = {}
-        updated_infer_messages = []
-        for item in (infer_messages or []):
-            old_id = item.get("id")
-            if old_id not in removed_ids_set:
-                new_infer_id = len(updated_infer_messages)
-                updated_item = dict(item)
-                updated_item["id"] = new_infer_id
-                if old_id != new_infer_id:
-                    id_remap[old_id] = new_infer_id
-                updated_infer_messages.append(updated_item)
-
-        if id_remap:
-            new_report, inference_position_changes = self._remap_inference_ids(new_report, id_remap)
-            if inference_position_changes and "data" in updated_citation_messages:
-                updated_citation_messages["data"] = self._adjust_offsets_for_position_changes(
-                    updated_citation_messages["data"], inference_position_changes)
-
         return dict(
             new_report=new_report,
             original_text=feedback["selected_text"],
@@ -165,39 +134,4 @@ class SynonymRewriter:
             rewritten_text=rewritten_text,
             rewritten_start_offset=start_offset,
             rewritten_end_offset=rewritten_end_offset,
-            updated_citation_messages=updated_citation_messages,
-            updated_infer_messages=updated_infer_messages,
         )
-
-    @staticmethod
-    def _strip_citations_in_range(
-        text: str, start: int, end: int
-    ) -> tuple[str, set[tuple[int, int]], list[int]]:
-        """语义同 ``report_edit_utils.strip_markup_in_range``，供改写前得到纯文本选区。"""
-        return strip_markup_in_range(text, start, end)
-
-    @staticmethod
-    def _remap_inference_ids(
-        text: str, id_remap: dict[int, int]
-    ) -> tuple[str, list[tuple[int, int]]]:
-        """将文本中的推理锚点 ID 按映射表替换，同时返回各替换位置的长度变化。"""
-        return remap_inference_ids(text, id_remap)
-
-    @staticmethod
-    def _adjust_offsets_for_position_changes(
-        citation_data: list, position_changes: list[tuple[int, int]]
-    ) -> list:
-        """根据文本替换产生的位置变化修正引用偏移量。"""
-        return adjust_offsets_for_position_changes(citation_data, position_changes)
-
-    @staticmethod
-    def _remove_citations_from_messages(
-        citation_messages: dict, removed_citation_ranges: set[tuple[int, int]],
-    ) -> dict:
-        return remove_citations_from_messages(citation_messages, removed_citation_ranges)
-
-    @staticmethod
-    def _update_citation_offsets(
-        datas: list, original_end_offset: int, original_selected_len: int, rewritten_len: int
-    ) -> list:
-        return update_citation_offsets(datas, original_end_offset, original_selected_len, rewritten_len)

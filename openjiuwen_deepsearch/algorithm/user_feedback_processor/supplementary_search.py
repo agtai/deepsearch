@@ -6,11 +6,7 @@ from dataclasses import dataclass, field
 
 from openjiuwen_deepsearch.algorithm.prompts.template import apply_system_prompt
 from openjiuwen_deepsearch.algorithm.user_feedback_processor.report_edit_utils import (
-    adjust_offsets_for_position_changes,
-    remove_citations_from_messages,
-    remap_inference_ids,
     strip_markup_in_range,
-    update_citation_offsets,
 )
 from openjiuwen_deepsearch.algorithm.user_feedback_processor.section_locator import locate_section
 from openjiuwen_deepsearch.common.exception import CustomValueException
@@ -40,7 +36,11 @@ class SupplementaryRewriteContext:
 
 
 def _resolve_session_collector():
-    """从 ``session_context`` 取当前 Session；未设置时返回 ``None``。"""
+    """从上下文变量中获取当前会话对象。
+
+    Returns:
+        Session | None: 当前会话对象；当上下文中尚未注入 session 时返回 ``None``。
+    """
     try:
         return session_context.get()
     except LookupError:
@@ -48,7 +48,11 @@ def _resolve_session_collector():
 
 
 def _resolve_model_context_collector():
-    """从 ``model_context`` 取当前 ModelContext；未设置时返回 ``None``。"""
+    """从上下文变量中获取当前模型上下文对象。
+
+    Returns:
+        ModelContext | None: 当前模型上下文；当上下文中尚未注入时返回 ``None``。
+    """
     try:
         return model_context.get()
     except LookupError:
@@ -100,7 +104,7 @@ class SupplementarySearcher:
         final_result: dict,
         language: str,
     ) -> dict:
-        """仅在用户选区内替换文本，并同步 citation / infer 元数据。
+        """仅在用户选区内替换文本，并保留 citation / infer 元数据。
 
         Args:
             feedback: 用户反馈信息。
@@ -111,15 +115,11 @@ class SupplementarySearcher:
         Returns:
             dict: 改写结果字典，包含 new_report、original_text、rewritten_text 等字段。
         """
-        # 提取引用消息和推理消息，用于后续更新
-        citation_messages = dict(final_result.get("citation_messages", {}) or {})
-        infer_messages = list(final_result.get("infer_messages", []) or [])
-
         # 定位包含用户选区的最小章节范围
         section = locate_section(report_content, feedback["start_offset"], feedback["end_offset"])
 
-        # 剥离选区内的标记，同时记录被移除的引用范围和推理ID
-        stripped_selection_report, removed_citation_ranges, removed_inference_ids = strip_markup_in_range(
+        # 剥离选区内的标记，避免将 checked_citation / inference 标记送入重写链路
+        stripped_selection_report, _, _ = strip_markup_in_range(
             report_content,
             feedback["start_offset"],
             feedback["end_offset"],
@@ -170,34 +170,6 @@ class SupplementarySearcher:
         )
         rewritten_end_offset = feedback["start_offset"] + len(rewritten_selected)
 
-        # 移除被删除范围内的引用消息
-        updated_citation_messages = remove_citations_from_messages(
-            dict(citation_messages),
-            removed_citation_ranges,
-        )
-        # 根据文本长度变化更新引用偏移量
-        if "data" in updated_citation_messages:
-            updated_citation_messages["data"] = update_citation_offsets(
-                updated_citation_messages["data"],
-                original_end_offset=feedback["end_offset"],
-                original_selected_len=feedback["end_offset"] - feedback["start_offset"],
-                rewritten_len=len(rewritten_selected),
-            )
-
-        # 剔除已移除的推理消息并重新映射ID
-        updated_infer_messages, id_remap = self._drop_and_remap_infer_messages(
-            infer_messages,
-            removed_inference_ids,
-        )
-        # 如果存在ID重映射，更新报告中的推理标记和引用偏移
-        if id_remap:
-            new_report, position_changes = remap_inference_ids(new_report, id_remap)
-            if position_changes and "data" in updated_citation_messages:
-                updated_citation_messages["data"] = adjust_offsets_for_position_changes(
-                    updated_citation_messages["data"],
-                    position_changes,
-                )
-
         # 获取原始选区文本用于返回
         original_sel = report_content[feedback["start_offset"]:feedback["end_offset"]]
         logger.debug("[SupplementarySearcher] original_text: %s", original_sel)
@@ -214,8 +186,6 @@ class SupplementarySearcher:
             "section_start_offset": section.section_start_offset,
             "section_end_offset": section.section_end_offset,
             "collector_summary": collection.get("info_summary", ""),
-            "updated_citation_messages": updated_citation_messages,
-            "updated_infer_messages": updated_infer_messages,
         }
 
     async def _run_selected_and_related(
@@ -225,7 +195,7 @@ class SupplementarySearcher:
         final_result: dict,
         language: str,
     ) -> dict:
-        """以 ``locate_section`` 得到的最小标题块为替换范围，并同步 citation / infer 元数据。
+        """以 ``locate_section`` 得到的最小标题块为替换范围，并保留 citation / infer 元数据。
 
         Args:
             feedback: 用户反馈信息。
@@ -236,14 +206,10 @@ class SupplementarySearcher:
         Returns:
             dict: 改写结果字典，包含 new_report、original_text、rewritten_text 等字段。
         """
-        # 提取引用消息和推理消息，用于后续更新
-        citation_messages = dict(final_result.get("citation_messages", {}) or {})
-        infer_messages = list(final_result.get("infer_messages", []) or [])
-
         # 定位包含用户选区的最小章节范围
         section = locate_section(report_content, feedback["start_offset"], feedback["end_offset"])
-        # 剥离整个章节内的标记，同时记录被移除的引用范围和推理ID
-        stripped_report, removed_citation_ranges, removed_inference_ids = strip_markup_in_range(
+        # 剥离整个章节内的标记，避免将 checked_citation / inference 标记送入重写链路
+        stripped_report, _, _ = strip_markup_in_range(
             report_content,
             section.section_start_offset,
             section.section_end_offset,
@@ -299,34 +265,6 @@ class SupplementarySearcher:
         )
         rewritten_end_offset = section.section_start_offset + len(rewritten_section)
 
-        # 移除被删除范围内的引用消息
-        updated_citation_messages = remove_citations_from_messages(
-            dict(citation_messages),
-            removed_citation_ranges,
-        )
-        # 根据文本长度变化更新引用偏移量
-        if "data" in updated_citation_messages:
-            updated_citation_messages["data"] = update_citation_offsets(
-                updated_citation_messages["data"],
-                original_end_offset=section.section_end_offset,
-                original_selected_len=section.section_end_offset - section.section_start_offset,
-                rewritten_len=len(rewritten_section),
-            )
-
-        # 剔除已移除的推理消息并重新映射ID
-        updated_infer_messages, id_remap = self._drop_and_remap_infer_messages(
-            infer_messages,
-            removed_inference_ids,
-        )
-        # 如果存在ID重映射，更新报告中的推理标记和引用偏移
-        if id_remap:
-            new_report, position_changes = remap_inference_ids(new_report, id_remap)
-            if position_changes and "data" in updated_citation_messages:
-                updated_citation_messages["data"] = adjust_offsets_for_position_changes(
-                    updated_citation_messages["data"],
-                    position_changes,
-                )
-
         return {
             "new_report": new_report,
             "original_text": section.section_text,
@@ -339,8 +277,6 @@ class SupplementarySearcher:
             "section_start_offset": section.section_start_offset,
             "section_end_offset": section.section_end_offset,
             "collector_summary": collection.get("info_summary", ""),
-            "updated_citation_messages": updated_citation_messages,
-            "updated_infer_messages": updated_infer_messages,
         }
 
     async def _build_research_task(
@@ -377,7 +313,18 @@ class SupplementarySearcher:
         """依赖 ``session_context`` 中的会话执行单步 ``INFO_COLLECTING`` 计划并汇总摘要与文档。
 
         ``model_context`` 可为 ``None``：采集子图当前仅依赖 session 与 ``llm_context`` 等，
-        openjiuwen 子图 ``invoke(..., context=None)`` 可执行。"""
+        openjiuwen 子图 ``invoke(..., context=None)`` 可执行。
+
+        Args:
+            research_task: 供信息采集子图执行的检索任务描述。
+            language: 当前报告语言。
+
+        Returns:
+            dict: 包含 ``info_summary`` 和 ``doc_infos`` 的采集结果快照。
+
+        Raises:
+            CustomValueException: 当上下文中缺少 session，无法执行采集子图时抛出。
+        """
         # 从上下文变量中解析当前会话和模型上下文
         session = _resolve_session_collector()
         context = _resolve_model_context_collector()
@@ -437,7 +384,14 @@ class SupplementarySearcher:
         self,
         rewrite_context: SupplementaryRewriteContext,
     ) -> str:
-        """在 ``selected_only`` 模式下仅生成替换选区的新正文。"""
+        """在 ``selected_only`` 模式下生成仅替换选区的新正文。
+
+        Args:
+            rewrite_context: 补充搜索重写上下文。
+
+        Returns:
+            str: 用于替换原选区的新正文。
+        """
         response = await self._invoke_prompt(
             "supplementary_search_rewrite_selected_only",
             {
@@ -456,7 +410,14 @@ class SupplementarySearcher:
         self,
         rewrite_context: SupplementaryRewriteContext,
     ) -> str:
-        """在 ``selected_and_related`` 模式下生成整段 enclosing 章节的新正文。"""
+        """在 ``selected_and_related`` 模式下生成整段章节的新正文。
+
+        Args:
+            rewrite_context: 补充搜索重写上下文。
+
+        Returns:
+            str: 用于替换 enclosing 章节的完整新正文。
+        """
         response = await self._invoke_prompt(
             "supplementary_search_rewrite_selected_and_related",
             {
@@ -500,31 +461,8 @@ class SupplementarySearcher:
             return f"{normalized_section}{match.group(1)}"
         return rewritten_section
 
-    @staticmethod
-    def _drop_and_remap_infer_messages(
-        infer_messages: list,
-        removed_inference_ids: list[int],
-    ) -> tuple[list, dict[int, int]]:
-        """剔除已移除 inference 的条目，顺序重排 ``id``，并返回 ``old_id -> new_id`` 映射（仅当 id 变化时）。"""
-        removed_ids = set(removed_inference_ids)
-        id_remap: dict[int, int] = {}
-        updated_infer_messages = []
-
-        for item in infer_messages:
-            old_id = item.get("id")
-            if old_id in removed_ids:
-                continue
-            new_id = len(updated_infer_messages)
-            updated_item = dict(item)
-            updated_item["id"] = new_id
-            if old_id != new_id:
-                id_remap[old_id] = new_id
-            updated_infer_messages.append(updated_item)
-
-        return updated_infer_messages, id_remap
-
     async def _invoke_prompt(self, prompt_name: str, context_vars: dict, agent_suffix: str) -> str:
-        """应用系统模板并调用 LLM，返回文本 content。
+        """应用系统模板并调用 LLM，返回文本内容。
 
         Args:
             prompt_name: 模板名称。

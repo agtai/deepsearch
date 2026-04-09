@@ -210,4 +210,5 @@ class openjiuwen_deepsearch.framework.openjiuwen.agent.search_context.SearchCont
 - **final_result**(FinalResult)：最终结果。
 - **debug_pre_step**(str)：上一步调试日志。
 - **feedback_interaction_count**(int)：报告生成后局部优化的交互次数。默认值：`0`。
+- **feedback_snapshot_sent**(bool)：是否已经向前端推送过初始反馈快照。默认值：`False`。
 - **rewrite_history**(List[Dict])：局部改写历史记录。

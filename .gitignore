@@ -7,3 +7,4 @@ service.yaml
 uv.lock
 *.log
 *.db
+.worktrees/

@@ -178,6 +178,25 @@ class TestResearchCitationChecker:
         assert len(result['data']) == 1
         assert result['data'][0]['from'] == 'local'
 
+    def test_save_citation_message_reuses_stable_id_and_omits_offsets(self):
+        datas = [
+            {
+                "url": "https://example.com",
+                "title": "Example",
+                "valid": True,
+                "id": 7,
+                "reference_index": 1,
+            }
+        ]
+
+        result = CitationCheckerResearch.organize_citations_for_frontend(datas)
+
+        assert result["code"] == 0
+        assert result["data"][0]["id"] == 7
+        assert result["data"][0]["reference_index"] == 1
+        assert "citation_start_offset" not in result["data"][0]
+        assert "citation_end_offset" not in result["data"][0]
+
     # Test core instance methods
     def setup_method(self):
         """Set up test fixtures."""
@@ -288,6 +307,25 @@ class TestResearchCitationChecker:
         assert '![[' in result_text and 'https://image.com' in result_text
         assert references == OrderedDict()  # No references for images
 
+    def test_replace_inline_citations_assigns_checked_citation_tokens(self):
+        markdown_text = "前缀[source_tracer_result][测试标题](https://test.com)后缀"
+        datas = [
+            {"url": "https://test.com", "title": "测试标题", "valid": True, "score": 0.9},
+        ]
+        inline_ref_pattern = re.compile(
+            r'\[source_tracer_result\](!)?\[(.*?)\](?:<(.*?)>|\((.*?)\))'
+        )
+
+        transformed_text, references, datas = self.checker.replace_inline_citations(
+            markdown_text, datas, inline_ref_pattern)
+
+        assert transformed_text == "前缀[checked_citation:0][[1]](https://test.com)后缀"
+        assert list(references.items()) == [("https://test.com", ("测试标题", 1))]
+        assert datas[0]["id"] == 0
+        assert datas[0]["reference_index"] == 1
+        assert "citation_start_offset" not in datas[0]
+        assert "citation_end_offset" not in datas[0]
+
     @patch('openjiuwen_deepsearch.algorithm.source_trace.citation_checker_research.LogManager')
     def test_transform_references_with_logging(self, mock_log_manager):
         """Test transform references with logging enabled."""
@@ -384,14 +422,14 @@ class TestResearchCitationChecker:
 
 
 class TestCitationOffsetTracking:
-    """测试引用替换后每个引用的 citation_start_offset 和 citation_end_offset 被正确记录到 datas 中"""
+    """测试稳定 citation token 替换后的数据映射"""
 
     @pytest.fixture
     def checker(self):
         return CitationCheckerResearch(llm_model="mock_model")
 
-    def test_replace_inline_citations_records_offsets(self, checker):
-        """替换引用后，datas 中每条有效引用应包含 citation_start_offset 和 citation_end_offset"""
+    def test_replace_inline_citations_records_stable_ids(self, checker):
+        """替换引用后，datas 中每条有效引用应记录稳定 id 和 reference_index"""
         markdown_text = "这是一段测试文本[source_tracer_result][标题A](https://a.com)以及更多内容[source_tracer_result][标题B](https://b.com)结束。"
         datas = [
             {"url": "https://a.com", "title": "标题A", "valid": True, "score": 0.9},
@@ -405,16 +443,17 @@ class TestCitationOffsetTracking:
 
         for data in datas:
             if data.get("valid", False):
-                assert "citation_start_offset" in data, f"缺少 citation_start_offset: {data}"
-                assert "citation_end_offset" in data, f"缺少 citation_end_offset: {data}"
-                start = data["citation_start_offset"]
-                end = data["citation_end_offset"]
-                assert start < end
-                citation_text = transformed_text[start:end]
-                assert citation_text.startswith("[[")
+                assert "id" in data
+                assert "reference_index" in data
+                assert "citation_start_offset" not in data
+                assert "citation_end_offset" not in data
+        assert transformed_text == (
+            "这是一段测试文本[checked_citation:0][[1]](https://a.com)"
+            "以及更多内容[checked_citation:1][[2]](https://b.com)结束。"
+        )
 
     def test_offsets_are_correct_for_single_citation(self, checker):
-        """单个引用的偏移量应精确指向替换后的引用标记"""
+        """单个引用应使用稳定 citation id 且不再写入偏移量"""
         markdown_text = "前缀文本[source_tracer_result][测试标题](https://test.com)后缀文本"
         datas = [
             {"url": "https://test.com", "title": "测试标题", "valid": True, "score": 0.9},
@@ -426,6 +465,8 @@ class TestCitationOffsetTracking:
             markdown_text, datas, inline_ref_pattern)
 
         assert len(datas) == 1
-        start = datas[0]["citation_start_offset"]
-        end = datas[0]["citation_end_offset"]
-        assert transformed_text[start:end] == "[[1]](https://test.com)"
+        assert transformed_text == "前缀文本[checked_citation:0][[1]](https://test.com)后缀文本"
+        assert datas[0]["id"] == 0
+        assert datas[0]["reference_index"] == 1
+        assert "citation_start_offset" not in datas[0]
+        assert "citation_end_offset" not in datas[0]
