@@ -14,7 +14,7 @@ import logging
 from typing import Dict, List, Tuple, Any, Optional
 
 from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
-from openjiuwen_deepsearch.algorithm.chart_generation.utils import call_model, is_equal_length
+from openjiuwen_deepsearch.algorithm.chart_generation.utils import call_model, is_equal_length, CallModelInput
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
 
@@ -309,10 +309,14 @@ class ChartDataCollector:
                 "detection_func": is_equal_length,
                 "args": len(batch_tasks)
             }
-            results = await call_model(model_name=self._llm_name, prompt="vlm_collect_data_prompt", 
-                                    user_input={"tasks": batch_tasks, "data_sources": data_sources},
-                                    agent_name=NodeId.VLM_CHART_GENERATOR.value + "collect_data_for_chart",
-                                    detection_func_and_args=detection_func_and_args)
+            call_model_input = CallModelInput(
+                model_name=self._llm_name, 
+                prompt="vlm_collect_data_prompt", 
+                user_input={"tasks": batch_tasks, "data_sources": data_sources},
+                agent_name=NodeId.VLM_CHART_GENERATOR.value + "collect_data_for_chart"
+                )
+            results = await call_model(call_model_input, 
+                                       detection_func_and_args=detection_func_and_args)
             if not results:
                 raise ValueError(f"No results for batch tasks: {batch_tasks}")
         except Exception as e:

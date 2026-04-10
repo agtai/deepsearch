@@ -251,7 +251,7 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 - **user_feedback_processor_max_interactions**(int, 可选)：局部优化最大交互次数。默认值：`100`,可设置范围为1~100。
 - **api_tools_config**(ApiToolsConfig，可选)：运行时 HTTP API 工具配置，用于在默认工具之外注入可调用工具。默认值：`ApiToolsConfig`。
 - **vlm_chart_generator_enable**(bool, 可选)：vlm迭代生成图功能开关，与`visualization_enable`功能互斥。
-- **vlm_chart_generator_max_iterations**(int, 可选)：vlm生成图迭代优化最大次数。默认值：`2`，可设置范围为0~3，0表示生成的图表不进行迭代优化，数值越大，耗时越长。
+- **vlm_chart_generator_max_iterations**(int, 可选)：vlm生成图迭代优化最大次数。默认值：`1`，可设置范围为0~3，0表示生成的图表不进行迭代优化，数值越大，耗时越长。
 
 **样例**：
 

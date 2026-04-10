@@ -98,7 +98,7 @@ def validate_agent_required_field(data: dict) -> None:
 def validate_vlm_chart_generator_field(data: dict) -> None:
     
     vlm_chart_generator_enable = data.get("vlm_chart_generator_enable", False)
-    vlm_chart_generator_max_iterations = data.get("vlm_chart_generator_max_iterations", 2)
+    vlm_chart_generator_max_iterations = data.get("vlm_chart_generator_max_iterations", 1)
     vlm_model_config = data.get("llm_config", {}).get("vlm_chart_generating", {})
 
     # 解析多模态llm配置

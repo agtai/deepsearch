@@ -20,7 +20,8 @@ from typing import Dict, List, Tuple, Optional, Any
 
 from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
 from openjiuwen_deepsearch.algorithm.chart_generation.utils import (call_model, 
-                                                                    get_chart_base64)
+                                                                    get_chart_base64,
+                                                                    CallModelInput)
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
 from openjiuwen_deepsearch.algorithm.chart_generation.sandbox import (
@@ -39,7 +40,7 @@ class ChartGenerator:
         llm_model_name: str,
         output_dir: str, 
         vlm_model_name: Optional[str] = None,
-        vlm_max_iterations: int = 2,
+        vlm_max_iterations: int = 1,
     ):
         """
         初始化
@@ -358,12 +359,15 @@ class ChartGenerator:
                 "args": {},
                 "option": "skip normalize",
             }
-            response = await call_model(
-                model_name=self._llm_model,
-                prompt="vlm_generate_chart_code_prompt",
+            call_model_input = CallModelInput(
+                model_name=self._llm_model, 
+                prompt="vlm_generate_chart_code_prompt", 
                 user_input=gen_chart_input,
-                detection_func_and_args=detect_func_and_args,
-                agent_name=NodeId.VLM_CHART_GENERATOR.value + "generate_chart_code",
+                agent_name=NodeId.VLM_CHART_GENERATOR.value + "generate_chart_code"
+                )
+            response = await call_model(
+                call_model_input, 
+                detection_func_and_args=detect_func_and_args
             )
 
             def extract_code(response: str) -> Optional[str]:
@@ -451,16 +455,17 @@ class ChartGenerator:
                 "history_suggestion": suggestion_list,
                 "chart_base64": chart_base64,
             }
-        
-
-            
             
         try:
-            response = await call_model(
-                model_name=self._vlm_model,
-                prompt="vlm_iterate_prompt",
+            call_model_input = CallModelInput(
+                model_name=self._vlm_model, 
+                prompt="vlm_iterate_prompt", 
                 user_input=vlm_llm_input,
-                agent_name=NodeId.VLM_CHART_GENERATOR.value + "vlm_iterate",
+                agent_name=NodeId.VLM_CHART_GENERATOR.value + "vlm_iterate"
+                )
+            response = await call_model(
+                call_model_input,
+                use_vlm=True
             )
             
             # 解析反馈并重新生成

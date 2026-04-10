@@ -84,4 +84,4 @@ class DeepSearchRequest(BaseModel):
     user_feedback_processor_max_interactions: int = Field(default=100, ge=1, le=100, description="最大交互次数")
     tools: List[RuntimeApiToolRequest] = Field(default_factory=list, description="前端传入的 API 工具列表")
     vlm_chart_generator_enable: bool = Field(default=False, description="vlm迭代生成图开关")
-    vlm_chart_generator_max_iterations: int = Field(default=2, ge=0, le=3, description="vlm迭代生成图最大迭代次数，0表示不进行迭代")
+    vlm_chart_generator_max_iterations: int = Field(default=1, ge=0, le=3, description="vlm迭代生成图最大迭代次数，0表示不进行迭代")

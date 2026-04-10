@@ -165,7 +165,7 @@ if __name__ == "__main__":
     parser.add_argument("--vlm_model_type", type=str, help="vlm 模型类型，openai or siliconflow")
     parser.add_argument("--vlm_base_url", type=str, help="vlm 模型服务地址")
     parser.add_argument("--vlm_api_key", type=str, help="vlm 模型密钥")
-    parser.add_argument("--vlm_chart_generator_max_iterations", type=int, default=2,
+    parser.add_argument("--vlm_chart_generator_max_iterations", type=int, default=1,
                         help="vlm 迭代生成图最大迭代次数, 最大值: 3")
     parser.add_argument("--vlm_chart_generator_enable", action="store_true", help="开启 vlm 迭代生成图")
 

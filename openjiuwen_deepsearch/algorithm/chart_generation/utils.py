@@ -5,8 +5,10 @@ import json
 from typing import List, Dict, NamedTuple, Optional
 import base64
 
+from pydantic import BaseModel, Field
+
 from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import llm_context
-from openjiuwen_deepsearch.algorithm.prompts.template import apply_system_prompt
+from openjiuwen_deepsearch.algorithm.prompts.template import apply_system_prompt, apply_vlm_prompt
 from openjiuwen_deepsearch.utils.common_utils.llm_utils import ainvoke_llm_with_stats, normalize_json_output
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
@@ -35,9 +37,16 @@ def is_equal_length(result, target):
                                     format(e=error_msg))
 
 
-async def call_model(model_name: str, prompt: str, user_input: dict, 
+class CallModelInput(BaseModel):
+    model_name: str = Field(default="", description="模型名称")
+    prompt: str = Field(default="", description="prompt文件名")
+    user_input: dict = Field(default={}, description="需要处理的输入数据")
+    agent_name: str = Field(default=NodeId.VLM_CHART_GENERATOR.value, description="agent名称")
+
+
+async def call_model(call_model_input: CallModelInput, 
                      detection_func_and_args: dict = None, 
-                     agent_name: str = NodeId.VLM_CHART_GENERATOR.value):
+                     use_vlm: bool = False):
     """调用LLM模型处理请求
     调用指定的LLM模型处理用户提示，并返回标准化的JSON格式输出
     Args:
@@ -48,10 +57,18 @@ async def call_model(model_name: str, prompt: str, user_input: dict,
     Returns:
         str: 标准化的JSON格式输出字符串
     """
+    prompt = call_model_input.prompt
+    user_input = call_model_input.user_input
+    agent_name = call_model_input.agent_name
+    model_name = call_model_input.model_name
+    
     retries = 0
     while retries < MAX_LLM_RETRY_TIMES:
         try:
-            user_prompt = apply_system_prompt(prompt, user_input)
+            if use_vlm:
+                user_prompt = apply_vlm_prompt(prompt, user_input, user_input.get("chart_base64", ""))
+            else:
+                user_prompt = apply_system_prompt(prompt, user_input)
             llm = llm_context.get().get(model_name)
             response = await ainvoke_llm_with_stats(llm, user_prompt, agent_name=agent_name)
             content = response.get("content", "")

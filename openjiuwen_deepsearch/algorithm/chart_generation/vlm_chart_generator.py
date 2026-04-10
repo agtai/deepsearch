@@ -33,6 +33,7 @@ from openjiuwen_deepsearch.algorithm.chart_generation.inser_chart import (
 )
 
 logger = logging.getLogger(__name__)
+OUTPUT_DIR = "./output/vlm_chart_generator"
 
 
 class VLMChartGenerator:
@@ -45,11 +46,11 @@ class VLMChartGenerator:
         use_vlm_critic: 是否使用VLM评估
     """
     def __init__(self, llm_model_name: str, vlm_model_name: str, 
-                 vlm_max_iterations: int, output_dir: str):
+                 vlm_max_iterations: int):
         self._llm_model_name = llm_model_name
         self._vlm_model_name = vlm_model_name
         self._vlm_max_iterations = vlm_max_iterations
-        self._output_dir = output_dir
+        self._output_dir = OUTPUT_DIR
         self._source_trace_datas = None
         self._report_content = None
         self._all_classified_contents = None
@@ -60,9 +61,9 @@ class VLMChartGenerator:
         self._chart_generator = ChartGenerator(llm_model_name=llm_model_name, 
                                                vlm_model_name=vlm_model_name, 
                                                vlm_max_iterations=vlm_max_iterations, 
-                                               output_dir=output_dir
+                                               output_dir=self._output_dir
                                                )
-        self._inser_chart_node = InsertChartNode(output_dir)
+        self._inser_chart_node = InsertChartNode(self._output_dir)
         
     def _check_input(self, report_content: str, 
                      all_classified_contents: List[Dict[str, Any]],

@@ -18,7 +18,6 @@ You are the quality gate for chart generation. You MUST inspect the chart image,
 - **chart_type**: Type of chart (line, bar, pie, scatter, kline, area, grouped_bar)
 - **chart_data**: Data used to generate the chart
 - **history_suggestions**: Previous suggestions already sent to the code generator
-- **chart_base64**: The generated chart image to evaluate
 
 ## Step-by-Step Evaluation
 
@@ -142,10 +141,3 @@ Return ONLY a JSON object. No explanations, no markdown fences, no extra text:
 <history_suggestion>
 {{history_suggestion}}
 </history_suggestion>
-
-<chart_base64>
-{
-    "type": "image_url",
-    "image_url", {"url": f"data:image/png;base64,{{chart_base64}}"}, 
-}
-</chart_base64>

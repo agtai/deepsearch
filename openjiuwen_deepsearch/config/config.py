@@ -124,7 +124,7 @@ class AgentConfig(BaseModel):
 
     # vlm迭代生成图参数
     vlm_chart_generator_enable: bool = Field(default=False, description="vlm迭代生成图开关")
-    vlm_chart_generator_max_iterations: int = Field(default=2, ge=0, le=3, description="vlm迭代生成图最大迭代次数，0表示不进行迭代")
+    vlm_chart_generator_max_iterations: int = Field(default=1, ge=0, le=3, description="vlm迭代生成图最大迭代次数，0表示不进行迭代")
 
 
 class ServiceConfig(BaseModel):

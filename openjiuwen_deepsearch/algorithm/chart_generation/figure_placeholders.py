@@ -16,7 +16,7 @@ import re
 from typing import Dict, List, Any, Tuple
 
 from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
-from openjiuwen_deepsearch.algorithm.chart_generation.utils import call_model
+from openjiuwen_deepsearch.algorithm.chart_generation.utils import call_model, CallModelInput
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
 
@@ -310,12 +310,13 @@ class FigurePlaceholderGenerator:
         section_with_anchor, sub_anchor_msg = self._position_anchor(section_content)
 
         try:
-            response = await call_model(
-                        model_name=self._llm_model,
-                        prompt="vlm_find_inser_point_prompt",
-                        user_input={"section_contents": section_with_anchor},
-                        agent_name=NodeId.VLM_CHART_GENERATOR.value + "find_inserPoint",
-                    )
+            call_model_input = CallModelInput(
+                model_name=self._llm_model, 
+                prompt="vlm_find_inser_point_prompt", 
+                user_input={"section_contents": section_with_anchor}, 
+                agent_name=NodeId.VLM_CHART_GENERATOR.value + "find_inserPoint"
+                )
+            response = await call_model(call_model_input)
 
             # 解析LLM响应, 将定位锚点和图表生成信息记录并返回
             return self._parse_llm_response(response, sub_anchor_msg, section)

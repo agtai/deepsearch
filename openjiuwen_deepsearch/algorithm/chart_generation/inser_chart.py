@@ -12,7 +12,6 @@ import logging
 from typing import Dict, List, Any, Tuple
 import re
 import copy
-import os
 
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
@@ -69,7 +68,7 @@ class InsertChartNode:
             logger.error(error_msg)
             raise CustomValueException(StatusCode.CHART_INSERT_ERROR.code,
                                        StatusCode.CHART_INSERT_ERROR.errmsg.format(e=error_msg)) from e
-            
+
         return modified_report, self.source_trace_datas
 
     def _insert_chart_placeholder(
@@ -128,6 +127,10 @@ class InsertChartNode:
             source_data: 溯源信息
         """
         try:
+            # 溯源信息为空，则不插入溯源信息
+            if not self.source_trace_datas:
+                return False
+            
             anchor_text = chart.get("anchor_match_para", "")
             source_datas = chart.get("source_datas", [])
             

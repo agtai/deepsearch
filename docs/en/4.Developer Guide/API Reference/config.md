@@ -112,7 +112,7 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 - **user_feedback_processor_max_interactions** (int, optional): Maximum number of local optimization interactions. Default value: `100`. Allowed range: `1~100`.
 - **api_tools_config** (`ApiToolsConfig`): runtime HTTP API tools injected for function calling outside built-in tools.
 - **vlm_chart_generator_enable** (bool, optional): VLM iterative chart generation toggle; mutually exclusive with `visualization_enable`.
-- **vlm_chart_generator_max_iterations** (int, optional): Max iterations for VLM chart optimization. Default `2`, range 0–3. `0` means no optimization; higher values increase latency.
+- **vlm_chart_generator_max_iterations** (int, optional): Max iterations for VLM chart optimization. Default `1`, range 0–3. `0` means no optimization; higher values increase latency.
 
 **Example**:
 

@@ -96,7 +96,7 @@ class StartNode(Start):
             agent_config["vlm_chart_generator_enable"] = origin_agent_config.get(
                 "vlm_chart_generator_enable", False)
             agent_config["vlm_chart_generator_max_iterations"] = origin_agent_config.get(
-                "vlm_chart_generator_max_iterations", 2)
+                "vlm_chart_generator_max_iterations", 1)
 
         service_config = Config().service_config.model_dump()
         service_config["thread_id"] = inputs.get("thread_id", "")
@@ -1326,7 +1326,6 @@ class VLMChartGeneratorNode(BaseNode):
         llm_model_name = adapt_llm_model_name(session, NodeId.SUB_REPORTER.value)
         vlm_chart_generator_enable = session.get_global_state("config.vlm_chart_generator_enable")
         vlm_chart_generator_max_iterations = session.get_global_state("config.vlm_chart_generator_max_iterations")
-        vlm_chart_generator_output_dir = "./output/vlm_chart_generator"
         # 使用多模态模型处理图表类数据
         if vlm_chart_generator_max_iterations > 0:
             vlm_model_name = adapt_llm_model_name(session, NodeId.VLM_CHART_GENERATOR.value)
@@ -1346,7 +1345,6 @@ class VLMChartGeneratorNode(BaseNode):
             vlm_chart_generator_enable=vlm_chart_generator_enable,
             vlm_model_name=vlm_model_name,
             vlm_chart_generator_max_iterations=vlm_chart_generator_max_iterations,
-            vlm_chart_generator_output_dir=vlm_chart_generator_output_dir,
             report_content=report_content,
             all_classified_contents=all_classified_contents,
             trace_source_datas=merged_trace_source_datas,
@@ -1363,9 +1361,7 @@ class VLMChartGeneratorNode(BaseNode):
         
         llm_model_name = current_inputs.get("llm_model_name", "")
         vlm_model_name = current_inputs.get("vlm_model_name", "")
-        vlm_chart_generator_max_iterations = current_inputs.get("vlm_chart_generator_max_iterations", 2)
-        vlm_chart_generator_output_dir = current_inputs.get("vlm_chart_generator_output_dir", 
-                                                            "./output/vlm_chart_generator")
+        vlm_chart_generator_max_iterations = current_inputs.get("vlm_chart_generator_max_iterations", 1)
         
         report_content = current_inputs.get("report_content", "")
         all_classified_contents = current_inputs.get("all_classified_contents", [])
@@ -1375,7 +1371,6 @@ class VLMChartGeneratorNode(BaseNode):
                                     llm_model_name=llm_model_name,
                                     vlm_model_name=vlm_model_name,
                                     vlm_max_iterations=vlm_chart_generator_max_iterations,
-                                    output_dir=vlm_chart_generator_output_dir
                                     )
         (chart_messages, 
         modified_report, 
