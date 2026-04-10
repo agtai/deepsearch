@@ -277,14 +277,25 @@ async def _produce_stream(ctx: StreamContext):
                 "Waiting for cancel or resume for session %s before closing stream.",
                 ctx.conversation_id,
             )
+            wait_tasks = {
+                asyncio.create_task(ctx.cancel_event.wait()),
+                asyncio.create_task(ctx.resume_requested.wait()),
+            }
             try:
-                await asyncio.wait(
-                    [ctx.cancel_event.wait(), ctx.resume_requested.wait()],
+                _, pending = await asyncio.wait(
+                    wait_tasks,
                     return_when=asyncio.FIRST_COMPLETED,
                 )
             except asyncio.CancelledError:
+                for task in wait_tasks:
+                    task.cancel()
+                await asyncio.gather(*wait_tasks, return_exceptions=True)
                 logger.debug("CancelledError in HITL wait for session %s", ctx.conversation_id)
                 raise
+            else:
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
             if ctx.cancel_event.is_set():
                 try:
                     await ctx.queue.put(_build_cancel_message(ctx.conversation_id))

@@ -191,9 +191,23 @@ class DeepSearchAgentManager:
         cache_key = self._compute_agent_cache_key(request)
 
         if cache_key in self._agent_cache:
+            cached_agent = self._agent_cache[cache_key]
+            logger.info(
+                "Reusing cached agent conversation_id=%s class=%s research_name=%s",
+                request.conversation_id,
+                cached_agent.__class__.__name__,
+                getattr(cached_agent, "research_name", ""),
+            )
             return self._agent_cache[cache_key]
 
         agent = self._agent_factory.create_agent(full_config)
+        logger.info(
+            "Created new agent conversation_id=%s class=%s research_name=%s execution_method=%s",
+            request.conversation_id,
+            agent.__class__.__name__,
+            getattr(agent, "research_name", ""),
+            request.execution_method,
+        )
 
         self._agent_cache[cache_key] = agent
         return agent
@@ -261,6 +275,15 @@ class DeepSearchAgentManager:
             )
         if request.tools:
             res["api_tools_config"] = self._build_api_tools_config(request.tools)
+        logger.info(
+            "Built agent config conversation_id=%s execution_method=%s search_mode=%s "
+            "outline_interaction_enabled=%s human_in_the_loop=%s",
+            request.conversation_id,
+            request.execution_method,
+            request.search_mode,
+            request.outline_interaction_enabled,
+            request.workflow_human_in_the_loop,
+        )
         return res
 
     def _load_web_search_config(self, space_id: str, web_search_config: WebSearchConfig, db: Session) -> Dict[str, Any]:

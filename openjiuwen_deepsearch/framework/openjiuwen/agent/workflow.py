@@ -145,7 +145,7 @@ class DeepresearchAgent(BaseAgent):
     '''
 
     def __init__(self):
-        self.research_name = "research_workflow"
+        self.research_name = self._get_default_research_name()
         self.version = "1"
         self.agent = None
         self.workflow_input_schema = {
@@ -161,6 +161,9 @@ class DeepresearchAgent(BaseAgent):
 
         self.research_workflow = None
         self._create_research_workflow_agent()
+
+    def _get_default_research_name(self) -> str:
+        return "research_workflow"
 
     @staticmethod
     def _build_interrupt_message(thread_id: str, chunk: OutputSchema):
@@ -576,12 +579,8 @@ class DeepresearchDependencyAgent(DeepresearchAgent):
     Deepresearch agent: 生成报告 Agent，通用模型，依赖驱动执行任务，不带模板
     """
 
-    def __init__(self):
-        super().__init__()
-        self.research_name = "research_workflow_dependency_driving"
-        self.version = "1"
-        self.agent = None
-        self._create_research_workflow_agent()
+    def _get_default_research_name(self) -> str:
+        return "research_workflow_dependency_driving"
 
     def _create_research_workflow_agent(self):
         research_workflow = self._build_research_dependency_workflow()
