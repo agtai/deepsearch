@@ -75,6 +75,11 @@ Older Windows may need extra steps; see [Install Linux on Windows with WSL](http
 
 * To change the web UI port, see [this guide](https://gitcode.com/openJiuwen/agent-studio/blob/main/scripts/README.md#如何修改前端页面服务的端口号).
 
+- Locate and edit the .env.custom file in the deployment tool directory, then add the following configuration item according to your actual runtime environment:
+```
+IP=<local IP address of the machine running the deployment tool>
+```
+
 * Start:
 
   ```bash
