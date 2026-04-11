@@ -286,7 +286,8 @@ class DeepSearchAgentManager:
         )
         return res
 
-    def _load_web_search_config(self, space_id: str, web_search_config: WebSearchConfig, db: Session) -> Dict[str, Any]:
+    @staticmethod
+    def _load_web_search_config(space_id: str, web_search_config: WebSearchConfig, db: Session) -> Dict[str, Any]:
         try:
             repo = WebSearchEngineRepository(db)
             config_id = web_search_config.web_search_config_id
@@ -391,7 +392,8 @@ class DeepSearchAgentManager:
             logger.error("Failed to load local search config: %s", str(e))
             raise LocalSearchEngineConfigGetException(f"Failed to build config: {str(e)}") from e
 
-    def load_template_content(self, space_id: str, template_id: int) -> Dict[str, Any]:
+    @staticmethod
+    def load_template_content(space_id: str, template_id: int) -> Dict[str, Any]:
         try:
             db = next(get_db())
             repo = ReportTemplateRepository(db)

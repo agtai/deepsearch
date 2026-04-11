@@ -50,18 +50,18 @@ class BaseRepository(Generic[T]):
             logger.error(f"Failed to create database record: {type(e).__name__}")
             raise
 
-    def get_by_id(self, id: int) -> Optional[T]:
+    def get_by_id(self, record_id: int) -> Optional[T]:
         """Get record by ID.
         
         Args:
-            id: Record ID
+            record_id: Record ID
             
         Returns:
             Model instance or None
         """
         try:
             return self.db.query(self.model_class).filter(
-                self.model_class.id == id
+                self.model_class.id == record_id
             ).first()
         except SQLAlchemyError as e:
             logger.error(f"Failed to get record by ID: {type(e).__name__}")
@@ -126,11 +126,11 @@ class BaseRepository(Generic[T]):
             logger.error(f"Failed to update database record: {type(e).__name__}")
             raise
     
-    def delete(self, id: int) -> bool:
+    def delete(self, record_id: int) -> bool:
         """Delete record.
         
         Args:
-            id: Record ID
+            record_id: Record ID
             
         Returns:
             Whether deletion was successful
@@ -139,7 +139,7 @@ class BaseRepository(Generic[T]):
             SQLAlchemyError: Database operation exception
         """
         try:
-            db_obj = self.get_by_id(id)
+            db_obj = self.get_by_id(record_id)
             if db_obj:
                 self.db.delete(db_obj)
                 self.db.commit()

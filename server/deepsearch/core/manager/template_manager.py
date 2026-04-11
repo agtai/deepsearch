@@ -143,7 +143,8 @@ class ReportTemplateManager:
             repo.rollback()
             raise
 
-    def list_templates(self, db: Session, space_id: str) -> Dict[str, Any]:
+    @staticmethod
+    def list_templates(db: Session, space_id: str) -> Dict[str, Any]:
         """List all templates in a space"""
         repo = ReportTemplateRepository(db)
         templates = repo.list_by_space(space_id)
@@ -160,7 +161,8 @@ class ReportTemplateManager:
 
         return {"code": status.HTTP_200_OK, "msg": "success", "data": data}
 
-    def get_template_content(self, db: Session, space_id: str, template_id: int) -> Dict[str, Any]:
+    @staticmethod
+    def get_template_content(db: Session, space_id: str, template_id: int) -> Dict[str, Any]:
         """Return the content of a template"""
         repo = ReportTemplateRepository(db)
         template = repo.get_by_id(space_id, template_id)
@@ -175,7 +177,8 @@ class ReportTemplateManager:
             "template_content": template.template_content
         }
 
-    def delete_template(self, db: Session, space_id: str, template_id: int) -> Dict[str, Any]:
+    @staticmethod
+    def delete_template(db: Session, space_id: str, template_id: int) -> Dict[str, Any]:
         """Delete a specific template"""
         repo = ReportTemplateRepository(db)
         template = repo.get_by_id(space_id, template_id)

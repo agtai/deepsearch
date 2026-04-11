@@ -50,14 +50,13 @@ def setup_interface_logger(
     logger.addHandler(handler)
 
 
-def record_interface_log(
-        role: str,
-        session_id: str,
-        api_name: str,
-        duration_min: float,
-        success: bool,
-        response_info: dict
-):
+def record_interface_log(*args, **kwargs):
+    role = kwargs.get("role", args[0] if len(args) > 0 else "")
+    session_id = kwargs.get("session_id", args[1] if len(args) > 1 else "")
+    api_name = kwargs.get("api_name", args[2] if len(args) > 2 else "")
+    duration_min = kwargs.get("duration_min", args[3] if len(args) > 3 else 0.0)
+    success = kwargs.get("success", args[4] if len(args) > 4 else False)
+    response_info = kwargs.get("response_info", args[5] if len(args) > 5 else {})
     """
     记录接口日志
     """

@@ -111,8 +111,7 @@ def _extract_json(text: str) -> str:
     return re.sub(r"^```(?:json)?\n|\n```$", "", text.strip())
 
 
-async def llm_astream(llm, messages, model_name, agent_name, tools=None, need_stream_out=False,
-                      stream_meta: dict | None = None):
+async def llm_astream(*args, **kwargs):
     """
         description: llm async astream
 
@@ -127,6 +126,14 @@ async def llm_astream(llm, messages, model_name, agent_name, tools=None, need_st
         Returns:
                 response
     """
+    llm = kwargs.get("llm", args[0] if len(args) > 0 else None)
+    messages = kwargs.get("messages", args[1] if len(args) > 1 else None)
+    model_name = kwargs.get("model_name", args[2] if len(args) > 2 else None)
+    agent_name = kwargs.get("agent_name", args[3] if len(args) > 3 else None)
+    tools = kwargs.get("tools", None)
+    need_stream_out = kwargs.get("need_stream_out", False)
+    stream_meta = kwargs.get("stream_meta", None)
+
     _raise_if_cancelled()
     full_chunk = None
     can_write_stream = True
@@ -189,8 +196,7 @@ async def llm_astream(llm, messages, model_name, agent_name, tools=None, need_st
     return full_chunk
 
 
-async def ainvoke_llm_with_stats(llm, messages, llm_type: str = "basic", agent_name="AI", schema=None, tools=None,
-                                 need_stream_out=False, stream_meta: dict | None = None):
+async def ainvoke_llm_with_stats(*args, **kwargs):
     """
     description: llm async invoke tool
 
@@ -205,6 +211,15 @@ async def ainvoke_llm_with_stats(llm, messages, llm_type: str = "basic", agent_n
     Returns:
             dict response if schema is None, construct output if with schema
     """
+    llm = kwargs.get("llm", args[0] if len(args) > 0 else None)
+    messages = kwargs.get("messages", args[1] if len(args) > 1 else None)
+    llm_type = kwargs.get("llm_type", "basic")
+    agent_name = kwargs.get("agent_name", "AI")
+    schema = kwargs.get("schema", None)
+    tools = kwargs.get("tools", None)
+    need_stream_out = kwargs.get("need_stream_out", False)
+    stream_meta = kwargs.get("stream_meta", None)
+
     _raise_if_cancelled()
     if not llm:
         raise CustomValueException(
@@ -327,9 +342,15 @@ def transfer_to_jiuwen_messages(origin_messages: list):
     return output_messages
 
 
-def record_llm_retry_log(current_try=0, max_retries=3, section_idx=None,
-                         step_title=None, operation=None, error=None, extra_info=None):
+def record_llm_retry_log(*args, **kwargs):
     """Record the retry log of LLM."""
+    current_try = kwargs.get("current_try", args[0] if len(args) > 0 else 0)
+    max_retries = kwargs.get("max_retries", args[1] if len(args) > 1 else 3)
+    section_idx = kwargs.get("section_idx", args[2] if len(args) > 2 else None)
+    step_title = kwargs.get("step_title", args[3] if len(args) > 3 else None)
+    operation = kwargs.get("operation", args[4] if len(args) > 4 else None)
+    error = kwargs.get("error", args[5] if len(args) > 5 else None)
+    extra_info = kwargs.get("extra_info", args[6] if len(args) > 6 else None)
     if LogManager.is_sensitive():
         if current_try < max_retries:
             msg = (f"section_idx: {section_idx} | "

@@ -17,7 +17,13 @@ from docx.text.paragraph import Paragraph
 from latex2mathml.converter import convert as latex2mathml_convert
 from mathml2omml import convert
 
-HYPERLINK_URI = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"  # URI for word hyperlink
+# NOTE:
+# python-docx does not expose public APIs for a subset of low-level XML operations.
+# The internal members accessed below are intentionally constrained to formatting helpers.
+
+HYPERLINK_URI = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
+)  # URI for word hyperlink
 OMML_URI = "http://schemas.openxmlformats.org/officeDocument/2006/math"  # URI for word omml
 
 
@@ -67,62 +73,62 @@ def _get_style_by_tag(tag_name, style_dict, doc, default="Normal") -> ParagraphS
     return doc.styles[style_name]
 
 
-def _apply_style_font_on_para_run(p: Paragraph, style_rFonts) -> None:
-    if style_rFonts is None:
+def _apply_style_font_on_para_run(p: Paragraph, style_r_fonts) -> None:
+    if style_r_fonts is None:
         return
 
     # make sure there is rFonts
     for run in p.runs:
-        e = run._element
+        e = run._element  # pylint: disable=protected-access
         if e.rPr is None:
             e.insert(0, OxmlElement('w:rPr'))
         if e.rPr.rFonts is None:
-            rFonts = OxmlElement('w:rFonts')
-            e.rPr.append(rFonts)
+            r_fonts = OxmlElement('w:rFonts')
+            e.rPr.append(r_fonts)
         else:
-            rFonts = e.rPr.rFonts
+            r_fonts = e.rPr.rFonts
 
         # set run font
         for attr in ('w:ascii', 'w:hAnsi', 'w:cs', 'w:eastAsia'):
-            val = style_rFonts.get(qn(attr))
+            val = style_r_fonts.get(qn(attr))
             if val:
-                rFonts.set(qn(attr), val)
+                r_fonts.set(qn(attr), val)
 
 
 def _apply_inline_style(run, tag_name):
-    rPr = run._r.get_or_add_rPr()
+    r_pr = run._r.get_or_add_rPr()  # pylint: disable=protected-access
 
     if tag_name in ("strong", "b"):
         b = OxmlElement("w:b")
-        rPr.append(b)
+        r_pr.append(b)
 
     if tag_name in ("em", "i"):
         i = OxmlElement("w:i")
-        rPr.append(i)
+        r_pr.append(i)
 
     if tag_name == "u":
         u = OxmlElement("w:u")
         u.set(qn("w:val"), "single")
-        rPr.append(u)
+        r_pr.append(u)
 
 
-def _apply_style_font_on_run(run, style_rFonts) -> None:
-    if style_rFonts is None:
+def _apply_style_font_on_run(run, style_r_fonts) -> None:
+    if style_r_fonts is None:
         return
 
-    e = run._element
+    e = run._element  # pylint: disable=protected-access
     if e.rPr is None:
         e.insert(0, OxmlElement('w:rPr'))
     if e.rPr.rFonts is None:
-        rFonts = OxmlElement('w:rFonts')
-        e.rPr.append(rFonts)
+        r_fonts = OxmlElement('w:rFonts')
+        e.rPr.append(r_fonts)
     else:
-        rFonts = e.rPr.rFonts
+        r_fonts = e.rPr.rFonts
 
     for attr in ('w:ascii', 'w:hAnsi', 'w:cs', 'w:eastAsia'):
-        val = style_rFonts.get(qn(attr))
+        val = style_r_fonts.get(qn(attr))
         if val:
-            rFonts.set(qn(attr), val)
+            r_fonts.set(qn(attr), val)
 
 
 def _add_hyperlink(paragraph, url, text):
@@ -140,18 +146,18 @@ def _add_hyperlink(paragraph, url, text):
 
     # 创建 <w:r>
     r = OxmlElement("w:r")
-    rPr = OxmlElement("w:rPr")
+    r_pr = OxmlElement("w:rPr")
 
     # 超链接样式（蓝色 + 下划线）
     u = OxmlElement("w:u")
     u.set(qn("w:val"), "single")
-    rPr.append(u)
+    r_pr.append(u)
 
     color = OxmlElement("w:color")
     color.set(qn("w:val"), "0000FF")
-    rPr.append(color)
+    r_pr.append(color)
 
-    r.append(rPr)
+    r.append(r_pr)
 
     # 文本节点
     t = OxmlElement("w:t")
@@ -159,10 +165,10 @@ def _add_hyperlink(paragraph, url, text):
     r.append(t)
 
     hyperlink.append(r)
-    paragraph._p.append(hyperlink)
+    paragraph._p.append(hyperlink)  # pylint: disable=protected-access
 
 
-def _process_inline(p, node, style_rFonts, current_run=None):
+def _process_inline(p, node, style_r_fonts, current_run=None):
     """递归处理段落内的所有 inline 节点"""
 
     # 纯文本
@@ -177,7 +183,7 @@ def _process_inline(p, node, style_rFonts, current_run=None):
             run = current_run
             run.add_text(text)
 
-        _apply_style_font_on_run(run, style_rFonts)
+        _apply_style_font_on_run(run, style_r_fonts)
         return
 
     # 图片（通常自己一个 run，和 current_run 无强关联）
@@ -202,27 +208,27 @@ def _process_inline(p, node, style_rFonts, current_run=None):
     if node.name in ("strong", "b", "em", "i", "u"):
         # 如果已有 run，就在这个 run 上叠加样式；否则新建一个 run
         run = current_run or p.add_run()
-        _apply_style_font_on_run(run, style_rFonts)
+        _apply_style_font_on_run(run, style_r_fonts)
         _apply_inline_style(run, node.name)
 
         for child in node.contents:
-            _process_inline(p, child, style_rFonts, current_run=run)
+            _process_inline(p, child, style_r_fonts, current_run=run)
         return
 
     # 其他标签 → 递归处理，保持 current_run 传递
     for child in node.contents:
-        _process_inline(p, child, style_rFonts, current_run=current_run)
+        _process_inline(p, child, style_r_fonts, current_run=current_run)
 
 
 def _add_para_and_apply_style(doc, element, style_dict):
     style = _get_style_by_tag(element.name, style_dict, doc)
     p = doc.add_paragraph(style=style)
 
-    style_rPr = style.element.get_or_add_rPr()
-    style_rFonts = style_rPr.find(qn('w:rFonts'))
+    style_r_pr = style.element.get_or_add_rPr()
+    style_r_fonts = style_r_pr.find(qn('w:rFonts'))
 
     for child in element.contents:
-        _process_inline(p, child, style_rFonts)
+        _process_inline(p, child, style_r_fonts)
 
 
 def _insert_omml(paragraph, omml_xml: str):
@@ -235,7 +241,7 @@ def _insert_omml(paragraph, omml_xml: str):
 
         # 2. 插入到 run 中
         run = paragraph.add_run()
-        run._r.append(omath)
+        run._r.append(omath)  # pylint: disable=protected-access
 
     except Exception as e:
         raise ValueError("insert omml to doc failed") from e
@@ -316,10 +322,10 @@ def _set_default_table_border(table):
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
 
     # 设置边框（模拟 Table Grid）
-    tbl = table._element
-    tblPr = tbl.xpath('./w:tblPr')[0]
+    tbl = table._element  # pylint: disable=protected-access
+    tbl_pr = tbl.xpath('./w:tblPr')[0]
 
-    tblBorders = OxmlElement('w:tblBorders')
+    tbl_borders = OxmlElement('w:tblBorders')
 
     for border_name in ['top', 'left', 'bottom', 'right', 'insideH', 'insideV']:
         border = OxmlElement(f'w:{border_name}')
@@ -327,9 +333,9 @@ def _set_default_table_border(table):
         border.set(qn('w:sz'), '4')  # 线宽（1/8 pt）
         border.set(qn('w:space'), '0')  # 间距
         border.set(qn('w:color'), 'auto')  # 自动颜色
-        tblBorders.append(border)
+        tbl_borders.append(border)
 
-    tblPr.append(tblBorders)
+    tbl_pr.append(tbl_borders)
 
 
 def html_to_doc(doc, html, style_dict):
@@ -367,10 +373,10 @@ def html_to_doc(doc, html, style_dict):
             paragraph_style = _get_style_by_tag("p", style_dict, doc)
             for li in element.find_all('li'):
                 p = doc.add_paragraph(li.get_text(strip=True), style=paragraph_style)
-                style_rPr = paragraph_style.element.get_or_add_rPr()
-                style_rFonts = style_rPr.find(qn('w:rFonts'))
+                style_r_pr = paragraph_style.element.get_or_add_rPr()
+                style_r_fonts = style_r_pr.find(qn('w:rFonts'))
 
-                _apply_style_font_on_para_run(p, style_rFonts)
+                _apply_style_font_on_para_run(p, style_r_fonts)
 
         elif element.name == 'table':
             table_style = _get_style_by_tag(element.name, style_dict, doc)
@@ -390,10 +396,10 @@ def html_to_doc(doc, html, style_dict):
                         # set table fonts to paragraph default
                         paragraph_style = _get_style_by_tag("p", style_dict, doc)
                         # get rFonts in style
-                        style_rPr = paragraph_style.element.get_or_add_rPr()
-                        style_rFonts = style_rPr.find(qn('w:rFonts'))
+                        style_r_pr = paragraph_style.element.get_or_add_rPr()
+                        style_r_fonts = style_r_pr.find(qn('w:rFonts'))
 
-                        _apply_style_font_on_para_run(p, style_rFonts)
+                        _apply_style_font_on_para_run(p, style_r_fonts)
 
 
 def set_global_styles(doc, font_name="微软雅黑", font_size=11):
@@ -401,7 +407,7 @@ def set_global_styles(doc, font_name="微软雅黑", font_size=11):
     normal_font = normal_style.font
     normal_font.name = font_name
     normal_font.size = Pt(font_size)
-    normal_style._element.rPr.rFonts.set(qn('w:eastAsia'), font_name)
+    normal_style._element.rPr.rFonts.set(qn('w:eastAsia'), font_name)  # pylint: disable=protected-access
 
     heading_sizes = [24, 18, 16, 14, 12, 11]
     for i in range(1, 7):
@@ -410,7 +416,7 @@ def set_global_styles(doc, font_name="微软雅黑", font_size=11):
         heading_font.name = font_name
         heading_font.size = Pt(heading_sizes[i - 1])
         heading_font.italic = False
-        heading_style._element.rPr.rFonts.set(qn('w:eastAsia'), font_name)
+        heading_style._element.rPr.rFonts.set(qn('w:eastAsia'), font_name)  # pylint: disable=protected-access
 
     for style in doc.styles:
         if style.type == 1:  # Paragraph style

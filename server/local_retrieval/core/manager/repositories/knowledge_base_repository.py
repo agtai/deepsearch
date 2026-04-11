@@ -288,16 +288,14 @@ class KnowledgeBaseRepository:
     return {*}
     '''
     @with_exception_handling
-    def document_update_status(
-        self,
-        space_id: str,
-        kb_id: str,
-        doc_id: str,
-        doc_status: str,
-        process_info: dict | None = None,
-        es_index_name: str | None = None,
-        chunk_count: int | None = None,
-    ) -> ResponseModel[None]:
+    def document_update_status(self, *args, **kwargs) -> ResponseModel[None]:
+        space_id = kwargs.get("space_id", args[0] if len(args) > 0 else None)
+        kb_id = kwargs.get("kb_id", args[1] if len(args) > 1 else None)
+        doc_id = kwargs.get("doc_id", args[2] if len(args) > 2 else None)
+        doc_status = kwargs.get("doc_status", args[3] if len(args) > 3 else None)
+        process_info = kwargs.get("process_info", args[4] if len(args) > 4 else None)
+        es_index_name = kwargs.get("es_index_name", args[5] if len(args) > 5 else None)
+        chunk_count = kwargs.get("chunk_count", args[6] if len(args) > 6 else None)
         try:
             record = self._query_doc(space_id, kb_id, doc_id).first()
             if not record:

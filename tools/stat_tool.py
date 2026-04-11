@@ -3,11 +3,15 @@
 import argparse
 import ast
 import glob
+import logging
 import os
 import re
 from datetime import datetime
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
 # -------------------------
 # 命令行参数解析
@@ -42,7 +46,7 @@ def sort_key(path):
 
 # 日志文件排序，数字从大到小
 log_files = sorted(log_files, key=sort_key, reverse=True)
-print("解析的日志文件列表:", log_files)
+logger.info("解析的日志文件列表: %s", log_files)
 
 # 拼接所有日志内容
 content = ""
@@ -54,7 +58,7 @@ lines = content.splitlines()
 # -------------------------
 # 逐行 Node 执行耗时日志解析
 # -------------------------
-pattern_node = (
+PATTERN_NODE = (
     r"(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - \[TIME_STATS\] "
     r"thread_id: (?P<thread_id>[a-f0-9\-]+) -+ \[(?P<node>[A-Za-z0-9]+)\[(?P<section_idx>\d+)\]"
     r"\.(?P<method>[A-Za-z0-9_]+)\] executed time: (?P<duration>\d+\.\d+) s"
@@ -62,7 +66,7 @@ pattern_node = (
 
 rows_node = []
 for line in lines:
-    m = re.search(pattern_node, line)
+    m = re.search(PATTERN_NODE, line)
     if m:
         ts = datetime.strptime(m.group("timestamp"), "%Y-%m-%d %H:%M:%S,%f")
         thread_id = m.group("thread_id")
@@ -180,7 +184,7 @@ for line in lines:
         try:
             stats_dict = ast.literal_eval(dict_str)
         except Exception as e:
-            print(f"LLM解析失败 Thread {thread_id}: {e}")
+            logger.warning("LLM解析失败 Thread %s: %s", thread_id, e)
             continue
 
         method_name = stats_dict.get("method_name")
@@ -269,7 +273,7 @@ for line in lines:
         try:
             entry = ast.literal_eval(dict_str)
         except Exception as e:
-            print(f"Search解析失败 Thread {thread_id}: {e}")
+            logger.warning("Search解析失败 Thread %s: %s", thread_id, e)
             continue
 
         rows_search.append({
@@ -301,15 +305,15 @@ if target_threads:
 script_dir = os.path.dirname(__file__)  # 脚本所在目录
 if not df_node.empty:
     df_node.to_csv(os.path.join(script_dir, "stats_node_execution_table.csv"), index=False)
-    print("已导出 stats_node_execution_table.csv")
+    logger.info("已导出 stats_node_execution_table.csv")
 
 if not df_llm.empty:
     df_llm.to_csv(os.path.join(script_dir, "stats_llm_invoke_table.csv"), index=False)
-    print("已导出 stats_llm_invoke_table.csv")
+    logger.info("已导出 stats_llm_invoke_table.csv")
 
 if not df_search.empty:
     df_search.to_csv(os.path.join(script_dir, "stats_search_tool_table.csv"), index=False, encoding="utf-8-sig")
-    print("已导出 stats_search_tool_table.csv")
+    logger.info("已导出 stats_search_tool_table.csv")
 
 # -------------------------
 # 汇总表
@@ -317,23 +321,23 @@ if not df_search.empty:
 if not df_node.empty:
     node_summary = df_node[["Thread ID", "Parent Node", "Node", "Average Duration", "Call Count"]].drop_duplicates()
 
-    print("\n=== 节点耗时汇总数据 ===")
-    print(node_summary.to_string(index=False))
+    logger.info("\n=== 节点耗时汇总数据 ===")
+    logger.info("\n%s", node_summary.to_string(index=False))
     node_summary.to_csv(os.path.join(script_dir, "stats_node_execution_summary.csv"), index=False)
-    print("已导出 stats_node_execution_summary.csv")
+    logger.info("已导出 stats_node_execution_summary.csv")
 
 if not df_llm.empty:
     llm_summary = df_llm[["Thread ID", "Parent Node", "Node", "Method Name", "Average Duration", "Avg Total Tokens",
                           "Call Count"]].drop_duplicates()
 
-    print("\n=== llm调用耗时汇总数据 ===")
-    print(llm_summary.to_string(index=False))
+    logger.info("\n=== llm调用耗时汇总数据 ===")
+    logger.info("\n%s", llm_summary.to_string(index=False))
     llm_summary.to_csv(os.path.join(script_dir, "stats_llm_invoke_summary.csv"), index=False)
-    print("已导出 stats_llm_invoke_summary.csv")
+    logger.info("已导出 stats_llm_invoke_summary.csv")
 
 if not df_search.empty:
     total_calls = len(df_search)
     avg_duration = round(df_search["Duration (s)"].mean(), 3)
-    print("\n=== Search Tool 调用汇总数据 ===")
-    print(f"Total Call Count: {total_calls}")
-    print(f"Avg Call Time (s): {avg_duration}")
+    logger.info("\n=== Search Tool 调用汇总数据 ===")
+    logger.info("Total Call Count: %s", total_calls)
+    logger.info("Avg Call Time (s): %s", avg_duration)

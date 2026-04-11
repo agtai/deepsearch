@@ -1369,17 +1369,16 @@ async def _delete_document_from_index(
             return False
 
 
-async def _index_documents(
-    documents: List[Document],
-    indexing_strategy,
-    segmentation_strategy,
-    space_id: str,
-    kb_id: str,
-    doc_id: str,
-    process_info: dict,
-    llm_config: Optional[LLMConfig] = None,
-    embed_model_config: Optional[EmbedModelConfig] = None,
-) -> dict:
+async def _index_documents(*args, **kwargs) -> dict:
+    documents = kwargs.get("documents", args[0] if len(args) > 0 else None)
+    indexing_strategy = kwargs.get("indexing_strategy", args[1] if len(args) > 1 else None)
+    segmentation_strategy = kwargs.get("segmentation_strategy", args[2] if len(args) > 2 else None)
+    space_id = kwargs.get("space_id", args[3] if len(args) > 3 else None)
+    kb_id = kwargs.get("kb_id", args[4] if len(args) > 4 else None)
+    doc_id = kwargs.get("doc_id", args[5] if len(args) > 5 else None)
+    process_info = kwargs.get("process_info", args[6] if len(args) > 6 else None)
+    llm_config = kwargs.get("llm_config", args[7] if len(args) > 7 else None)
+    embed_model_config = kwargs.get("embed_model_config", args[8] if len(args) > 8 else None)
 
     # 1. 更新状态为INDEXING
     update_indexing_result = knowledge_base_repository.document_update_status(
@@ -1532,20 +1531,19 @@ async def _index_documents(
             logger.warning(f"[INDEX] Failed to close knowledge base: {str(e)}")
 
 
-async def process_single_document(
-    space_id: str,
-    kb_id: str,
-    doc_id: str,
-    file_path: str,
-    parsing_strategy,
-    segmentation_strategy,
-    indexing_strategy,
-    process_info: dict,
-    file_name: Optional[str] = None,
-    llm_config: Optional[LLMConfig] = None,
-    embed_model_config: Optional[EmbedModelConfig] = None,
-    obs_name: Optional[str] = None,
-):
+async def process_single_document(*args, **kwargs):
+    space_id = kwargs.get("space_id", args[0] if len(args) > 0 else None)
+    kb_id = kwargs.get("kb_id", args[1] if len(args) > 1 else None)
+    doc_id = kwargs.get("doc_id", args[2] if len(args) > 2 else None)
+    file_path = kwargs.get("file_path", args[3] if len(args) > 3 else None)
+    parsing_strategy = kwargs.get("parsing_strategy", args[4] if len(args) > 4 else None)
+    segmentation_strategy = kwargs.get("segmentation_strategy", args[5] if len(args) > 5 else None)
+    indexing_strategy = kwargs.get("indexing_strategy", args[6] if len(args) > 6 else None)
+    process_info = kwargs.get("process_info", args[7] if len(args) > 7 else None)
+    file_name = kwargs.get("file_name", args[8] if len(args) > 8 else None)
+    llm_config = kwargs.get("llm_config", args[9] if len(args) > 9 else None)
+    embed_model_config = kwargs.get("embed_model_config", args[10] if len(args) > 10 else None)
+    obs_name = kwargs.get("obs_name", args[11] if len(args) > 11 else None)
     """在后台异步处理单个文档"""
     try:
         logger.info(
@@ -1666,18 +1664,17 @@ async def process_single_document(
             )
 
 
-async def _process_documents_sequentially(
-    space_id: str,
-    kb_id: str,
-    documents: list[dict],
-    parsing_strategy,
-    segmentation_strategy,
-    indexing_strategy,
-    task_id: str,
-    process_info_base: dict,
-    llm_config: Optional[LLMConfig] = None,
-    embed_model_config: Optional[EmbedModelConfig] = None,
-):
+async def _process_documents_sequentially(*args, **kwargs):
+    space_id = kwargs.get("space_id", args[0] if len(args) > 0 else None)
+    kb_id = kwargs.get("kb_id", args[1] if len(args) > 1 else None)
+    documents = kwargs.get("documents", args[2] if len(args) > 2 else None)
+    parsing_strategy = kwargs.get("parsing_strategy", args[3] if len(args) > 3 else None)
+    segmentation_strategy = kwargs.get("segmentation_strategy", args[4] if len(args) > 4 else None)
+    indexing_strategy = kwargs.get("indexing_strategy", args[5] if len(args) > 5 else None)
+    task_id = kwargs.get("task_id", args[6] if len(args) > 6 else None)
+    process_info_base = kwargs.get("process_info_base", args[7] if len(args) > 7 else None)
+    llm_config = kwargs.get("llm_config", args[8] if len(args) > 8 else None)
+    embed_model_config = kwargs.get("embed_model_config", args[9] if len(args) > 9 else None)
     """串行处理多个文档（后台任务）"""
     logger.info(
         f"[DOC_PROCESS_SEQ] Starting sequential processing - Task ID: {task_id}, "

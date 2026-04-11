@@ -28,5 +28,5 @@ async def report_convert(
     try:
         req = validate_request(request, ReportConvertReq)
     except ValidationError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     return mgr.report_convert(req)
