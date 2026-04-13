@@ -96,6 +96,7 @@ def validate_agent_required_field(data: dict) -> None:
     
     
 def validate_vlm_chart_generator_field(data: dict) -> None:
+    """校验 VLM 图表生成器配置字段是否合法。"""
     
     vlm_chart_generator_enable = data.get("vlm_chart_generator_enable", False)
     vlm_chart_generator_max_iterations = data.get("vlm_chart_generator_max_iterations", 1)

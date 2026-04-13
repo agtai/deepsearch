@@ -50,6 +50,7 @@ Base = declarative_base()
 
 # Dependency to get database session
 def get_db():
+    """提供数据库会话并在请求结束后释放连接。"""
     db = SessionLocal()
     try:
         yield db

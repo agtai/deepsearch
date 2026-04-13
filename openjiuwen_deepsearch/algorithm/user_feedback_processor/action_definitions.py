@@ -1,3 +1,5 @@
+# -*- coding: UTF-8 -*-
+# Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import json
 from dataclasses import dataclass
 from enum import Enum

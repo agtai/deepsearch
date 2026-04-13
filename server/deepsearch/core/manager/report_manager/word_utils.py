@@ -339,6 +339,7 @@ def _set_default_table_border(table):
 
 
 def html_to_doc(doc, html, style_dict):
+    """将 HTML 内容转换并写入 docx 文档对象。"""
     soup = BeautifulSoup(html, 'html.parser')
     container = soup.find("div", class_="report-container")
 
@@ -403,6 +404,7 @@ def html_to_doc(doc, html, style_dict):
 
 
 def set_global_styles(doc, font_name="微软雅黑", font_size=11):
+    """为 docx 文档设置全局字体与段落样式。"""
     normal_style = doc.styles['Normal']
     normal_font = normal_style.font
     normal_font.name = font_name

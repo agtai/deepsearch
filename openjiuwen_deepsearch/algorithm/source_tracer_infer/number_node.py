@@ -285,5 +285,6 @@ class NumberNode:
 
     @staticmethod
     def replace_index_with_url(index: int, search_records: List[Dict]) -> Tuple[str, str]:
+        """将引用索引替换为对应 URL 与展示文本。"""
         record = search_records[index]
         return record.get("title", ""), record.get("url", "")

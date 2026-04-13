@@ -72,6 +72,7 @@ async def import_template(
         req: TemplateImportRequest,
         db: Session = Depends(get_db)
 ):
+    """导入模板文件并创建报告模板记录。"""
     params = ImportTemplateParams(**req.dict())
     result = await report_template_manager.import_template(
         db=db,

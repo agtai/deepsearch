@@ -41,8 +41,8 @@ class DatabaseSync:
 
     def get_table_columns(self, table_name: str) -> Dict[str, Any]:
         """获取数据库表的实际列信息"""
+        columns = {}
         try:
-            columns = {}
             db_columns = self.inspector.get_columns(table_name)
             for column in db_columns:
                 columns[column['name']] = {

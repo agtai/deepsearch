@@ -28,6 +28,7 @@ class StreamEvent(enum.Enum):
 
 
 async def custom_stream_output(session, stream_id, stream_content, agent_name, stream_meta: dict | None = None):
+    """按流式协议输出消息正文与元信息。"""
     async def _write_event(event: StreamEvent, content: str):
         payload = {
             "message_id": stream_id,

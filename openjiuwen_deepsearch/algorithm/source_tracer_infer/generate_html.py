@@ -48,6 +48,7 @@ class GenerateHTML:
                 }
 
     def run(self, checked_infer_graph: GraphInfo) -> str:
+        """根据推理图数据生成可交互的 HTML 可视化结果。"""
         logger.info(f"[SOURCE TRACER INFER] generate_html starting...")
         if checked_infer_graph is None:
             logger.warning(f"[SOURCE TRACER INFER] checked_infer_graph is None, cannot generate HTML")
@@ -78,7 +79,7 @@ class GenerateHTML:
                              color=self.node_show_info["conclusion_node"].get("color", "#d2e6f4"), size=15)  # 结论节点
 
         conclusion_set_idx = max(node_map.keys()) + 1
-        for head_id_list, relation, tail_id in structured_inference:
+        for head_id_list, _, tail_id in structured_inference:
             # 区分是结论还是引用
             # 引用节点
             if head_id_list[0] in citation_ids:

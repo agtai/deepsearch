@@ -35,6 +35,7 @@ log_files = glob.glob(log_pattern)
 
 
 def sort_key(path):
+    """生成用于路径排序的比较键。"""
     filename = os.path.basename(path)
     if filename == "metrics.log":
         return 0
@@ -99,6 +100,7 @@ editor_team_nodes = [
 
 
 def compute_info_parent(df: pd.DataFrame) -> str | None:
+    """计算信息节点所属的父节点标识。"""
     if df.empty:
         return None
     uniq = set(df["Node"].unique())
@@ -111,6 +113,7 @@ info_collector_parent_node_value = compute_info_parent(df_node)
 
 
 def assign_parent_node_for_line(current_node: str) -> str:
+    """为当前节点推导并分配父节点编号。"""
     if current_node in editor_team_nodes:
         return "EditorTeamNode"
     elif current_node in info_collector_child_nodes:
@@ -230,6 +233,7 @@ if not df_llm.empty:
 
 
     def parent_order(val):
+        """用于父节点排序的辅助函数。"""
         if val is None or str(val).lower() == "none":
             return 0
         elif val == "EditorTeamNode":

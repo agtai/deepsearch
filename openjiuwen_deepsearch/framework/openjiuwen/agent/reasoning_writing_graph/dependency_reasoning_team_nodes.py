@@ -315,7 +315,8 @@ class DependencyInfoCollectorNode(InfoCollectorNode):
             history_plans = state.get("history_plans", [])
             completed_step_ids = {step.id for step in plan_completed_steps if step.id}
             pending_steps = [
-                step for step in (current_plan.steps or [])
+                step
+                for step in (current_plan.steps or [])
                 if step.id not in completed_step_ids
             ]
 

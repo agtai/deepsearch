@@ -180,8 +180,8 @@ class SourceTracerInfer:
             logger.warning("[SOURCE TRACER INFER] No supported reference.")
             return {}
 
+        references = []
         try:
-            references = []
             for index in results:
                 if 0 <= index < len(search_records):
                     references.append({"id": index, "content": search_records[index].get("content", "")})
@@ -266,8 +266,8 @@ class SourceTracerInfer:
         """
         logger.info(f"[SOURCE TRACER INFER] mark conclusion in report starting...")
         origin_response = self.response
+        label_template = "[{conclusion}](#inference:{infer_id})"
         try:
-            label_template = "[{conclusion}](#inference:{infer_id})"
             for conclusion_info, infer_message in zip(conclusion_infos, infer_messages):
                 # 构造带标注的结论
                 labeled_conclusion = label_template.format(conclusion=infer_message.get("conclusion", ""), 

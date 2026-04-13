@@ -128,15 +128,18 @@ class OBSDocumentManager:
 
     @staticmethod
     def obs_name(space_id: str, kb_id: str, file_name: str) -> str:
+        """生成对象存储中的文件对象名。"""
         return f"{space_id}/{kb_id}/{file_name}"
 
     @classmethod
     def local_path(cls, space_id: str, kb_id: str, file_name: str) -> Path:
+        """生成本地文件存储路径。"""
         storage_path = cls.backend_dir / "data" / "knowledge_base" / space_id / kb_id
         storage_path.mkdir(parents=True, exist_ok=True)
         return storage_path / file_name
 
     async def delete_document(self, object_name: str):
+        """删除对象存储中的文档对象。"""
         if not self.bucket or not self.obs_client:
             return
         await self.obs_client.delete_object(self.bucket, object_name)
@@ -146,6 +149,7 @@ class OBSDocumentManager:
         object_name: str,
         file_path: str | Path,
     ):
+        """从对象存储下载文档到本地路径。"""
         if not self.bucket or not self.obs_client:
             return
         file_path = Path(file_path)
@@ -162,6 +166,7 @@ class OBSDocumentManager:
         object_name: str,
         file_path: str | Path,
     ):
+        """上传文档到对象存储并返回对象信息。"""
         if not self.bucket or not self.obs_client:
             raise RuntimeError(
                 "OBS upload skipped: OBS_BUCKET unset or object storage client unavailable"
@@ -175,6 +180,7 @@ class OBSDocumentManager:
         object_name: str,
         file_path: str,
     ):
+        """当远端文档更新时下载并覆盖本地缓存。"""
         if not self.bucket or not self.obs_client:
             return
         listed_objects = await self.obs_client.list_objects(
@@ -1070,13 +1076,16 @@ def _check_milvus_connection() -> Tuple[bool, str]:
     """
     try:
         from pymilvus import connections, utility
+    except ImportError:
+        return False, "无法连接到 Milvus: 未安装 pymilvus 库"
 
-        milvus_host = os.getenv("MILVUS_HOST", "localhost")
-        milvus_port = os.getenv("MILVUS_PORT", "19530")
-        milvus_token = os.getenv("MILVUS_TOKEN") or ""
+    milvus_host = os.getenv("MILVUS_HOST", "localhost")
+    milvus_port = os.getenv("MILVUS_PORT", "19530")
+    milvus_token = os.getenv("MILVUS_TOKEN") or ""
+    alias = "kb_connection_test"
+    try:
 
         # 尝试连接 Milvus
-        alias = "kb_connection_test"
         try:
             # 如果连接已存在，先断开
             if connections.has_connection(alias):
@@ -1108,15 +1117,10 @@ def _check_milvus_connection() -> Tuple[bool, str]:
             logger.warning(f"[MILVUS] Failed to disconnect connection: {alias}, Error: {str(e)}")
         return True, ""
 
-    except ImportError:
-        return False, "无法连接到 Milvus: 未安装 pymilvus 库"
     except Exception as e:
         error_msg = str(e)
         # 清理连接
         try:
-            alias = "kb_connection_test"
-            from pymilvus import connections
-
             if connections.has_connection(alias):
                 connections.disconnect(alias)
         except Exception as disconnect_error:
@@ -1185,13 +1189,12 @@ async def _delete_kb_indices(kb_id: str, space_id: str) -> dict:
     获取知识库下的所有文档，然后循环删除每个文档的 chunks 和 triples 索引数据
     """
     result = {"success_count": 0, "failed_count": 0, "errors": []}
+    all_documents = []
+    page = 1
+    page_size = 100
 
     try:
         # 获取知识库下的所有文档（分页获取，每页最多100条）
-        all_documents = []
-        page = 1
-        page_size = 100
-
         while True:
             doc_list_result = knowledge_base_repository.document_list(
                 space_id=space_id, kb_id=kb_id, page=page, size=page_size

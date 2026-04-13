@@ -963,9 +963,8 @@ class SourceTracerInferNode(BaseNode):
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext):
 
         scores = [(0, 0)]
+        current_inputs = self._pre_handle(inputs, session, context)
         try:
-            current_inputs = self._pre_handle(inputs, session, context)
-
             source_tracer_infer_switch = current_inputs.get("source_tracer_infer_switch", False)
             if not source_tracer_infer_switch:
                 algorithm_output = dict(source_tracer_infer_switch=source_tracer_infer_switch,
@@ -980,11 +979,6 @@ class SourceTracerInferNode(BaseNode):
             check_infos["llm_model_name"] = current_inputs.get("llm_model_name", "")
             check_infos["language"] = current_inputs.get("language", "zh")
 
-            # 这里添加溯源推理校验模块
-            infer_result_dict["scores"] = scores
-            infer_result_dict["source_tracer_infer_switch"] = current_inputs.get("source_tracer_infer_switch", False)
-            infer_result_dict["infer_success"] = True
-
         except Exception as e:
             error_msg = f"source_tracer_infer failed."
             if LogManager.is_sensitive():
@@ -997,6 +991,11 @@ class SourceTracerInferNode(BaseNode):
                                      infer_messages=[], scores=[(0, 0)], error_msg=f"[{errcode}] {errmsg}", 
                                      source_tracer_infer_switch=current_inputs.get("source_tracer_infer_switch", False)
                                      )
+        else:
+            # 这里添加溯源推理校验模块
+            infer_result_dict["scores"] = scores
+            infer_result_dict["source_tracer_infer_switch"] = current_inputs.get("source_tracer_infer_switch", False)
+            infer_result_dict["infer_success"] = True
 
         algorithm_output = infer_result_dict
         result = self._post_handle(inputs, algorithm_output, session, context)

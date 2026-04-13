@@ -58,6 +58,7 @@ class AioBotoClient(BaseObjectStorageClient):
         )
 
     def create_client(self):
+        """创建并返回异步对象存储客户端实例。"""
         return self._session.client(**self._client_kwargs)
 
     async def create_bucket(self, bucket_name: str, location: str) -> bool:

@@ -1,3 +1,5 @@
+# -*- coding: UTF-8 -*-
+# Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 from functools import wraps
 import logging
 
@@ -22,6 +24,7 @@ class KnowledgeBaseRepository:
 
     @staticmethod
     def with_exception_handling(func_):
+        """为仓储方法添加统一异常捕获与转换。"""
         @wraps(func_)
         def wrapper(self, *args, **kwargs):
             try:
@@ -60,6 +63,7 @@ class KnowledgeBaseRepository:
     '''
     @with_exception_handling
     def knowledge_base_create(self, kb_data: dict) -> ResponseModel[None]:
+        """创建知识库记录。"""
         if not kb_data or not kb_data.get("kb_id"):
             logger.info(f"No knowledge base data to register: \ndata: {kb_data}")
             return ResponseModel(code=status.HTTP_400_BAD_REQUEST, message="No knowledge base data to register")
@@ -92,6 +96,7 @@ class KnowledgeBaseRepository:
     '''
     @with_exception_handling
     def knowledge_base_get(self, kb_get: KnowledgeBaseGet) -> ResponseModel[dict | None]:
+        """查询单个知识库详情。"""
         try:
             record = self._query_kb(kb_get.space_id, kb_get.kb_id).first()
             if not record:
@@ -107,6 +112,7 @@ class KnowledgeBaseRepository:
     '''
     @with_exception_handling
     def knowledge_base_delete(self, kb_get: KnowledgeBaseGet) -> ResponseModel[None]:
+        """删除知识库及关联资源。"""
         try:
             record = self._query_kb(kb_get.space_id, kb_get.kb_id).first()
             if not record:
@@ -183,6 +189,7 @@ class KnowledgeBaseRepository:
         description: str | None,
         config: dict | None = None,
     ) -> ResponseModel[None]:
+        """更新知识库基础信息。"""
         try:
             record = self._query_kb(space_id, kb_id).first()
             if not record:
@@ -206,6 +213,7 @@ class KnowledgeBaseRepository:
     '''
     @with_exception_handling
     def document_create(self, doc_data: dict) -> ResponseModel[None]:
+        """创建知识库文档记录。"""
         if not doc_data or not doc_data.get("doc_id"):
             logger.info(f"No document data to register: \ndata: {doc_data}")
             return ResponseModel(code=status.HTTP_400_BAD_REQUEST, message="No document data to register")
@@ -245,6 +253,7 @@ class KnowledgeBaseRepository:
         kb_id: str,
         doc_id: str,
     ) -> ResponseModel[dict | None]:
+        """查询单个文档详情。"""
         try:
             record = self._query_doc(space_id, kb_id, doc_id).first()
             if not record:
@@ -267,6 +276,7 @@ class KnowledgeBaseRepository:
         kb_id: str,
         doc_id: str,
     ) -> ResponseModel[None]:
+        """删除文档记录及关联资源。"""
         try:
             record = self._query_doc(space_id, kb_id, doc_id).first()
             if not record:
@@ -289,6 +299,7 @@ class KnowledgeBaseRepository:
     '''
     @with_exception_handling
     def document_update_status(self, *args, **kwargs) -> ResponseModel[None]:
+        """更新文档处理状态。"""
         space_id = kwargs.get("space_id", args[0] if len(args) > 0 else None)
         kb_id = kwargs.get("kb_id", args[1] if len(args) > 1 else None)
         doc_id = kwargs.get("doc_id", args[2] if len(args) > 2 else None)
@@ -337,6 +348,7 @@ class KnowledgeBaseRepository:
         doc_id: str,
         name: str,
     ) -> ResponseModel[None]:
+        """更新文档字段信息。"""
         try:
             record = self._query_doc(space_id, kb_id, doc_id).first()
             if not record:
@@ -366,6 +378,7 @@ class KnowledgeBaseRepository:
         page: int = 1,
         page_size: int = 10,
     ) -> ResponseModel[dict]:
+        """在知识库范围内执行检索。"""
         try:
             query_lower = query.lower()
             search_conditions = or_(
@@ -416,6 +429,7 @@ class KnowledgeBaseRepository:
         page: int = 1,
         size: int = 10,
     ) -> ResponseModel[dict]:
+        """分页查询知识库列表。"""
         try:
             page = max(1, page)
             size = max(1, size)
@@ -479,6 +493,7 @@ class KnowledgeBaseRepository:
         page: int = 1,
         size: int = 10,
     ) -> ResponseModel[dict]:
+        """分页查询文档列表。"""
         try:
             page = max(1, page)
             size = max(1, size)
@@ -537,6 +552,7 @@ class KnowledgeBaseRepository:
         space_id: str,
         kb_id: str,
     ) -> ResponseModel[list[str]]:
+        """统计并返回文档状态分布。"""
         try:
             status_rows = self.db.query(
                 kb_doc_models.KnowledgeBaseDocumentDB.status
@@ -566,6 +582,7 @@ class KnowledgeBaseRepository:
         space_id: str,
         kb_id: str,
     ) -> ResponseModel[list[str]]:
+        """返回知识库内文档 ID 列表。"""
         try:
             id_rows = self.db.query(
                 kb_doc_models.KnowledgeBaseDocumentDB.doc_id
@@ -591,6 +608,7 @@ class KnowledgeBaseRepository:
     '''
     @with_exception_handling
     def has_graph_enhancement_documents(self, space_id: str, kb_id: str) -> bool:
+        """判断知识库中是否存在图增强文档。"""
         try:
             docs = self.db.query(kb_doc_models.KnowledgeBaseDocumentDB).filter(
                 kb_doc_models.KnowledgeBaseDocumentDB.space_id == space_id,

@@ -139,8 +139,10 @@ class SupplementGraph:
                 del node_map[tail_id]
                 remove_nodes.add(tail_id)
         conclusion_ids = [i for i in conclusion_ids if i not in remove_nodes]
-        new_structured_inference = [structure for index, structure in enumerate(structured_inference) 
-                                    if index not in del_structure_index]
+        new_structured_inference = [
+            structure for index, structure in enumerate(structured_inference)
+            if index not in del_structure_index
+        ]
         logger.info(f"[source_tracer_infer] The structured inference after removing is\n {new_structured_inference}")
         return new_structured_inference, node_map, conclusion_ids
 
@@ -214,8 +216,10 @@ class SupplementGraph:
                     for head_id in head_id_list:
                         if head_id in node_map:
                             node_map.pop(head_id)
-            structured_inference = [structure for index, structure in enumerate(structured_inference) 
-                                    if index not in del_structure_index]
+            structured_inference = [
+                structure for index, structure in enumerate(structured_inference)
+                if index not in del_structure_index
+            ]
         return structured_inference, node_map
 
     def cut_branch(self, new_structured_inference, node_map, citation_ids, conclusion_ids) -> GraphInfo:

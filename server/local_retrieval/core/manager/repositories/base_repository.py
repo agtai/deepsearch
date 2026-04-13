@@ -1,3 +1,5 @@
+# -*- coding: UTF-8 -*-
+# Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 from datetime import datetime, timezone
 import logging
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar

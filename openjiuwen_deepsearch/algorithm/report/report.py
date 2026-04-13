@@ -75,6 +75,7 @@ class Reporter:
 
     @staticmethod
     def strip_leading_number(s: str) -> str:
+        """移除标题前导编号并返回清洗后的文本。"""
         return re.sub(
             r"^(?:\d+(?:[.\-\s]\d+)*|第?[一二三四五六七八九十\d]+[、章])\s*", "", s
         )
@@ -412,6 +413,7 @@ class Reporter:
 
     @staticmethod
     def get_section_title_by_id(index, current_outline):
+        """根据 section id 从大纲中获取章节标题。"""
         if not current_outline or not isinstance(current_outline, Outline):
             logger.warning("can not get section title for current outline is invalid.")
             return ""
@@ -422,6 +424,7 @@ class Reporter:
 
     @staticmethod
     def export_outline_without_plans(outline: Outline | dict):
+        """导出不包含执行计划信息的大纲结构。"""
         if not outline or not isinstance(outline, (Outline, dict)):
             logger.warning(
                 "export_outline_without_plans: unsupported outline type or empty outline."

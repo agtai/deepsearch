@@ -305,7 +305,7 @@ def check_tool_call(tool_dict: dict[str, LocalFunction], tool_calls: list):
                 f"Args is not a dict in tool call: {'**' if is_sensitive else tool_call}"
             )
         input_params = tool.card.input_params.get("properties", {})
-        for param_name, param_info in input_params.items():
+        for param_name, _ in input_params.items():
             required = param_name in tool.card.input_params.get("required", [])
             if required and param_name not in arguments:
                 raise CustomValueException(

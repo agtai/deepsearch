@@ -1,3 +1,5 @@
+# -*- coding: UTF-8 -*-
+# Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import logging
 import asyncio
 import os
@@ -126,7 +128,9 @@ class NativeLocalSearchAPIWrapper(BaseModel):
         tasks = [_single_kb_retrieve(kb) for kb in kbs]
         nested_results = await asyncio.gather(*tasks)
 
-        all_wrapped_results = [item for sublist in nested_results for item in sublist]
+        all_wrapped_results = [
+            item for sublist in nested_results for item in sublist
+        ]
 
         return self._process_and_format(all_wrapped_results, num)
 

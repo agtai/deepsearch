@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 def normalize_sections(args: dict) -> dict:
+    """标准化大纲分节结构，统一字段与层级格式。"""
     sections = args.get("sections")
     if isinstance(sections, str):
         try:

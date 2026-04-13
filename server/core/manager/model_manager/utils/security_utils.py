@@ -58,10 +58,12 @@ class SecurityUtils:
 
     @classmethod
     def generate_random_key(cls, length: int = 16) -> bytes:
+        """生成指定长度的随机字节密钥。"""
         return os.urandom(length)
 
     @classmethod
     def hkdf_drive(cls, master_key, salt):
+        """基于主密钥与盐值派生加密密钥。"""
         return HKDF(master_key, 32, salt, SHA256, context=b'sensitive-data-salt')
 
     def encrypt_api_key(self, api_key: str) -> str:
@@ -125,11 +127,10 @@ class SecurityUtils:
         if len(data) < min_encrypted_len:
             # Too short to be encrypted → treat as plaintext
             return stored_key
+        salt_len = 16  # Depends on the length returned by generate_random_key.
+        nonce_len = 12
+        tag_len = 16  # GCM default length.
         try:
-            salt_len = 16  # Depends on the length returned by generate_random_key.
-            nonce_len = 12
-            tag_len = 16  # GCM default length.
-
             salt = data[:salt_len]
             nonce = data[salt_len: salt_len + nonce_len]
             ciphertext = data[salt_len + nonce_len: -tag_len]

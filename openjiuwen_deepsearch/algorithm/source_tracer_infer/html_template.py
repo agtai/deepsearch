@@ -1,3 +1,5 @@
+# -*- coding: UTF-8 -*-
+# Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 # # 添加点击事件处理脚本
 CLICK_SCRIPT = """
 // 节点点击事件处理

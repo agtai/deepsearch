@@ -39,6 +39,7 @@ class NumberNodeParam:
 
 
 def type_check(result, expected_type):
+    """校验结果类型是否符合预期类型。"""
     if not isinstance(result, expected_type):
         error_msg = f"[SOURCE TRACER INFER]: 生成结果类型错误, 生成结果类型{type(result)}, 期望类型为{expected_type}"
         raise CustomValueException(StatusCode.SOURCE_TRACER_INFER_DATA_TYPE_ERROR.code,
@@ -47,6 +48,7 @@ def type_check(result, expected_type):
 
 
 def is_equal_length(result, target):
+    """校验结果是否为固定长度的结构。"""
     type_check(result, list)
     for r in result:
         type_check(r, list)

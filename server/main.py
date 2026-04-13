@@ -37,6 +37,7 @@ sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 @asynccontextmanager
 async def lifespan_func(input_app: FastAPI):
+    """管理应用启动与关闭阶段的初始化和资源清理。"""
     # Startup
     logger.info("🚀 Starting openJiuwen-DeepSearch Server...")
     await init_runner()
@@ -117,6 +118,7 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
+    """返回服务欢迎信息与基础入口地址。"""
     return {
         "message": "Welcome to openJiuwen-DeepSearch Server",
         "docs": "/api/docs",
@@ -128,6 +130,7 @@ register.router_register(app)
 
 
 def main():
+    """读取运行配置并启动后端服务。"""
     # Development configuration
     config = {
         "host": os.getenv("HOST", "0.0.0.0"),

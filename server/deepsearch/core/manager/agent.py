@@ -394,6 +394,7 @@ class DeepSearchAgentManager:
 
     @staticmethod
     def load_template_content(space_id: str, template_id: int) -> Dict[str, Any]:
+        """加载并返回模板正文与元数据。"""
         try:
             db = next(get_db())
             repo = ReportTemplateRepository(db)
