@@ -39,6 +39,9 @@ Aggregated report: **report_task**, **report_template**, **sub_reports**, **repo
 ## `FinalResult`
 **response_content**, **citation_messages**, **infer_messages**, **chart_messages**, **exception_info**, **warning_info**.
 
+- `infer_messages` stores source-tracing graph payloads. Report export reads `html_base64` and writes standalone HTML resources.
+- `chart_messages` stores VLM chart payloads. Report export reads `base64` and writes image resources.
+
 ## `SearchContext`
 **Fields**:
 

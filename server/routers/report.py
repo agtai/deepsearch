@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import ValidationError
 
 import server.deepsearch.core.manager.report as mgr
+from server.deepsearch.common.exception.exceptions import ReportConvertBasicException
 from server.routers.common import validate_request
 from server.schemas.report import ReportConvertRes, ReportConvertReq
 
@@ -29,4 +30,11 @@ async def report_convert(
         req = validate_request(request, ReportConvertReq)
     except ValidationError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    return mgr.report_convert(req)
+
+    try:
+        return mgr.report_convert(req)
+    except ReportConvertBasicException as e:
+        raise HTTPException(
+            status_code=getattr(e, "STATUS_CODE", status.HTTP_400_BAD_REQUEST),
+            detail=str(e),
+        ) from e
