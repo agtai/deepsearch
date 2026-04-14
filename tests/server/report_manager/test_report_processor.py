@@ -32,6 +32,10 @@ def test_ensure_mermaid_cli_returns_unavailable_when_missing(monkeypatch):
     """
     monkeypatch.delenv("MERMAID_MMDC_PATH", raising=False)
     monkeypatch.setattr("shutil.which", lambda name: None)
+    monkeypatch.setattr(
+        "server.deepsearch.core.manager.report_manager.mermaid_offline.resolve_mmdc_path",
+        lambda: None,
+    )
 
     status = ensure_mermaid_cli()
 
@@ -50,6 +54,10 @@ def test_render_mermaid_offline_returns_false_when_cli_missing(tmp_path, monkeyp
     """
     monkeypatch.delenv("MERMAID_MMDC_PATH", raising=False)
     monkeypatch.setattr("shutil.which", lambda name: None)
+    monkeypatch.setattr(
+        "server.deepsearch.core.manager.report_manager.mermaid_offline.resolve_mmdc_path",
+        lambda: None,
+    )
 
     ok = render_mermaid_offline(
         "graph TD\nA-->B",
