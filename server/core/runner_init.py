@@ -25,6 +25,34 @@ SUPPORTED_CHECKPOINTER_TYPES = {"in_memory", "persistence", "redis"}
 PATCHED_CHECKPOINTER_IDS = set()
 
 
+async def _workflow_state_exists(checkpointer, session) -> bool:
+    """判断当前会话是否存在可恢复的 workflow state。
+
+    优先兼容 persistence / redis 这类暴露 ``_workflow_storage`` 的实现；
+    若未暴露统一存储对象，再回退兼容 in_memory checkpointer 的
+    ``_workflow_stores`` 会话内存表。这样业务层就不需要感知具体
+    checkpointer 类型，统一由服务端决定是否走 InteractiveInput 恢复。
+
+    Args:
+        checkpointer: 当前启用的 checkpointer 实例。
+        session: workflow session。
+
+    Returns:
+        若当前 session 已存在 workflow checkpoint，返回 ``True``；否则返回 ``False``。
+    """
+    workflow_storage = getattr(checkpointer, "_workflow_storage", None)
+    if workflow_storage and hasattr(workflow_storage, "exists"):
+        return await workflow_storage.exists(session)
+
+    workflow_stores = getattr(checkpointer, "_workflow_stores", None)
+    if isinstance(workflow_stores, dict):
+        workflow_store = workflow_stores.get(session.session_id())
+        if workflow_store and hasattr(workflow_store, "exists"):
+            return await workflow_store.exists(session)
+
+    return False
+
+
 def _patch_checkpointer_interactive_recovery():
     """
     Make checkpointer accept dict inputs and auto-convert recovery messages.
@@ -50,12 +78,10 @@ def _patch_checkpointer_interactive_recovery():
                 effective_inputs = query
             else:
                 should_recover = False
-                workflow_storage = getattr(self, "_workflow_storage", None)
-                if workflow_storage and hasattr(workflow_storage, "exists"):
-                    try:
-                        should_recover = await workflow_storage.exists(session)
-                    except Exception as e:
-                        logger.debug("Failed to auto-detect workflow recovery state: %s", e)
+                try:
+                    should_recover = await _workflow_state_exists(self, session)
+                except Exception as e:
+                    logger.debug("Failed to auto-detect workflow recovery state: %s", e)
 
                 if query is not None and should_recover:
                     effective_inputs = InteractiveInput(query)

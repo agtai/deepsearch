@@ -485,19 +485,15 @@ def _prepare_stream_context(
     request: DeepSearchRequest,
     db: Session,
 ) -> tuple[DeepSearchRequest, object, dict]:
-    """
-    规范化请求并构建 Agent / run_kwargs 等上下文信息。
+    """规范化请求并构建流式执行所需的上下文。
 
-    职责：
-    - 转换 llm_config.api_key 为 bytearray 格式；
-    - 验证并规范化 DeepSearchRequest；
-    - 构建 agent_config 并获取/创建 Agent 实例；
-    - 加载报告模板（如 template_id > 0）；
-    - 组装 run_kwargs（message, conversation_id, report_template, agent_config）。
+    Args:
+        request: DeepSearch 请求对象，可能包含待转换的字符串 API Key。
+        db: 当前请求使用的数据库会话对象。
 
-    注意：
-    - 不处理 cancel_event / HITL 状态，相关逻辑在 _create_streaming_response 中完成。
-    - 返回的 request 是经过 model_validate 的规范化对象。
+    Returns:
+        tuple[DeepSearchRequest, object, dict]: 规范化后的请求对象、可复用的 Agent 实例，
+        以及用于 `agent.run(...)` 的参数字典。
     """
     if "general" in request.llm_config:
         for _, llm_config in request.llm_config.items():
@@ -512,7 +508,8 @@ def _prepare_stream_context(
     request = DeepSearchRequest.model_validate(request)
 
     agent_config = agent_manager.build_agent_config(request, db)
-    agent = agent_manager.get_or_create_agent(request, db)
+    # 同一份 agent_config 既用于获取/创建 Agent，也用于后续 agent.run，避免重复构建。
+    agent = agent_manager.get_or_create_agent(request, db, agent_config=agent_config)
 
     template_id = request.template_id
     template_content = ""

@@ -43,6 +43,8 @@ class DeepSearchAgentManager:
         # 缓存格式: {cache_key: agent_instance}；cache_key 由请求中影响 Agent 构建的字段派生
         #（含 space_id、本地知识库 ID 列表、联网引擎 ID 等），避免请求里配置变了，但缓存键没变，导致仍用旧 Agent的问题。
         self._agent_cache: Dict[str, Any] = {}
+        # 记录会话到缓存键的映射，便于会话释放时定向驱逐 agent 缓存，避免长时间运行后缓存无限增长。
+        self._session_cache_keys: Dict[str, set[str]] = {}
         self._security_utils = SecurityUtils()
 
     @staticmethod
@@ -165,33 +167,65 @@ class DeepSearchAgentManager:
     @staticmethod
     def _compute_agent_cache_key(request: DeepSearchRequest) -> str:
         """
-        生成 Agent 缓存键。排除仅影响单次对话内容的字段（message、conversation_id），
+        生成 Agent 缓存键。排除仅影响单次对话内容的字段，
         保留与 build_agent_config 相关的全部字段（含 space_id、local_search_config_ids、
         web_search_config_id、LLM 与各开关），保证换知识库/引擎后不会误复用旧 Agent。
         """
-        payload = request.model_dump(exclude={"message", "conversation_id", "interrupt_feedback"})
+        payload = request.model_dump(exclude={"message", "interrupt_feedback"})
         serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
         return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
-    def get_or_create_agent(self, request: DeepSearchRequest, db: Session) -> Any:
-        """
-        根据请求获取或创建 DeepSearchAgent 实例。
-
-        缓存 key 包含 space_id，确保不同空间（及空间内资源如知识库、联网引擎）
-        使用独立的 Agent 实例，防止跨 space 访问。
+    @staticmethod
+    def _build_session_cache_scope(space_id: str, conversation_id: str) -> str:
+        """构造会话级缓存作用域键。
 
         Args:
-            request: DeepSearch 请求对象
-            db: Session 数据库会话对象
+            space_id: 空间 ID。
+            conversation_id: 会话 ID。
 
         Returns:
-            Agent 实例
+            str: 形如 ``<space_id>:<conversation_id>`` 的会话作用域键。
         """
-        full_config = self.build_agent_config(request, db)
+        return f"{space_id}:{conversation_id}"
+
+    def _track_cache_key_for_session(self, request: DeepSearchRequest, cache_key: str) -> None:
+        """登记会话与缓存键映射关系。
+
+        Args:
+            request: DeepSearch 请求对象。
+            cache_key: Agent 缓存键。
+
+        Returns:
+            None.
+        """
+        session_scope = self._build_session_cache_scope(request.space_id, request.conversation_id)
+        self._session_cache_keys.setdefault(session_scope, set()).add(cache_key)
+
+    def get_or_create_agent(
+        self,
+        request: DeepSearchRequest,
+        db: Session,
+        agent_config: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        """根据请求获取或创建 DeepSearchAgent 实例。
+
+        当调用方已经构建好 `agent_config` 时，直接复用该配置创建 Agent，
+        避免在同一请求中重复查询搜索引擎/知识库配置并产生重复日志。
+
+        Args:
+            request: DeepSearch 请求对象。
+            db: Session 数据库会话对象。
+            agent_config: 可选的预构建 Agent 配置；未提供时由当前方法内部构建。
+
+        Returns:
+            Agent 实例。
+        """
         cache_key = self._compute_agent_cache_key(request)
 
         if cache_key in self._agent_cache:
             cached_agent = self._agent_cache[cache_key]
+            # 命中老缓存时补齐映射，兼容旧实例或热更新场景下索引缺失。
+            self._track_cache_key_for_session(request, cache_key)
             logger.info(
                 "Reusing cached agent conversation_id=%s class=%s research_name=%s",
                 request.conversation_id,
@@ -200,7 +234,10 @@ class DeepSearchAgentManager:
             )
             return self._agent_cache[cache_key]
 
-        agent = self._agent_factory.create_agent(full_config)
+        if agent_config is None:
+            agent_config = self.build_agent_config(request, db)
+
+        agent = self._agent_factory.create_agent(agent_config)
         logger.info(
             "Created new agent conversation_id=%s class=%s research_name=%s execution_method=%s",
             request.conversation_id,
@@ -210,11 +247,28 @@ class DeepSearchAgentManager:
         )
 
         self._agent_cache[cache_key] = agent
+        self._track_cache_key_for_session(request, cache_key)
         return agent
 
     async def cleanup_session_cache(self, space_id: str, conversation_id: str):
-        """清理会话状态（由 checkpointer 管理），agent 缓存不按会话删除。"""
-        del space_id  # keep signature compatible with existing caller
+        """清理会话状态并驱逐会话对应的 Agent 缓存。
+
+        Args:
+            space_id: 空间 ID。
+            conversation_id: 会话 ID。
+
+        Returns:
+            None.
+        """
+        session_scope = self._build_session_cache_scope(space_id, conversation_id)
+        cache_keys = self._session_cache_keys.pop(session_scope, set())
+        evicted_count = 0
+        for cache_key in cache_keys:
+            if self._agent_cache.pop(cache_key, None) is not None:
+                evicted_count += 1
+        if evicted_count > 0:
+            logger.info("Evicted %s agent cache entries for session: %s", evicted_count, session_scope)
+
         try:
             checkpointer = CheckpointerFactory.get_checkpointer()
             if checkpointer:

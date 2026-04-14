@@ -166,6 +166,28 @@ class DeepresearchAgent(BaseAgent):
         return "research_workflow"
 
     @staticmethod
+    def _build_workflow_provider(builder, workflow_card: WorkflowCard):
+        """构造可重复调用的 workflow provider。
+
+        Args:
+            builder: 用于创建 workflow 实例的可调用对象。
+            workflow_card: 当前 workflow 的卡片元信息。
+
+        Returns:
+            callable: 每次调用都返回新 workflow 实例、并附带 workflow card 元属性的 provider。
+        """
+
+        def _provider():
+            return builder()
+
+        _provider.id = workflow_card.id
+        _provider.version = workflow_card.version
+        _provider.name = workflow_card.name
+        _provider.description = workflow_card.description
+        _provider.input_params = workflow_card.input_params
+        return _provider
+
+    @staticmethod
     def _build_interrupt_message(thread_id: str, chunk: OutputSchema):
         payload_id = getattr(getattr(chunk, "payload", None), "id", "")
         interrupt_message = {
@@ -515,7 +537,6 @@ class DeepresearchAgent(BaseAgent):
 
     def _create_research_workflow_agent(self):
         """创建Deepresearch工作流Agent实例"""
-        research_workflow = self._build_research_workflow()
         workflow_card = WorkflowCard(
             id=self.research_name,
             version=self.version,
@@ -536,7 +557,9 @@ class DeepresearchAgent(BaseAgent):
             workflows=[workflow_card],
         )
         self.agent = WorkflowAgent(card=card, config=config)
-        self.agent.add_workflows([research_workflow])
+        self.agent.add_workflows([
+            self._build_workflow_provider(self._build_research_workflow, workflow_card)
+        ])
 
     def _handle_report_template(self, report_template):
         decoded_template = None
@@ -583,7 +606,6 @@ class DeepresearchDependencyAgent(DeepresearchAgent):
         return "research_workflow_dependency_driving"
 
     def _create_research_workflow_agent(self):
-        research_workflow = self._build_research_dependency_workflow()
         workflow_card = WorkflowCard(
             id=self.research_name,
             version=self.version,
@@ -604,7 +626,9 @@ class DeepresearchDependencyAgent(DeepresearchAgent):
             workflows=[workflow_card],
         )
         self.agent = WorkflowAgent(card=card, config=config)
-        self.agent.add_workflows([research_workflow])
+        self.agent.add_workflows([
+            self._build_workflow_provider(self._build_research_dependency_workflow, workflow_card)
+        ])
 
     def _build_research_dependency_workflow(self):
         _id = self.research_name
