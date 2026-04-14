@@ -4,6 +4,7 @@ import logging
 import json
 from dataclasses import dataclass, field
 from typing import List, Dict, NamedTuple, Set
+import copy
 
 from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import llm_context
 from openjiuwen_deepsearch.algorithm.prompts.template import apply_system_prompt
@@ -35,7 +36,13 @@ class NumberNodeParam:
     node_index: int = 0
     citation_ids: Set[int] = field(default_factory=set)
     conclusion_ids: Set[int] = field(default_factory=set)
+    
+    tail_id: int = -1
+    head_id_list: List = field(default_factory=list)
+    structured_inference: List = field(default_factory=list)
 
+    def update_structured_inference(self, relation: str):
+        self.structured_inference.append([copy.deepcopy(self.head_id_list), relation, self.tail_id])
 
 
 def type_check(result, expected_type):

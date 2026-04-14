@@ -94,7 +94,7 @@ class TestNumberNode:
         """Test number_citation_node with new node."""
         number_node_param = NumberNodeParam()
 
-        number_node_param, node_id = self.number_node.number_citation_node(
+        number_node_param = self.number_node.number_citation_node(
             1,
             number_node_param,
             "Test Title",
@@ -103,7 +103,6 @@ class TestNumberNode:
 
         new_citation_ids = number_node_param.citation_ids
         new_node_map = number_node_param.node_map
-        assert node_id == 0
         assert 0 in new_citation_ids
         assert new_node_map[0]["label"] == "《Test Title》"
         assert new_node_map[0]["url"] == "https://example.com"
@@ -117,7 +116,7 @@ class TestNumberNode:
         number_node_param = NumberNodeParam(node_set=node_set, node_map=node_map, 
                                             node_index=node_index, citation_ids=citation_ids)
 
-        number_node_param, node_id = self.number_node.number_citation_node(
+        number_node_param = self.number_node.number_citation_node(
             1,
             number_node_param,
             "Test Title",
@@ -125,7 +124,6 @@ class TestNumberNode:
         )
 
         new_node_index = number_node_param.node_index
-        assert node_id == 0
         assert new_node_index == 1  # Should not increment
 
     def test_number_conclusion_node_new_node(self):
@@ -133,11 +131,10 @@ class TestNumberNode:
         conclusion = "test conclusion"
         number_node_param = NumberNodeParam()
 
-        number_node_param, node_id = self.number_node.number_conclusion_node(
+        number_node_param = self.number_node.number_conclusion_node(
             "test node", number_node_param, conclusion
         )
 
-        assert node_id == 0
         assert number_node_param.node_map[0]["label"] == "test node"
 
     def test_number_conclusion_node_existing_node(self):
@@ -150,11 +147,10 @@ class TestNumberNode:
         number_node_param = NumberNodeParam(node_set=node_set, node_map=node_map, 
                                             node_index=node_index, conclusion_ids=conclusion_ids)
         
-        number_node_param, node_id = self.number_node.number_conclusion_node(
+        number_node_param = self.number_node.number_conclusion_node(
             "test node", number_node_param, conclusion
         )
 
-        assert node_id == 0
         assert number_node_param.node_index == 1  # Should not increment
 
     def test_number_conclusion_node_conclusion_match(self):
@@ -168,11 +164,11 @@ class TestNumberNode:
                                             node_index=node_index, citation_ids=set(), 
                                             conclusion_ids=conclusion_ids)
         
-        number_node_param, node_id = self.number_node.number_conclusion_node(
+        number_node_param = self.number_node.number_conclusion_node(
             conclusion, number_node_param, conclusion
         )
 
-        assert node_id in number_node_param.conclusion_ids
+        assert number_node_param.head_id_list[-1] in number_node_param.conclusion_ids
 
     def test_number_node_basic(self):
         """Test number_node method with basic input."""

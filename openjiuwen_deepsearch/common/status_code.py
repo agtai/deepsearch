@@ -140,7 +140,7 @@ class StatusCode(Enum):
 
     TEMPLATE_NAME_INVALID = (212201, "Invalid template name: {name}. Only Chinese/English letters, numbers,"
                                      "underscores (_), hyphens (-), and dots (.) are allowed.")
-    
+
     SOURCE_TRACER_INFER_ERROR = (212300, "Source tracer infer error {e}")
     SOURCE_TRACER_INFER_DATA_TYPE_ERROR = (212301, "Source tracer infer data type error {e}")
     SOURCE_TRACER_INFER_DATA_LEN_ERROR = (212302, "Source tracer infer data length error {e}")
@@ -162,8 +162,8 @@ class StatusCode(Enum):
         212409,
         "Invalid rewrite_scope: {rewrite_scope}, expected selected_only or selected_and_related",
     )
-    
-    
+
+
     CHART_GENERATION_ERROR = (212500, "Error occurred during chart generation, error: {e}")
     CHART_PLACEHOLDER_ERROR = (212501, "Error occurred when inserting chart placeholders, error: {e}")
     CHART_DATA_COLLECTION_ERROR = (212502, "Error occurred during chart data collection, error: {e}")

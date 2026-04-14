@@ -235,7 +235,6 @@ class SourceTracerInfer:
         results = await call_model(self.model_name, "infer_filter_inference_prompt", {"input": [input_inferences]}, 
                                    detection_func_and_args=detection_func_and_args, 
                                    agent_name=NodeId.SOURCE_TRACER_INFER.value + "_filter_invalid_infer")
-        results = json.loads(results)
         if not results:
             if LogManager.is_sensitive():
                 logger.warning(f"[SOURCE TRACER INFER] filter invalid inference: ***")

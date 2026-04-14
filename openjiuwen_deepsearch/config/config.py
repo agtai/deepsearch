@@ -101,7 +101,7 @@ class AgentConfig(BaseModel):
     source_tracer_research_trace_source_switch: bool = Field(default=True, description="溯源功能开关")
     source_tracer_infer_switch: bool = Field(default=True, description="溯源推理功能开关")
     llm_config: Dict[
-        Literal["general", "plan_understanding", "info_collecting", "writing_checking", 
+        Literal["general", "plan_understanding", "info_collecting", "writing_checking",
                 "vlm_chart_generating"], LLMConfig
     ] = Field(default_factory=dict, description="LLM配置")
     info_collector_search_method: Literal["web", "local", "all"] = Field(default="web",

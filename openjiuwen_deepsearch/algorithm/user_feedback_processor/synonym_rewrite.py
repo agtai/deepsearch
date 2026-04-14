@@ -44,50 +44,6 @@ class SynonymRewriter:
             )
         return ACTION_TO_PROMPT[action]
 
-    async def _generate_synonym_rewrite_text(
-        self,
-        action: str,
-        original_text: str,
-        language: str,
-        user_instruction: str = "",
-    ) -> str:
-        """调用 LLM 执行一次改写。
-
-        入参 `original_text` 应为已经剥离引用标记的纯文本，
-        这样可以避免模型改写 `[[n]](url)` 之类的结构化内容。
-        """
-        try:
-            prompt_name = self.get_prompt_name(action)
-            context_vars = {
-                "original_text": original_text,
-                "language": language,
-                "user_instruction": user_instruction,
-            }
-            messages = apply_system_prompt(prompt_name, context_vars)
-
-            llm = get_llm_instance(self.llm_model_name)
-
-            response = await ainvoke_llm_with_stats(
-                llm=llm,
-                messages=messages,
-                agent_name=NodeId.USER_FEEDBACK_PROCESSOR.value + "_synonym_rewriter",
-            )
-        except CustomException:
-            raise
-        except Exception as error:
-            raise CustomValueException(
-                StatusCode.USER_FEEDBACK_PROCESSOR_REWRITE_ERROR.code,
-                StatusCode.USER_FEEDBACK_PROCESSOR_REWRITE_ERROR.errmsg.format(e=str(error)),
-            ) from error
-        rewritten_text = response.get("content", "") if isinstance(response, dict) else str(response)
-
-        logger.info(f"[SynonymRewriter] action={action}, original_len={len(original_text)}, "
-                    f"rewritten_len={len(rewritten_text)}")
-        if not LogManager.is_sensitive():
-            logger.info(f"[SynonymRewriter] action={action}, original_text={original_text}, "
-                        f"rewritten_text={rewritten_text}")
-        return rewritten_text
-
     async def synonym_rewrite(
         self,
         feedback: dict,
@@ -135,3 +91,47 @@ class SynonymRewriter:
             rewritten_start_offset=start_offset,
             rewritten_end_offset=rewritten_end_offset,
         )
+
+    async def _generate_synonym_rewrite_text(
+        self,
+        action: str,
+        original_text: str,
+        language: str,
+        user_instruction: str = "",
+    ) -> str:
+        """调用 LLM 执行一次改写。
+
+        入参 `original_text` 应为已经剥离引用标记的纯文本，
+        这样可以避免模型改写 `[[n]](url)` 之类的结构化内容。
+        """
+        try:
+            prompt_name = self.get_prompt_name(action)
+            context_vars = {
+                "original_text": original_text,
+                "language": language,
+                "user_instruction": user_instruction,
+            }
+            messages = apply_system_prompt(prompt_name, context_vars)
+
+            llm = get_llm_instance(self.llm_model_name)
+
+            response = await ainvoke_llm_with_stats(
+                llm=llm,
+                messages=messages,
+                agent_name=NodeId.USER_FEEDBACK_PROCESSOR.value + "_synonym_rewriter",
+            )
+        except CustomException:
+            raise
+        except Exception as error:
+            raise CustomValueException(
+                StatusCode.USER_FEEDBACK_PROCESSOR_REWRITE_ERROR.code,
+                StatusCode.USER_FEEDBACK_PROCESSOR_REWRITE_ERROR.errmsg.format(e=str(error)),
+            ) from error
+        rewritten_text = response.get("content", "") if isinstance(response, dict) else str(response)
+
+        logger.info(f"[SynonymRewriter] action={action}, original_len={len(original_text)}, "
+                    f"rewritten_len={len(rewritten_text)}")
+        if not LogManager.is_sensitive():
+            logger.info(f"[SynonymRewriter] action={action}, original_text={original_text}, "
+                        f"rewritten_text={rewritten_text}")
+        return rewritten_text
