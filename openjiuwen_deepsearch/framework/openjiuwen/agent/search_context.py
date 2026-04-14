@@ -1,7 +1,7 @@
 # -*- coding: UTF-8 -*-
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
 from enum import Enum
-from typing import List, Optional, Dict, Union
+from typing import List, Optional, Dict, Union, Any
 
 from pydantic import BaseModel, Field
 
@@ -136,6 +136,10 @@ class FinalResult(BaseModel):
     citation_messages: dict = Field(default={}, description="引用信息")
     infer_messages: List[Dict] = Field(default_factory=list, description="溯源推理信息")
     chart_messages: List[Dict] = Field(default_factory=list, description="vlm图表生成信息")
+    workflow_llm_token_usage: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="本次 workflow 的 LLM token 消耗汇总，包含总量与 agent_name 维度统计",
+    )
     warning_info: str = Field(default="", description="主图WorkFlow执行过程中的告警信息")
     exception_info: str = Field(default="", description="主图WorkFlow异常退出时的异常信息")
 

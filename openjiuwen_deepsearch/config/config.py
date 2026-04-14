@@ -122,6 +122,9 @@ class AgentConfig(BaseModel):
     user_feedback_processor_enable: bool = Field(default=False, description="是否启用用户反馈优化功能")
     user_feedback_processor_max_interactions: int = Field(default=100, ge=1, le=100, description="最大交互次数")
 
+    # 统计性能信息参数
+    stats_info_llm: bool = Field(default=False, description="LLM调用统计")
+
     # vlm迭代生成图参数
     vlm_chart_generator_enable: bool = Field(default=False, description="vlm迭代生成图开关")
     vlm_chart_generator_max_iterations: int = Field(default=1, ge=0, le=3, description="vlm迭代生成图最大迭代次数，0表示不进行迭代")
@@ -173,7 +176,6 @@ class ServiceConfig(BaseModel):
 
     # 统计性能信息参数
     stats_info_node_duration: bool = Field(default=False, description="节点持续时间统计")
-    stats_info_llm: bool = Field(default=False, description="LLM调用统计")
     stats_info_search: bool = Field(default=False, description="搜索工具调用统计")
 
     # 大模型超时参数

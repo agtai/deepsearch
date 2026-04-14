@@ -110,6 +110,7 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 - **web_search_max_qps** (float, optional): Maximum QPS for the web augmentation engine. `0` means no rate limit. Floating-point values such as `0.5` are supported and mean one request every 2 seconds. Default value: `0`.
 - **user_feedback_processor_enable** (bool, optional): Whether to enable post-report local optimization. Default value: `False`.
 - **user_feedback_processor_max_interactions** (int, optional): Maximum number of local optimization interactions. Default value: `100`. Allowed range: `1~100`.
+- **stats_info_llm** (bool, optional): Whether to collect LLM call statistics. Default value: `False`.
 - **api_tools_config** (`ApiToolsConfig`): runtime HTTP API tools injected for function calling outside built-in tools.
 - **vlm_chart_generator_enable** (bool, optional): VLM iterative chart generation toggle; mutually exclusive with `visualization_enable`.
 - **vlm_chart_generator_max_iterations** (int, optional): Max iterations for VLM chart optimization. Default `1`, range 0–3. `0` means no optimization; higher values increase latency.
@@ -248,7 +249,6 @@ class openjiuwen_deepsearch.config.config.ServiceConfig()
 
 ### Statistics parameters
 - **stats_info_node_duration** (bool, optional): Whether to collect node duration statistics. Default value: `False`.
-- **stats_info_llm** (bool, optional): Whether to collect LLM call statistics. Default value: `False`.
 - **stats_info_search** (bool, optional): Whether to collect search tool call statistics. Default value: `False`.
 
 ### LLM timeout parameter

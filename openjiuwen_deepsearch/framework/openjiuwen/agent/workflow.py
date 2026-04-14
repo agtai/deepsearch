@@ -38,9 +38,15 @@ from openjiuwen_deepsearch.llm.llm_wrapper import create_llm_obj
 from openjiuwen_deepsearch.utils.common_utils.security_utils import zero_secret
 from openjiuwen_deepsearch.utils.common_utils.stream_utils import MessageType, StreamEvent, get_current_time
 from openjiuwen_deepsearch.framework.openjiuwen.llm.llm_adapter import LlmConfigCategory
+from openjiuwen_deepsearch.utils.common_utils.llm_utils import (
+    get_effective_workflow_llm_usage,
+    is_workflow_llm_usage_empty,
+    pop_workflow_llm_usage,
+    reset_workflow_llm_usage,
+)
 from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
 from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import llm_context, web_search_context, \
-    local_search_context
+    local_search_context, session_context
 from openjiuwen_deepsearch.utils.log_utils.log_common import session_id_ctx
 from openjiuwen_deepsearch.utils.log_utils.log_interface import record_interface_log
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
@@ -294,6 +300,21 @@ class DeepresearchAgent(BaseAgent):
                   report_template: str = "",
                   interrupt_feedback: str = "",
                   ):
+        """执行一次 workflow 并以流式方式返回消息。
+
+        Args:
+            message: 用户输入消息或反馈内容。
+            conversation_id: 会话 ID，同时作为 workflow thread_id。
+            agent_config: 本次运行的 Agent 配置字典。
+            report_template: 报告模板（支持 base64 或明文）。
+            interrupt_feedback: 交互中断反馈标识。
+
+        Yields:
+            str: JSON 序列化后的流式事件消息。
+
+        Raises:
+            CustomValueException: 参数校验失败或配置不合法时抛出。
+        """
         validate_run_agent_params(message, conversation_id, report_template, interrupt_feedback)
         validate_agent_required_field(agent_config)
         validate_vlm_chart_generator_field(agent_config)
@@ -340,6 +361,9 @@ class DeepresearchAgent(BaseAgent):
             ) from e
 
         token = session_id_ctx.set(conversation_id)
+        stats_info_llm_enabled = bool(session_agent_config.stats_info_llm)
+        if stats_info_llm_enabled:
+            reset_workflow_llm_usage(conversation_id)
         decoded_template = report_template
         if report_template:
             decoded_template = self._handle_report_template(report_template)
@@ -395,6 +419,17 @@ class DeepresearchAgent(BaseAgent):
             else:
                 logger.error(f"[DeepResearchAgent.run] Session closed with error.")
                 final_result_info = {"exception_info": "Session closed with error."}
+            if stats_info_llm_enabled:
+                try:
+                    current_session = session_context.get()
+                except Exception:
+                    current_session = None
+                workflow_usage = get_effective_workflow_llm_usage(
+                    session_id=conversation_id,
+                    session=current_session,
+                )
+                if not is_workflow_llm_usage_empty(workflow_usage):
+                    final_result_info["workflow_llm_token_usage"] = workflow_usage
 
             # 异常场景下，主动向前端发送错误事件和终止事件。
             try:
@@ -470,6 +505,8 @@ class DeepresearchAgent(BaseAgent):
                 await self.agent.release_session(conversation_id)
                 await self._release_checkpointer_session(conversation_id)
                 session_id_ctx.reset(token)
+            if stats_info_llm_enabled:
+                pop_workflow_llm_usage(conversation_id)
 
     def _build_research_workflow(self):
         _id = self.research_name

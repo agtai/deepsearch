@@ -11,7 +11,14 @@ import uuid
 from typing import Sequence, Any
 
 import json_repair
-from openjiuwen.core.foundation.llm.schema.message import UserMessage, SystemMessage, AssistantMessage, ToolMessage
+from openjiuwen.core.foundation.llm.schema.message import (
+    UserMessage,
+    SystemMessage,
+    AssistantMessage,
+    ToolMessage,
+    UsageMetadata,
+)
+from openjiuwen.core.foundation.llm.schema.message_chunk import AssistantMessageChunk
 from pydantic import BaseModel
 
 from openjiuwen_deepsearch.common.common_constants import MAX_LLM_RESP_LENGTH
@@ -26,6 +33,391 @@ from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
 from openjiuwen_deepsearch.utils.log_utils.log_metrics import metrics_logger, TIME_LOGGER_TAG
 
 logger = logging.getLogger(__name__)
+_WORKFLOW_LLM_USAGE: dict[str, dict[str, Any]] = {}
+_USAGE_ONLY_PARSER_PATCHES: dict[int, dict[str, Any]] = {}
+
+
+def _normalize_agent_name(agent_name: Any) -> str:
+    """标准化 agent_name 字段。
+
+    Args:
+        agent_name (Any): 原始 agent_name 值。
+
+    Returns:
+        str: 标准化后的 agent_name；为空时返回 "unknown"。
+    """
+    if not isinstance(agent_name, str):
+        return "unknown"
+    normalized_name = agent_name.strip()
+    return normalized_name if normalized_name else "unknown"
+
+
+def _build_empty_agent_name_usage(agent_name: str) -> dict[str, Any]:
+    """构造单个 agent_name 的空 token 统计结构。
+
+    Args:
+        agent_name (str): 调用方标识。
+
+    Returns:
+        dict[str, Any]: 单 agent 的空统计结构。
+    """
+    return {
+        "agent_name": _normalize_agent_name(agent_name),
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "llm_call_count": 0,
+    }
+
+
+def _merge_agent_name_usage_list(agent_usage_list: Any) -> list[dict[str, Any]]:
+    """合并并规范化 agent_name 级 token 统计列表。
+
+    Args:
+        agent_usage_list (Any): 待处理的 agent 统计列表。
+
+    Returns:
+        list[dict[str, Any]]: 去重并聚合后的统计列表。
+    """
+    if not isinstance(agent_usage_list, list):
+        return []
+    merged_usage: dict[str, dict[str, Any]] = {}
+    for usage_item in agent_usage_list:
+        if not isinstance(usage_item, dict):
+            continue
+        normalized_name = _normalize_agent_name(usage_item.get("agent_name"))
+        current_usage = merged_usage.setdefault(normalized_name, _build_empty_agent_name_usage(normalized_name))
+        current_usage["input_tokens"] += _to_non_negative_int(usage_item.get("input_tokens", 0))
+        current_usage["output_tokens"] += _to_non_negative_int(usage_item.get("output_tokens", 0))
+        current_usage["total_tokens"] += _to_non_negative_int(usage_item.get("total_tokens", 0))
+        current_usage["llm_call_count"] += _to_non_negative_int(usage_item.get("llm_call_count", 0))
+    return list(merged_usage.values())
+
+
+def _build_empty_workflow_llm_usage() -> dict[str, Any]:
+    """构造空的 workflow 级 token 统计结构。
+
+    Returns:
+        dict[str, Any]: 空统计结构，包含总量和 agent_name 统计字段。
+    """
+    return {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "llm_call_count": 0,
+        "agent_name_token_usage": [],
+    }
+
+
+def normalize_workflow_llm_usage(usage: Any) -> dict[str, Any]:
+    """标准化 workflow 级 token 统计结构。
+
+    Args:
+        usage (Any): 待标准化的数据，可为 dict 或任意类型。
+
+    Returns:
+        dict[str, Any]: 规范后的统计结构，包含总量统计和 agent_name 维度统计。
+    """
+    if not isinstance(usage, dict):
+        return _build_empty_workflow_llm_usage()
+    return {
+        "input_tokens": _to_non_negative_int(usage.get("input_tokens", 0)),
+        "output_tokens": _to_non_negative_int(usage.get("output_tokens", 0)),
+        "total_tokens": _to_non_negative_int(usage.get("total_tokens", 0)),
+        "llm_call_count": _to_non_negative_int(usage.get("llm_call_count", 0)),
+        "agent_name_token_usage": _merge_agent_name_usage_list(usage.get("agent_name_token_usage", [])),
+    }
+
+
+def is_workflow_llm_usage_empty(usage: dict[str, Any]) -> bool:
+    """判断 workflow 级 token 统计是否为空。
+
+    Args:
+        usage (dict[str, Any]): token 统计结构。
+
+    Returns:
+        bool: 全字段为 0 返回 True。
+    """
+    normalized_usage = normalize_workflow_llm_usage(usage)
+    return (
+        normalized_usage["input_tokens"] == 0
+        and normalized_usage["output_tokens"] == 0
+        and normalized_usage["total_tokens"] == 0
+        and normalized_usage["llm_call_count"] == 0
+        and len(normalized_usage["agent_name_token_usage"]) == 0
+    )
+
+
+def _ensure_workflow_llm_usage_initialized(session_id: str, session: Any = None) -> None:
+    """确保指定 workflow 的本地累计状态已初始化。
+
+    该方法用于跨进程恢复场景：当本地内存没有 session_id 对应累计时，尝试从
+    session 全局状态中的 `search_context.final_result.workflow_llm_token_usage` 恢复。
+
+    Args:
+        session_id (str): workflow 对应会话 ID。
+        session (Any): 当前会话对象，需支持 get_global_state 方法。
+    """
+    if not session_id or session_id == "-":
+        return
+
+    current_usage = _WORKFLOW_LLM_USAGE.get(session_id)
+    if current_usage is not None and not is_workflow_llm_usage_empty(current_usage):
+        return
+
+    restored_usage = _build_empty_workflow_llm_usage()
+    if session is not None:
+        try:
+            snapshot = session.get_global_state("search_context.final_result.workflow_llm_token_usage")
+            restored_usage = normalize_workflow_llm_usage(snapshot)
+        except Exception:
+            # 兜底保护：恢复失败时不影响主流程，按空统计继续。
+            restored_usage = _build_empty_workflow_llm_usage()
+
+    _WORKFLOW_LLM_USAGE[session_id] = restored_usage
+
+
+def get_effective_workflow_llm_usage(session_id: str, session: Any = None) -> dict[str, Any]:
+    """获取当前 workflow 的有效 token 汇总快照。
+
+    优先返回本地内存中的累计统计；当本地为空时，回退读取 session 中持久化的
+    `search_context.final_result.workflow_llm_token_usage`，以覆盖 HITL 恢复等场景。
+
+    Args:
+        session_id (str): workflow 对应会话 ID。
+        session (Any): 当前会话对象，需支持 get_global_state 方法；为空时仅返回本地累计。
+
+    Returns:
+        dict[str, Any]: 当前有效统计快照。
+    """
+    local_usage = normalize_workflow_llm_usage(get_workflow_llm_usage(session_id))
+    if session is None or not is_workflow_llm_usage_empty(local_usage):
+        return local_usage
+
+    try:
+        persisted_usage = normalize_workflow_llm_usage(
+            session.get_global_state("search_context.final_result.workflow_llm_token_usage")
+        )
+    except Exception:
+        persisted_usage = _build_empty_workflow_llm_usage()
+
+    if not is_workflow_llm_usage_empty(persisted_usage):
+        return persisted_usage
+    return local_usage
+
+
+def save_workflow_llm_usage_to_session(session: Any, session_id: str) -> dict[str, Any]:
+    """将 workflow 级 token 累计落盘到 session 全局状态。
+
+    Args:
+        session (Any): 当前会话对象，需支持 update_global_state 方法。
+        session_id (str): workflow 对应会话 ID。
+
+    Returns:
+        dict[str, Any]: 当前累计统计快照。
+    """
+    usage = get_effective_workflow_llm_usage(session_id=session_id, session=session)
+    if session is None:
+        return usage
+    try:
+        session.update_global_state({"search_context.final_result.workflow_llm_token_usage": usage})
+    except Exception:
+        # 持久化失败时仅降级，不影响主流程执行。
+        pass
+    return usage
+
+
+def reset_workflow_llm_usage(session_id: str) -> None:
+    """重置指定 workflow 的 LLM token 汇总信息。
+
+    Args:
+        session_id (str): workflow 对应会话 ID。
+    """
+    if not session_id or session_id == "-":
+        return
+    _WORKFLOW_LLM_USAGE[session_id] = _build_empty_workflow_llm_usage()
+
+
+def add_workflow_llm_usage(
+    session_id: str,
+    input_tokens: int,
+    output_tokens: int,
+    total_tokens: int,
+    agent_name: str = "",
+) -> None:
+    """累加指定 workflow 的 LLM token 消耗。
+
+    Args:
+        session_id (str): workflow 对应会话 ID。
+        input_tokens (int): 本次调用输入 token 数。
+        output_tokens (int): 本次调用输出 token 数。
+        total_tokens (int): 本次调用总 token 数。
+        agent_name (str): 本次调用的 agent 名称。
+    """
+    if not session_id or session_id == "-":
+        return
+
+    usage = _WORKFLOW_LLM_USAGE.setdefault(session_id, _build_empty_workflow_llm_usage())
+    usage["input_tokens"] += _to_non_negative_int(input_tokens)
+    usage["output_tokens"] += _to_non_negative_int(output_tokens)
+    usage["total_tokens"] += _to_non_negative_int(total_tokens)
+    usage["llm_call_count"] += 1
+    if agent_name:
+        normalized_name = _normalize_agent_name(agent_name)
+        agent_usage_list = usage.setdefault("agent_name_token_usage", [])
+        if not isinstance(agent_usage_list, list):
+            agent_usage_list = []
+            usage["agent_name_token_usage"] = agent_usage_list
+        target_usage = None
+        for usage_item in agent_usage_list:
+            if isinstance(usage_item, dict) and usage_item.get("agent_name") == normalized_name:
+                target_usage = usage_item
+                break
+        if target_usage is None:
+            target_usage = _build_empty_agent_name_usage(normalized_name)
+            agent_usage_list.append(target_usage)
+        target_usage["input_tokens"] += _to_non_negative_int(input_tokens)
+        target_usage["output_tokens"] += _to_non_negative_int(output_tokens)
+        target_usage["total_tokens"] += _to_non_negative_int(total_tokens)
+        target_usage["llm_call_count"] += 1
+
+
+def get_workflow_llm_usage(session_id: str) -> dict[str, Any]:
+    """获取指定 workflow 的 LLM token 汇总信息。
+
+    Args:
+        session_id (str): workflow 对应会话 ID。
+
+    Returns:
+        dict[str, Any]: 汇总统计；若不存在返回全 0 结构。
+    """
+    if not session_id or session_id == "-":
+        return _build_empty_workflow_llm_usage()
+    usage = _WORKFLOW_LLM_USAGE.get(session_id)
+    if usage is None:
+        return _build_empty_workflow_llm_usage()
+    return copy.deepcopy(usage)
+
+
+def pop_workflow_llm_usage(session_id: str) -> dict[str, Any]:
+    """弹出并返回指定 workflow 的 LLM token 汇总信息。
+
+    Args:
+        session_id (str): workflow 对应会话 ID。
+
+    Returns:
+        dict[str, Any]: 汇总统计；若不存在返回全 0 结构。
+    """
+    if not session_id or session_id == "-":
+        return _build_empty_workflow_llm_usage()
+    usage = _WORKFLOW_LLM_USAGE.pop(session_id, None)
+    if usage is None:
+        return _build_empty_workflow_llm_usage()
+    return usage
+
+
+def _to_non_negative_int(value: Any, default: int = 0) -> int:
+    """将任意数值安全转换为非负整数。
+
+    Args:
+        value (Any): 待转换值，支持 int/float/str 等可转为数字的类型。
+        default (int): 转换失败时的默认值。
+
+    Returns:
+        int: 非负整数；转换失败时返回 default。
+    """
+    try:
+        return max(int(value), 0)
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_dict_safe(value: Any) -> dict[str, Any]:
+    """将对象安全转换为字典。
+
+    Args:
+        value (Any): 任意对象，可能为 ``dict``、Pydantic 模型或普通对象。
+
+    Returns:
+        dict[str, Any]: 可用字典；转换失败时返回空字典。
+    """
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, BaseModel):
+        return value.model_dump()
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        try:
+            dumped = model_dump()
+        except Exception:
+            return {}
+        return dumped if isinstance(dumped, dict) else {}
+    value_dict = getattr(value, "__dict__", None)
+    if isinstance(value_dict, dict):
+        return value_dict
+    return {}
+
+
+def _extract_usage_tokens(usage_payload: Any) -> tuple[int, int, int]:
+    """从多种 usage 结构中提取输入、输出、总 token 数。
+
+    Args:
+        usage_payload (Any): usage 对象，可能为 dict、Pydantic 模型或 SDK 对象。
+
+    Returns:
+        tuple[int, int, int]: ``(input_tokens, output_tokens, total_tokens)``。
+    """
+    usage = _to_dict_safe(usage_payload)
+
+    # 兼容部分供应商可能返回的嵌套 token_usage 结构。
+    token_usage = usage.get("token_usage")
+    if isinstance(token_usage, dict):
+        merged_usage = dict(token_usage)
+        merged_usage.update(usage)
+        usage = merged_usage
+
+    input_tokens = _to_non_negative_int(
+        usage.get("input_tokens", usage.get("prompt_tokens", usage.get("prompt_token_count", 0)))
+    )
+    if input_tokens == 0:
+        input_tokens = _to_non_negative_int(usage.get("prompt_tokens", usage.get("prompt_token_count", 0)))
+
+    output_tokens = _to_non_negative_int(
+        usage.get("output_tokens", usage.get("completion_tokens", usage.get("completion_token_count", 0)))
+    )
+    if output_tokens == 0:
+        output_tokens = _to_non_negative_int(usage.get("completion_tokens", usage.get("completion_token_count", 0)))
+    total_tokens = usage.get("total_tokens", usage.get("total_token_count"))
+    if total_tokens is None:
+        total_tokens = input_tokens + output_tokens
+    total_tokens = _to_non_negative_int(total_tokens, default=input_tokens + output_tokens)
+    return input_tokens, output_tokens, total_tokens
+
+
+def _is_llm_stats_enabled() -> bool:
+    """判断当前调用是否开启 LLM 调用统计。
+
+    优先级：
+    1. 当前会话中的 `config.stats_info_llm`（按单次 workflow 生效）。
+    2. 全局默认配置 `Config().agent_config.stats_info_llm`。
+
+    Returns:
+        bool: 是否开启 LLM 调用统计。
+    """
+    try:
+        session = session_context.get()
+        if session is not None:
+            session_flag = session.get_global_state("config.stats_info_llm")
+            if session_flag is not None:
+                return bool(session_flag)
+    except LookupError:
+        # 非 workflow 会话场景，走全局默认配置兜底。
+        pass
+    except Exception:
+        # 避免统计开关读取异常影响主流程。
+        pass
+
+    return bool(Config().agent_config.stats_info_llm)
 
 
 def _raise_if_cancelled():
@@ -111,20 +503,180 @@ def _extract_json(text: str) -> str:
     return re.sub(r"^```(?:json)?\n|\n```$", "", text.strip())
 
 
-async def llm_astream(*args, **kwargs):
+def _extract_usage_payload_from_stream_chunk(raw_chunk: Any) -> Any:
+    """从流式原始 chunk 中提取 usage 载荷。
+
+    Args:
+        raw_chunk (Any): 模型客户端收到的原始流式 chunk。
+
+    Returns:
+        Any: usage 结构；不存在时返回 ``None``。
     """
-        description: llm async astream
+    if raw_chunk is None:
+        return None
+    if hasattr(raw_chunk, "usage"):
+        usage_value = getattr(raw_chunk, "usage")
+        return usage_value if usage_value else None
+    if isinstance(raw_chunk, dict):
+        usage_value = raw_chunk.get("usage")
+        return usage_value if usage_value else None
 
-        Args:
-                llm: llm instance
-                messages: llm inputs
-                model_name: llm model name
-                agent_name: agent name
-                tools: tools to bind for llm
-                need_stream_out: need write llm output stream out
+    decoded = None
+    if isinstance(raw_chunk, (bytes, bytearray)):
+        decoded = bytes(raw_chunk).decode("utf-8", errors="ignore").strip()
+    elif isinstance(raw_chunk, str):
+        decoded = raw_chunk.strip()
 
-        Returns:
-                response
+    if not decoded:
+        return None
+    if decoded.startswith("data: "):
+        decoded = decoded[6:]
+    if decoded == "[DONE]":
+        return None
+
+    try:
+        parsed_payload = json.loads(decoded)
+    except Exception:
+        return None
+    if not isinstance(parsed_payload, dict):
+        return None
+    usage_value = parsed_payload.get("usage")
+    return usage_value if usage_value else None
+
+
+def _build_usage_only_chunk(raw_chunk: Any, model_name: str) -> AssistantMessageChunk | None:
+    """根据 usage-only chunk 构造可合并的 AssistantMessageChunk。
+
+    Args:
+        raw_chunk (Any): 原始流式 chunk。
+        model_name (str): 模型名称。
+
+    Returns:
+        AssistantMessageChunk | None: 可用于累计 usage 的空内容 chunk；无有效 usage 时返回 ``None``。
+    """
+    usage_payload = _extract_usage_payload_from_stream_chunk(raw_chunk)
+    if usage_payload is None:
+        return None
+
+    input_tokens, output_tokens, total_tokens = _extract_usage_tokens(usage_payload)
+    if input_tokens == 0 and output_tokens == 0 and total_tokens == 0:
+        return None
+
+    return AssistantMessageChunk(
+        content="",
+        reasoning_content=None,
+        tool_calls=None,
+        usage_metadata=UsageMetadata(
+            model_name=model_name,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+        ),
+        finish_reason="null",
+    )
+
+
+def _install_usage_only_chunk_parser(llm_model: Any) -> Any:
+    """在共享 client 上安装 usage-only chunk 解析器，并返回恢复函数。
+
+    由于同一个 LLM client 可能被多个协程并发复用，这里使用引用计数保证：
+    1. 第一个调用负责安装补偿 parser。
+    2. 后续嵌套调用仅增加引用计数，不重复覆盖 parser。
+    3. 只有最后一个调用结束时才恢复原始 parser。
+
+    Args:
+        llm_model (Any): openjiuwen 模型对象，内部包含 ``_client``。
+
+    Returns:
+        Any: 可调用恢复函数；不可安装时返回 ``None``。
+    """
+    client = getattr(llm_model, "_client", None)
+    if client is None:
+        return None
+
+    original_parser = getattr(client, "_parse_stream_chunk", None)
+    if not callable(original_parser):
+        return None
+
+    patch_key = id(client)
+    patch_state = _USAGE_ONLY_PARSER_PATCHES.get(patch_key)
+    if patch_state is None:
+        model_name = getattr(getattr(llm_model, "model_config", None), "model_name", "")
+
+        def _patched_parser(raw_chunk: Any):
+            parsed_chunk = original_parser(raw_chunk)
+            if parsed_chunk is not None:
+                return parsed_chunk
+            return _build_usage_only_chunk(raw_chunk, model_name=model_name)
+
+        setattr(client, "_parse_stream_chunk", _patched_parser)
+        patch_state = {
+            "ref_count": 0,
+            "original_parser": original_parser,
+            "patched_parser": _patched_parser,
+        }
+        _USAGE_ONLY_PARSER_PATCHES[patch_key] = patch_state
+    patch_state["ref_count"] += 1
+
+    def _restore_parser():
+        current_state = _USAGE_ONLY_PARSER_PATCHES.get(patch_key)
+        if current_state is None:
+            return
+        current_state["ref_count"] = max(int(current_state.get("ref_count", 0)) - 1, 0)
+        if current_state["ref_count"] > 0:
+            return
+        try:
+            setattr(client, "_parse_stream_chunk", current_state["original_parser"])
+        except Exception:
+            # 恢复失败不影响主流程，避免掩盖业务异常。
+            pass
+        finally:
+            _USAGE_ONLY_PARSER_PATCHES.pop(patch_key, None)
+
+    return _restore_parser
+
+
+def _resolve_stream_options(llm_model: Any, need_include_usage: bool) -> dict | None:
+    """合并模型已有 stream_options，并按需注入 include_usage。
+
+    Args:
+        llm_model (Any): LLM 模型实例，可能包含 model_config.stream_options。
+        need_include_usage (bool): 是否强制注入 include_usage。
+
+    Returns:
+        dict | None: 合并后的 stream_options；若无可用配置则返回 ``None``。
+    """
+    merged_options: dict = {}
+    model_config = getattr(llm_model, "model_config", None)
+    if model_config is not None:
+        model_dump = getattr(model_config, "model_dump", None)
+        if callable(model_dump):
+            model_config_dict = model_dump()
+            existed_options = model_config_dict.get("stream_options")
+            if isinstance(existed_options, dict):
+                merged_options.update(existed_options)
+
+    if need_include_usage:
+        merged_options["include_usage"] = True
+
+    return merged_options or None
+
+
+async def llm_astream(*args, **kwargs):
+    """以流式方式调用 LLM 并返回完整响应。
+
+    Args:
+        llm (Any): LLM 实例。
+        messages (list): LLM 输入消息列表。
+        model_name (str): 模型名称。
+        agent_name (str): 当前调用方名称，用于流输出元信息。
+        tools (Any): 本次调用绑定的工具列表。
+        need_stream_out (bool): 是否将增量内容写入会话流。
+        stream_meta (dict | None): 附加流事件字段。
+        stream_options (dict | None): 传入模型 SDK 的流式配置。
+
+    Returns:
+        Any: 聚合后的完整 LLM 响应块。
     """
     llm = kwargs.get("llm", args[0] if len(args) > 0 else None)
     messages = kwargs.get("messages", args[1] if len(args) > 1 else None)
@@ -133,6 +685,7 @@ async def llm_astream(*args, **kwargs):
     tools = kwargs.get("tools", None)
     need_stream_out = kwargs.get("need_stream_out", False)
     stream_meta = kwargs.get("stream_meta", None)
+    stream_options = kwargs.get("stream_options", None)
 
     _raise_if_cancelled()
     full_chunk = None
@@ -165,8 +718,20 @@ async def llm_astream(*args, **kwargs):
         stream_id = str(uuid.uuid4())
         await session.write_custom_stream(_make_payload(stream_id, StreamEvent.START.value, ""))
 
+    restore_usage_parser = None
+    if isinstance(stream_options, dict) and bool(stream_options.get("include_usage")):
+        restore_usage_parser = _install_usage_only_chunk_parser(llm)
+
     try:
-        async for chunk in llm.stream(messages=messages, model=model_name, tools=tools):
+        stream_kwargs = {
+            "messages": messages,
+            "model": model_name,
+            "tools": tools,
+        }
+        if stream_options is not None:
+            stream_kwargs["stream_options"] = stream_options
+
+        async for chunk in llm.stream(**stream_kwargs):
             _raise_if_cancelled()
             if full_chunk is None:
                 full_chunk = chunk
@@ -184,6 +749,9 @@ async def llm_astream(*args, **kwargs):
         if can_write_stream and need_stream_out:
             await session.write_custom_stream(_make_payload(stream_id, StreamEvent.DONE.value, ""))
         raise e
+    finally:
+        if callable(restore_usage_parser):
+            restore_usage_parser()
 
     if can_write_stream and need_stream_out:
         await session.write_custom_stream(_make_payload(stream_id, StreamEvent.DONE.value, ""))
@@ -197,19 +765,19 @@ async def llm_astream(*args, **kwargs):
 
 
 async def ainvoke_llm_with_stats(*args, **kwargs):
-    """
-    description: llm async invoke tool
+    """调用 LLM 并按配置记录调用统计。
 
     Args:
-            llm: llm instance
-            messages: llm inputs
-            llm_type: llm type, default "basic"
-            schema: construct output class
-            tools: tools to bind for llm
-            need_stream_out: need write llm output stream out
-
+        llm (dict): LLM 配置字典，包含 model 与 model_name。
+        messages (list): 输入消息列表。
+        llm_type (str): LLM 类型标识，默认 "basic"。
+        agent_name (str): 调用节点或方法名。
+        schema (BaseModel | None): 结构化输出模型；为空时返回统一 dict。
+        tools (Any): 本次调用绑定工具。
+        need_stream_out (bool): 是否将模型输出写入会话流。
+        stream_meta (dict | None): 附加流事件字段。
     Returns:
-            dict response if schema is None, construct output if with schema
+        dict | BaseModel: schema 不为空时返回 schema 实例，否则返回统一后的 dict。
     """
     llm = kwargs.get("llm", args[0] if len(args) > 0 else None)
     messages = kwargs.get("messages", args[1] if len(args) > 1 else None)
@@ -225,7 +793,15 @@ async def ainvoke_llm_with_stats(*args, **kwargs):
         raise CustomValueException(
             error_code=StatusCode.LLM_INSTANCE_NONE_ERROR.code,
             message=StatusCode.LLM_INSTANCE_NONE_ERROR.errmsg)
-    stats_info_llm = Config().service_config.stats_info_llm
+    stats_info_llm = _is_llm_stats_enabled()
+    session_id = session_id_ctx.get()
+    current_session = None
+    if stats_info_llm:
+        try:
+            current_session = session_context.get()
+        except Exception:
+            current_session = None
+        _ensure_workflow_llm_usage_initialized(session_id=session_id, session=current_session)
 
     # get model_name
     if not llm_type.strip():
@@ -250,30 +826,45 @@ async def ainvoke_llm_with_stats(*args, **kwargs):
         raise CustomValueException(
             error_code=StatusCode.LLM_INSTANCE_NONE_ERROR.code,
             message=StatusCode.LLM_INSTANCE_NONE_ERROR.errmsg)
-    response = await llm_astream(llm=llm_model, messages=messages,
-                                 model_name=model_name, agent_name=agent_name, tools=tools,
-                                 need_stream_out=need_stream_out, stream_meta=stream_meta)
+
+    resolved_stream_options = (
+        _resolve_stream_options(llm_model=llm_model, need_include_usage=True)
+        if stats_info_llm
+        else None
+    )
+    response = await llm_astream(
+        llm=llm_model,
+        messages=messages,
+        model_name=model_name,
+        agent_name=agent_name,
+        tools=tools,
+        need_stream_out=need_stream_out,
+        stream_meta=stream_meta,
+        stream_options=resolved_stream_options,
+    )
 
     if stats_info_llm:
         duration = time.time() - start
 
         # get usage token usage info
-        usage = (
-            response.usage_metadata
-            if isinstance(response.usage_metadata, dict)
-            else response.usage_metadata.model_dump()
-            if isinstance(response.usage_metadata, BaseModel)
-            else {}
-        )
+        input_tokens, output_tokens, total_tokens = _extract_usage_tokens(response.usage_metadata)
+
         llm_stat = {
             "method_name": agent_name,
             "duration": duration,
-            "input_tokens": usage.get("input_tokens", 0),
-            "output_tokens": usage.get("output_tokens", 0),
-            "total_tokens": usage.get("total_latency", 0)
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total_tokens
         }
+        add_workflow_llm_usage(
+            session_id=session_id,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens,
+            agent_name=agent_name,
+        )
         metrics_logger.info(
-            f"{TIME_LOGGER_TAG} thread_id: {session_id_ctx.get()} ------ [LLM CALL STATISTICS]: {llm_stat}"
+            f"{TIME_LOGGER_TAG} session_id: {session_id_ctx.get()} ------ [LLM CALL STATISTICS]: {llm_stat}"
         )
 
     response.content = _extract_json(response.content)

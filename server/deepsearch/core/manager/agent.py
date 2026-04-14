@@ -315,6 +315,7 @@ class DeepSearchAgentManager:
             "web_search_max_qps": request.web_search_max_qps,
             "user_feedback_processor_enable": request.user_feedback_processor_enable,
             "user_feedback_processor_max_interactions": request.user_feedback_processor_max_interactions,
+            "stats_info_llm": request.stats_info_llm,
             # vlm迭代生成图配置
             "vlm_chart_generator_enable": request.vlm_chart_generator_enable,
             "vlm_chart_generator_max_iterations": request.vlm_chart_generator_max_iterations,

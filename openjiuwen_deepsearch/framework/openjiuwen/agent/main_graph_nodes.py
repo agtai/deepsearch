@@ -34,6 +34,10 @@ from openjiuwen_deepsearch.framework.openjiuwen.llm.llm_adapter import adapt_llm
 from openjiuwen_deepsearch.utils.common_utils.stream_utils import get_current_time, MessageType, StreamEvent, \
     custom_stream_output
 from openjiuwen_deepsearch.utils.common_utils.text_utils import truncate_string
+from openjiuwen_deepsearch.utils.common_utils.llm_utils import (
+    get_effective_workflow_llm_usage,
+    save_workflow_llm_usage_to_session,
+)
 from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
 from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import model_context, session_context
 from openjiuwen_deepsearch.utils.debug_utils.node_debug import add_debug_log_wrapper, NodeType, NodeDebugData
@@ -92,6 +96,7 @@ class StartNode(Start):
                 "user_feedback_processor_enable", False)
             agent_config["user_feedback_processor_max_interactions"] = origin_agent_config.get(
                 "user_feedback_processor_max_interactions", 100)
+            agent_config["stats_info_llm"] = origin_agent_config.get("stats_info_llm", False)
             agent_config["api_tools_config"] = origin_agent_config.get("api_tools_config", {})
             agent_config["vlm_chart_generator_enable"] = origin_agent_config.get(
                 "vlm_chart_generator_enable", False)
@@ -187,12 +192,25 @@ class FeedbackHandlerNode(BaseNode):
         return result
 
     async def _get_user_feedback(self, feedback_mode: str, session: Session) -> str:
-        """获取用户反馈"""
+        """按交互模式获取用户反馈内容。
+
+        Args:
+            feedback_mode: 反馈交互模式，当前支持 ``cmd`` 和 ``web``。
+            session: 当前会话对象。
+
+        Returns:
+            str: 规范化后的反馈文本；当交互模式非法时返回 ``Invalid feedback_mode``。
+        """
         prompt = "\nEnter your feedback: "
 
         if feedback_mode == "cmd":
             return input(prompt)
         if feedback_mode == "web":
+            if bool(session.get_global_state("config.stats_info_llm")):
+                save_workflow_llm_usage_to_session(
+                    session=session,
+                    session_id=session.get_global_state("config.thread_id"),
+                )
             # session.interact本质上是raise Exception的方式，FeedbackHandlerNode内不能使用try except
             user_input = await session.interact(prompt)
             session.update_state({INTERACTIVE_INPUT: None})
@@ -316,9 +334,29 @@ class EndNode(End):
     """
 
     async def invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
-        """ invoke 方法"""
+        """执行结束节点并输出最终结果。
+
+        Args:
+            inputs (Input): 节点输入（当前节点不依赖该字段）。
+            session (Session): 工作流会话对象。
+            context (ModelContext): 模型上下文对象。
+
+        Returns:
+            Output: 包含序列化后的 `final_result` 字段。
+        """
         logger.info(f"[EndNode] Start EndNode.")
-        final_result = session.get_global_state("search_context.final_result")
+        final_result = session.get_global_state("search_context.final_result") or {}
+        stats_info_llm = bool(session.get_global_state("config.stats_info_llm"))
+        if stats_info_llm:
+            session_id = session.get_global_state("config.thread_id")
+            workflow_usage = get_effective_workflow_llm_usage(session_id=session_id, session=session)
+            final_result = dict(final_result)
+            final_result["workflow_llm_token_usage"] = workflow_usage
+            session.update_global_state({"search_context.final_result.workflow_llm_token_usage": workflow_usage})
+            logger.info(
+                f"[EndNode] workflow_llm_token_usage: "
+                f"{json.dumps(workflow_usage, ensure_ascii=False, indent=2)}"
+            )
         logger.info(
             f"[EndNode] Get final result: {'***' if LogManager.is_sensitive() else final_result}",
         )
@@ -828,10 +866,24 @@ class OutlineInteractionNode(BaseNode):
         })
 
     async def _get_user_input(self, feedback_mode: str, message: str, session: Session) -> dict:
-        """获取用户输入"""
+        """获取大纲交互阶段的用户输入。
+
+        Args:
+            feedback_mode: 反馈交互模式，当前支持 ``cmd`` 和 ``web``。
+            message: 当前轮次展示文案中的轮次标识。
+            session: 当前会话对象。
+
+        Returns:
+            dict: 解析后的输入字典；当输入不是合法 JSON 时返回空字典。
+        """
         prompt = f"Round {message}: waiting for user feedback."
 
         if feedback_mode == "web":
+            if bool(session.get_global_state("config.stats_info_llm")):
+                save_workflow_llm_usage_to_session(
+                    session=session,
+                    session_id=session.get_global_state("config.thread_id"),
+                )
             user_input = await session.interact(prompt)
             # Clear the consumed resume input so the same feedback is not replayed
             # when outline_interaction is reached again in the current workflow run.
@@ -1199,6 +1251,11 @@ class UserFeedbackProcessorNode(BaseNode):
         if feedback_mode == "cmd":
             user_input = input(prompt)
         elif feedback_mode == "web":
+            if bool(session.get_global_state("config.stats_info_llm")):
+                save_workflow_llm_usage_to_session(
+                    session=session,
+                    session_id=session.get_global_state("config.thread_id"),
+                )
             user_input = await session.interact(prompt)
             session.update_state({INTERACTIVE_INPUT: None})
         else:
