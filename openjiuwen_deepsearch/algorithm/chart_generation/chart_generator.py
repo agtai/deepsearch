@@ -19,9 +19,11 @@ import textwrap
 from typing import Dict, List, Tuple, Optional, Any
 
 from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
-from openjiuwen_deepsearch.algorithm.chart_generation.utils import (call_model, 
-                                                                    get_chart_base64,
-                                                                    CallModelInput)
+from openjiuwen_deepsearch.algorithm.chart_generation.utils import (
+    call_model,
+    get_chart_base64,
+    CallModelInput,
+)
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
 from openjiuwen_deepsearch.algorithm.chart_generation.sandbox import (
@@ -29,7 +31,9 @@ from openjiuwen_deepsearch.algorithm.chart_generation.sandbox import (
 )
 
 logger = logging.getLogger(__name__)
-FONT_PATH = "./openjiuwen_deepsearch/algorithm/chart_generation/fonts/kt_font.ttf"
+
+# Use __file__ for robust path resolution in SDK mode
+FONT_PATH = os.path.join(os.path.dirname(__file__), "fonts", "kt_font.ttf")
 
 
 class ChartGenerator:
@@ -38,7 +42,7 @@ class ChartGenerator:
     def __init__(
         self,
         llm_model_name: str,
-        output_dir: str, 
+        output_dir: str,
         vlm_model_name: Optional[str] = None,
         vlm_max_iterations: int = 1,
     ):
@@ -55,17 +59,21 @@ class ChartGenerator:
         self.output_dir = output_dir
         self._vlm_max_iterations = vlm_max_iterations
         self._log_prefix = "[ChartGenerator]"
-        
+
         if self._vlm_max_iterations > 0 and not self._vlm_model:
             error_msg = "使用VLM评估时，必须提供VLM模型名称, 参考模型名称：qwen3.5-plus"
             logger.error(f"{self._log_prefix} {error_msg}")
-            raise CustomValueException(StatusCode.CHART_VLM_GENERATION_ERROR.code,
-                                       StatusCode.CHART_VLM_GENERATION_ERROR.errmsg.format(e=error_msg))
-   
+            raise CustomValueException(
+                StatusCode.CHART_VLM_GENERATION_ERROR.code,
+                StatusCode.CHART_VLM_GENERATION_ERROR.errmsg.format(e=error_msg),
+            )
+
         # 确保输出目录存在
         os.makedirs(self.output_dir, exist_ok=True)
 
-    def _create_code_executor(self, output_dir: str, figure_id: str) -> AsyncCodeExecutor:
+    def _create_code_executor(
+        self, output_dir: str, figure_id: str
+    ) -> AsyncCodeExecutor:
         """为单个图表任务创建独立沙箱执行器，避免并发任务共享全局变量。"""
         code_executor = AsyncCodeExecutor(working_dir=self.output_dir, exec_timeout=120)
         code_executor.set_variable("figure_output_dir", output_dir)
@@ -94,30 +102,36 @@ class ChartGenerator:
                 raise ValueError(f"{self._log_prefix} chart_tasks is empty!")
             for section_idx, section_tasks in chart_tasks.items():
                 section_indices.append(section_idx)
-                section_coroutines.append(self._generate_section_charts(section_tasks, section_idx))
+                section_coroutines.append(
+                    self._generate_section_charts(section_tasks, section_idx)
+                )
 
             results = await asyncio.gather(*section_coroutines, return_exceptions=True)
 
             # 结果后处理
-            report_chart_results = self._post_process_report_results(results, 
-                                                                     section_indices)
+            report_chart_results = self._post_process_report_results(
+                results, section_indices
+            )
             return report_chart_results
         except Exception as e:
             error_msg = f"Error generating charts: {e}"
             logger.error(error_msg)
-            raise CustomValueException(StatusCode.CHART_VLM_GENERATION_ERROR.code,
-                                       StatusCode.CHART_VLM_GENERATION_ERROR.errmsg.
-                                       format(e=error_msg)) from e
-    
+            raise CustomValueException(
+                StatusCode.CHART_VLM_GENERATION_ERROR.code,
+                StatusCode.CHART_VLM_GENERATION_ERROR.errmsg.format(e=error_msg),
+            ) from e
+
     @staticmethod
-    def _post_process_report_results(results: List[List[Dict[str, Any]]],
-                                     chart_tasks_section_idx: List[int]
+    def _post_process_report_results(
+        results: List[List[Dict[str, Any]]], chart_tasks_section_idx: List[int]
     ) -> List[Dict[int, Dict[str, Any]]]:
         """后处理报告图表生成结果，将生成图表对应到各自的章节"""
         try:
             if len(results) != len(chart_tasks_section_idx):
-                raise ValueError(f"Results length ({len(results)}) != " \
-                                 f"section indices length ({len(chart_tasks_section_idx)})")
+                raise ValueError(
+                    f"Results length ({len(results)}) != "
+                    f"section indices length ({len(chart_tasks_section_idx)})"
+                )
             report_chart_results = {}
             for result, section_idx in zip(results, chart_tasks_section_idx):
                 report_chart_results[section_idx] = result
@@ -128,9 +142,7 @@ class ChartGenerator:
             return {}
 
     async def _generate_section_charts(
-        self,
-        section_chart_tasks: List[Dict[str, Any]],
-        section_idx: int
+        self, section_chart_tasks: List[Dict[str, Any]], section_idx: int
     ) -> List[Dict[str, Any]]:
         """
         生成同一章节中的图表
@@ -145,37 +157,39 @@ class ChartGenerator:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # 结果后处理
-        section_chart_results = self._post_process_section_results(results, 
-                                                                   section_chart_tasks, 
-                                                                   section_idx)
+        section_chart_results = self._post_process_section_results(
+            results, section_chart_tasks, section_idx
+        )
         return section_chart_results
-    
+
     @staticmethod
-    def _post_process_section_results(results: List[Optional[str]],
-                                      section_chart_tasks: List[Dict[str, Any]],
-                                      section_idx: int
-                                      ) -> List[Dict[str, Any]]:
+    def _post_process_section_results(
+        results: List[Optional[str]],
+        section_chart_tasks: List[Dict[str, Any]],
+        section_idx: int,
+    ) -> List[Dict[str, Any]]:
         """后处理章节图表生成结果，将生成图表对应到任务"""
         try:
             section_chart_results = []
             if len(results) != len(section_chart_tasks):
-                raise ValueError(f"Results length ({len(results)}) != chart tasks length ({len(section_chart_tasks)})")
+                raise ValueError(
+                    f"Results length ({len(results)}) != chart tasks length ({len(section_chart_tasks)})"
+                )
             section_chart_idx = 1
             for result, chart_task in zip(results, section_chart_tasks):
                 if result:
                     section_chart_results.append(chart_task.copy())
                     section_chart_results[-1]["chart_path"] = result
-                    section_chart_results[-1]["chart_id"] = f"chart_{section_idx}_{section_chart_idx}"
+                    section_chart_results[-1]["chart_id"] = (
+                        f"chart_{section_idx}_{section_chart_idx}"
+                    )
                     section_chart_idx += 1
             return section_chart_results
         except Exception as e:
             logger.error(f"Error post processing section results: {e}")
             return []
 
-    async def _generate_single_chart(
-        self,
-        chart_task: Dict[str, Any]
-    ) -> Optional[str]:
+    async def _generate_single_chart(self, chart_task: Dict[str, Any]) -> Optional[str]:
         """
         生成单个图表的代码并执行，进行VLM评估反馈（可选）
 
@@ -185,7 +199,7 @@ class ChartGenerator:
         Returns:
             Optional[str]: 图表文件路径，失败返回None
         """
-        
+
         try:
             # 获取图表生成任务信息
             chart_data = chart_task.get("data", {})
@@ -193,11 +207,10 @@ class ChartGenerator:
             if not chart_data:
                 logger.warning(f"No data for chart: {chart_task.get('chart_id', '')}")
                 return None
-            
+
             chart_title = chart_task.get("chart_title", "")
             chart_description = chart_task.get("description", "")
             chart_type = chart_task.get("chart_type", "")
-
 
             figure_id = f"figure_{chart_task.get('section_index', -1)}_{chart_task.get('chart_id_in_section', -1)}"
 
@@ -210,7 +223,7 @@ class ChartGenerator:
                 "history_messages": {},
             }
             suggestion_list = []
-            
+
             # ---------- Part 1: Generate code and execute code ----------
             result = await self._generate_and_execute_code(gen_chart_input, figure_id)
             if not result or not result.get("chart_path"):
@@ -218,20 +231,19 @@ class ChartGenerator:
                 return None
             code = result.get("code", "")
             chart_path = result.get("chart_path", "")
-            
+
             if self._vlm_max_iterations == 0:
                 return chart_path
-            
+
             # ---------- Part 2: VLM评估反馈（可选） ----------
             for _ in range(self._vlm_max_iterations):
-                
                 chart_base64 = get_chart_base64(chart_path)
                 if not chart_base64:
                     logger.warning(f"Failed to get chart base64 for {chart_path}")
                     return None
-                suggestions = await self._vlm_iterate(chart_base64, 
-                                                        gen_chart_input, 
-                                                        suggestion_list)
+                suggestions = await self._vlm_iterate(
+                    chart_base64, gen_chart_input, suggestion_list
+                )
                 if "pass" in suggestions.lower():
                     logger.info(f"Chart generated successfully: {chart_path}")
                     return chart_path
@@ -242,9 +254,11 @@ class ChartGenerator:
                         "error_msg": None,
                         "suggestion": [suggestions],
                     }
-                
+
                     # ---------- Part 3: Generate code and execute code again ----------
-                    result = await self._generate_and_execute_code(gen_chart_input, figure_id)
+                    result = await self._generate_and_execute_code(
+                        gen_chart_input, figure_id
+                    )
                     if not result or not result.get("chart_path"):
                         logger.warning(f"Failed to generate chart for {figure_id}")
                         return None
@@ -254,13 +268,11 @@ class ChartGenerator:
         except Exception as e:
             logger.warning(f"Error generating chart: {e}")
             return None
-            
+
         return chart_path
 
     async def _generate_and_execute_code(
-        self,
-        gen_chart_input: Dict[str, Any],
-        figure_id: str
+        self, gen_chart_input: Dict[str, Any], figure_id: str
     ) -> Dict[str, str]:
         """
         生成单个图表
@@ -274,14 +286,16 @@ class ChartGenerator:
                 "chart_path": 图表文件路径
             }
         """
-        
+
         # 为当前图表任务创建独立执行器，避免并发任务之间变量污染（如 figure_id 被覆盖）
         code_executor = self._create_code_executor(self.output_dir, figure_id)
 
-        for _ in range(3): # 最多迭代3次
+        for _ in range(3):  # 最多迭代3次
             # 先取上一次的suggestion，用于后续的提示
-            pre_suggestion = gen_chart_input.get("history_messages", {}).get("suggestion", [])
-            
+            pre_suggestion = gen_chart_input.get("history_messages", {}).get(
+                "suggestion", []
+            )
+
             # 第1步：生成代码
             code = await self._generate_chart_code(gen_chart_input)
             if not code:
@@ -297,10 +311,13 @@ class ChartGenerator:
                 gen_chart_input["history_messages"] = {
                     "code": code,
                     "error_msg": f"stdout: {result['stdout']}\nstderr: {result['stderr']}",
-                    "suggestion": (pre_suggestion if isinstance(pre_suggestion, list) else []) + [""],
+                    "suggestion": (
+                        pre_suggestion if isinstance(pre_suggestion, list) else []
+                    )
+                    + [""],
                 }
                 continue
-            
+
             # 检查代码中是否保存了图表
             # plt.savefig(os.path.join(figure_output_dir, figure_id + ".png"))
             chart_filenames = []
@@ -314,9 +331,14 @@ class ChartGenerator:
                 gen_chart_input["history_messages"] = {
                     "code": code,
                     "error_msg": None,
-                    "suggestion": (pre_suggestion if isinstance(pre_suggestion, list) else []) + ["\nPlease add \
+                    "suggestion": (
+                        pre_suggestion if isinstance(pre_suggestion, list) else []
+                    )
+                    + [
+                        "\nPlease add \
                         `plt.savefig(os.path.join(figure_output_dir, figure_id+'.png'))` \
-                            to your code."],
+                            to your code."
+                    ],
                 }
                 continue
 
@@ -324,19 +346,20 @@ class ChartGenerator:
             chart_path = os.path.join(self.output_dir, f"{figure_id}.png")
             if os.path.exists(chart_path):
                 logger.info(f"Chart generated successfully: {chart_path}")
-                return {
-                    "code": code,
-                    "chart_path": chart_path
-                }
+                return {"code": code, "chart_path": chart_path}
             else:
                 logger.warning(f"Chart file not generated: {chart_path}")
                 gen_chart_input["history_messages"] = {
                     "code": code,
                     "error_msg": None,
-                    "suggestion": (pre_suggestion if isinstance(pre_suggestion, list) else []) +
-                    ["\nThe chart file is not generated. Please add \
+                    "suggestion": (
+                        pre_suggestion if isinstance(pre_suggestion, list) else []
+                    )
+                    + [
+                        "\nThe chart file is not generated. Please add \
                         `plt.savefig(os.path.join(figure_output_dir, figure_id+'.png'))` \
-                            to your code."],
+                            to your code."
+                    ],
                 }
                 continue
         return {}
@@ -360,14 +383,13 @@ class ChartGenerator:
                 "option": "skip normalize",
             }
             call_model_input = CallModelInput(
-                model_name=self._llm_model, 
-                prompt="vlm_generate_chart_code_prompt", 
+                model_name=self._llm_model,
+                prompt="vlm_generate_chart_code_prompt",
                 user_input=gen_chart_input,
-                agent_name=NodeId.VLM_CHART_GENERATOR.value + "generate_chart_code"
-                )
+                agent_name=NodeId.VLM_CHART_GENERATOR.value + "generate_chart_code",
+            )
             response = await call_model(
-                call_model_input, 
-                detection_func_and_args=detect_func_and_args
+                call_model_input, detection_func_and_args=detect_func_and_args
             )
 
             def extract_code(response: str) -> Optional[str]:
@@ -448,34 +470,35 @@ class ChartGenerator:
         """
         # 构建输入
         vlm_llm_input = {
-                "chart_title": gen_chart_input.get("chart_title", ""),
-                "chart_description": gen_chart_input.get("chart_description", ""),
-                "chart_type": gen_chart_input.get("chart_type", ""),
-                "chart_data": gen_chart_input.get("chart_data", {}),
-                "history_suggestion": suggestion_list,
-                "chart_base64": chart_base64,
-            }
-            
+            "chart_title": gen_chart_input.get("chart_title", ""),
+            "chart_description": gen_chart_input.get("chart_description", ""),
+            "chart_type": gen_chart_input.get("chart_type", ""),
+            "chart_data": gen_chart_input.get("chart_data", {}),
+            "history_suggestion": suggestion_list,
+            "chart_base64": chart_base64,
+        }
+
         try:
             call_model_input = CallModelInput(
-                model_name=self._vlm_model, 
-                prompt="vlm_iterate_prompt", 
+                model_name=self._vlm_model,
+                prompt="vlm_iterate_prompt",
                 user_input=vlm_llm_input,
-                agent_name=NodeId.VLM_CHART_GENERATOR.value + "vlm_iterate"
-                )
-            response = await call_model(
-                call_model_input,
-                use_vlm=True
+                agent_name=NodeId.VLM_CHART_GENERATOR.value + "vlm_iterate",
             )
-            
+            response = await call_model(call_model_input, use_vlm=True)
+
             # 解析反馈并重新生成
             if not response:
                 return ""
-            suggestion = response.get("suggestion", "") if isinstance(response, dict) else ""
+            suggestion = (
+                response.get("suggestion", "") if isinstance(response, dict) else ""
+            )
             return suggestion
 
         except Exception as e:
             error_msg = f"Error in VLM iteration: {e}"
             logger.error(error_msg)
-            raise CustomValueException(StatusCode.CHART_VLM_GENERATION_ERROR.code,
-                                        StatusCode.CHART_VLM_GENERATION_ERROR.errmsg.format(e=error_msg)) from e
+            raise CustomValueException(
+                StatusCode.CHART_VLM_GENERATION_ERROR.code,
+                StatusCode.CHART_VLM_GENERATION_ERROR.errmsg.format(e=error_msg),
+            ) from e

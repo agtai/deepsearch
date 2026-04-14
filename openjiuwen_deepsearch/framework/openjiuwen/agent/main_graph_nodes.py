@@ -102,7 +102,8 @@ class StartNode(Start):
         service_config["thread_id"] = inputs.get("thread_id", "")
         service_config["interrupt_feedback"] = inputs.get("interrupt_feedback", "")
         # vlm迭代生成图与mermaid图文并茂功能互斥
-        service_config["visualization_enable"] = not agent_config.get("vlm_chart_generator_enable", False)
+        if agent_config.get("vlm_chart_generator_enable", False):
+            service_config["visualization_enable"] = False
         merge_config = agent_config | service_config
         session.update_global_state({
             "config": merge_config
@@ -1322,8 +1323,11 @@ class VLMChartGeneratorNode(BaseNode):
                 
         # 获取vlm迭代生成图参数
         # 使用子报告生成模型处理文本类数据
-        llm_model_name = adapt_llm_model_name(session, NodeId.SUB_REPORTER.value)
         vlm_chart_generator_enable = session.get_global_state("config.vlm_chart_generator_enable")
+        if not vlm_chart_generator_enable:
+            return dict(vlm_chart_generator_enable=vlm_chart_generator_enable)
+
+        llm_model_name = adapt_llm_model_name(session, NodeId.SUB_REPORTER.value)
         vlm_chart_generator_max_iterations = session.get_global_state("config.vlm_chart_generator_max_iterations")
         # 使用多模态模型处理图表类数据
         if vlm_chart_generator_max_iterations > 0:
@@ -1444,7 +1448,7 @@ class VLMChartGeneratorNode(BaseNode):
         new_source_trace_datas = algorithm_output.get("current_inputs", {}).get("trace_source_datas", [])
         
         if vlm_chart_generator_output.get("skip_node", False):
-            logger.warning("[VLMChartGeneratorNode] vlm_chart_generator_enable is False, skip VLMChartGeneratorNode.")
+            logger.info("[VLMChartGeneratorNode] vlm_chart_generator_enable is False, skip VLMChartGeneratorNode.")
         elif vlm_chart_generator_output.get("error_msg", ""):
             logger.warning("[VLMChartGeneratorNode] vlm_chart_generator failed: %s", 
                            vlm_chart_generator_output.get("error_msg", ""))

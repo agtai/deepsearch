@@ -124,11 +124,13 @@ class ChartDataCollector:
                 raise CustomValueException(StatusCode.CHART_DATA_COLLECTION_ERROR.code, 
                                            StatusCode.CHART_DATA_COLLECTION_ERROR.errmsg.format(e=error_msg))
             data_sources = []
+            source_index_in_sec = 0
             for source in self._all_data_source_with_index[index]:
                 data_sources.append({
                                      "content": source.get("original_content", ""),
-                                     "index": source.get("index", -1)
+                                     "index": source_index_in_sec
                                      })
+                source_index_in_sec += 1
             cur_section_tasks = []
             for task in task_list_h1:
                 cur_task = {}
@@ -283,7 +285,7 @@ class ChartDataCollector:
                 new_result_item["source_datas"] = []
                 new_result_item["data"] = result_item.get("data", "NO DATA")
                 for source_index in source_indexes:
-                    data_source = data_sources[source_index - 1]
+                    data_source = data_sources[source_index]
                     new_result_item["source_datas"].append(data_source) # 保存相应溯源的所有信息
                 section_data.append(new_result_item)
             except Exception as e:

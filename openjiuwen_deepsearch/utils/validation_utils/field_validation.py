@@ -1,10 +1,13 @@
 # coding: utf-8
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+import logging
 
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
 from openjiuwen_deepsearch.utils.common_utils.text_utils import validate_string_length
 from openjiuwen_deepsearch.common.common_constants import MAX_QUERY_LENGTH
+
+logger = logging.getLogger(__name__)
 
 
 def validate_str_field(field_name: str, value, max_len=MAX_QUERY_LENGTH) -> None:
@@ -109,7 +112,7 @@ def validate_vlm_chart_generator_field(data: dict) -> None:
             model_config = [vlm_model_config.get("model_name", ""), vlm_model_config.get("model_type", ""), 
                             vlm_model_config.get("base_url", ""), vlm_model_config.get("api_key", "")]
             if not all(model_config):
-                raise CustomValueException(
-                    StatusCode.PARAM_CHECK_ERROR_FIELD_EMPTY.code,
-                    StatusCode.PARAM_CHECK_ERROR_FIELD_EMPTY.errmsg.format(field="vlm_model_config")
-                )
+                data["vlm_chart_generator_enable"] = False
+                data["vlm_chart_generator_max_iterations"] = 0
+                logger.warning("开启vlm迭代生成图开关且vlm迭代轮次大于0时，\
+                               必须提供 vlm_model_name、type、base_url 和 api_key， 当前vlm迭代生成图开关已关闭。")

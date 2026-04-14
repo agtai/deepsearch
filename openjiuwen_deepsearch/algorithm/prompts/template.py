@@ -44,7 +44,7 @@ def apply_system_prompt(prompt_template_file: str, context_vars: dict) -> list:
         ) from e
 
 
-def apply_vlm_prompt(prompt_template_file: str, context_vars: dict, image_base64: str) -> list:
+def apply_vlm_prompt(prompt_template_file: str, context_vars: dict, image_base64_list: list[str]) -> list:
     """
     apply vlm prompt (png image base64)
     """
@@ -60,13 +60,14 @@ def apply_vlm_prompt(prompt_template_file: str, context_vars: dict, image_base64
             "text": system_prompt
         }
         # image
-        image_prompt = {
+        image_prompt = [{
                 "type": "image_url",
                 "image_url": {
                     "url": f"data:image/png;base64,{image_base64}"
                 }
-            }
-        vlm_prompt = [text_prompt, image_prompt]
+            } for image_base64 in image_base64_list]
+        vlm_prompt = [text_prompt]
+        vlm_prompt.extend(image_prompt)
         if not context_vars.get("messages"):
             return [{"role": "user", "content": vlm_prompt}]
         return [{"role": "user", "content": vlm_prompt}, *context_vars["messages"]]

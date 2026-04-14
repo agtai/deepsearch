@@ -66,7 +66,7 @@ async def call_model(call_model_input: CallModelInput,
     while retries < MAX_LLM_RETRY_TIMES:
         try:
             if use_vlm:
-                user_prompt = apply_vlm_prompt(prompt, user_input, user_input.get("chart_base64", ""))
+                user_prompt = apply_vlm_prompt(prompt, user_input, [user_input.get("chart_base64", "")])
             else:
                 user_prompt = apply_system_prompt(prompt, user_input)
             llm = llm_context.get().get(model_name)

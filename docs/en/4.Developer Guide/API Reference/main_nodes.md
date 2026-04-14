@@ -83,7 +83,16 @@ Final report via `Reporter.generate_report`; failures → `exception_info`; succ
 ```python
 class VLMChartGeneratorNode(BaseNode)
 ```
-VLM iterative chart generation. Skips if `vlm_chart_generator_enable` is off. When enabled, requires VLM model config: `vlm_model_name`, `vlm_model_type`,  `vlm_base_url`, `vlm_api_key`. Selects chart insertion points and performs chart optimization. Writes to `final_result.chart_messages`. Chart generation errors written to `exception_info`.
+**VLMChartGeneratorNode** handles VLM iterative chart generation.
+
+**Functions**:
+- If `vlm_chart_generator_enable` is disabled, skip this node.
+- If `vlm_chart_generator_enable` is enabled:
+  - If `vlm_chart_generator_max_iterations` equals 0, only execute VLM chart generation process without VLM iterative optimization.
+  - If `vlm_chart_generator_max_iterations` is greater than 0, VLM model configuration must be provided; otherwise the system disables this module and skips it.
+- The system selects chart insertion positions, generates charts, and performs corresponding chart optimization.
+- Writes to `final_result.chart_messages`.
+- Chart generation errors are written to `exception_info`.
 
 ### `SourceTracerNode`
 ```python
