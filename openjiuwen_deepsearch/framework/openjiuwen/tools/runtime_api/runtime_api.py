@@ -91,6 +91,8 @@ def _collect_request_parts(tool_config: RuntimeApiToolConfig, args: dict[str, An
             query_params[param.name] = value
         elif param.send_method == "body":
             body_params[param.name] = value
+        elif param.send_method == "none":
+            body_params[param.name] = value
 
     return headers, query_params, body_params
 
@@ -112,12 +114,12 @@ def create_runtime_api_tool(
             "properties": {
                 param.name: _json_schema_property_for_param(param)
                 for param in tool_config.request_params
-                if param.name and param.send_method != "none"
+                if param.name
             },
             "required": [
                 param.name
                 for param in tool_config.request_params
-                if param.name and param.required and param.send_method != "none"
+                if param.name and param.required
             ],
         },
     )

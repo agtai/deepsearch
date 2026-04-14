@@ -212,4 +212,3 @@ async def stop_cancel_listener():
             logger.debug("Cancel listener task was cancelled as expected during shutdown")
     _cancel_listener_task = None
     logger.info("Stopped deepsearch cancel listener task.")
-

@@ -25,6 +25,39 @@ class WebSearchEngineService:
         self.repository = web_search_engine_repository
         self.security_utils = SecurityUtils()
 
+    @staticmethod
+    def run_web_search_engine(request: WebSearchEnginePostRequestDTO, web_search_config: WebSearchEngineDetail):
+        """访问联网增强引擎并返回标准化结果"""
+        web_engine_name = web_search_config.search_engine_name
+        api_wrapper = search_engine_mapping.get(web_engine_name)
+
+        if not api_wrapper:
+            error_msg = (
+                f"Failed to get web search engine [{request.web_search_engine_id}] {web_engine_name} "
+                f"ApiWrapper from registry. Check if search engine is registered."
+            )
+            logger.error(error_msg)
+            raise WebSearchEngineNotRegisterException(error_msg)
+        search_engine = api_wrapper(
+            search_api_key=bytearray(web_search_config.search_api_key.encode('utf-8')),
+            search_url=web_search_config.search_url,
+            max_web_search_results=MAX_SEARCH_RESULT_NUM
+        )
+
+        try:
+            search_results = search_engine.results(request.query)
+        except Exception as e:
+            error_msg = f"Error when running web search engine [{request.web_search_engine_id}] {web_engine_name}: {e}"
+            logger.error(error_msg, exc_info=True)
+            raise WebSearchEngineExecutionException(error_msg) from e
+
+        # 确保结果是列表
+        if not isinstance(search_results, list):
+            logger.warning(f"Non-list result from {web_engine_name}: {type(search_results)}")
+            search_results = []
+
+        return dict(search_engine_name=web_engine_name, datas=search_results)
+
     def create_web_search_engine(self, create_request: WebSearchEngineCreateRequestDTO):
         """
            创建联网增强引擎
@@ -146,36 +179,3 @@ class WebSearchEngineService:
         except Exception as e:
             logger.error(f"Unexpected error during running web search: {str(e)}", exc_info=True)
             raise ValidationError(f"Failed to run web search engine {request.web_search_engine_id}: {str(e)}") from e
-
-    @staticmethod
-    def run_web_search_engine(request: WebSearchEnginePostRequestDTO, web_search_config: WebSearchEngineDetail):
-        """访问联网增强引擎并返回标准化结果"""
-        web_engine_name = web_search_config.search_engine_name
-        api_wrapper = search_engine_mapping.get(web_engine_name)
-
-        if not api_wrapper:
-            error_msg = (
-                f"Failed to get web search engine [{request.web_search_engine_id}] {web_engine_name} "
-                f"ApiWrapper from registry. Check if search engine is registered."
-            )
-            logger.error(error_msg)
-            raise WebSearchEngineNotRegisterException(error_msg)
-        search_engine = api_wrapper(
-            search_api_key=bytearray(web_search_config.search_api_key.encode('utf-8')),
-            search_url=web_search_config.search_url,
-            max_web_search_results=MAX_SEARCH_RESULT_NUM
-        )
-
-        try:
-            search_results = search_engine.results(request.query)
-        except Exception as e:
-            error_msg = f"Error when running web search engine [{request.web_search_engine_id}] {web_engine_name}: {e}"
-            logger.error(error_msg, exc_info=True)
-            raise WebSearchEngineExecutionException(error_msg) from e
-
-        # 确保结果是列表
-        if not isinstance(search_results, list):
-            logger.warning(f"Non-list result from {web_engine_name}: {type(search_results)}")
-            search_results = []
-
-        return dict(search_engine_name=web_engine_name, datas=search_results)

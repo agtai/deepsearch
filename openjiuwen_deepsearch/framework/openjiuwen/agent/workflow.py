@@ -30,7 +30,7 @@ from openjiuwen_deepsearch.framework.openjiuwen.agent.editor_team_manager_node i
 )
 from openjiuwen_deepsearch.framework.openjiuwen.agent.main_graph_nodes import (
     SourceTracerNode, StartNode, EntryNode, GenerateQuestionsNode, OutlineNode, FeedbackHandlerNode,
-    ReporterNode, EndNode, DependencyOutlineNode, OutlineInteractionNode, DependencyOutlineInteractionNode, 
+    ReporterNode, EndNode, DependencyOutlineNode, OutlineInteractionNode, DependencyOutlineInteractionNode,
     SourceTracerInferNode, UserFeedbackProcessorNode, VLMChartGeneratorNode
 )
 from openjiuwen_deepsearch.framework.openjiuwen.tools import update_local_search_mapping, update_web_search_mapping
@@ -293,6 +293,120 @@ class DeepresearchAgent(BaseAgent):
             )
         return engine_name, local_engine_mapping
 
+    @staticmethod
+    async def _aopen_local_search_engines():
+        for name, engine in (local_search_context.get() or {}).items():
+            if hasattr(engine, "aopen"):
+                try:
+                    await engine.aopen()
+                    logger.debug("LocalSearch engine [%s] opened.", name)
+                except Exception as e:
+                    logger.warning("Failed to open local search engine [%s]: %s", name, e)
+
+    @staticmethod
+    async def _aclose_local_search_engines():
+        for name, engine in (local_search_context.get() or {}).items():
+            if hasattr(engine, "aclose"):
+                try:
+                    await engine.aclose()
+                    logger.debug("LocalSearch engine [%s] async closed.", name)
+                except Exception as e:
+                    logger.warning("Failed to async close local search engine [%s]: %s", name, e)
+
+    @staticmethod
+    def _reset_context_tokens(llm_token, web_search_token, local_search_token):
+        if llm_token is not None:
+            llm_context.reset(llm_token)
+        if web_search_token is not None:
+            web_search_context.reset(web_search_token)
+        if local_search_token is not None:
+            local_search_context.reset(local_search_token)
+
+    @staticmethod
+    def _build_stream_error_payload(conversation_id: str, final_result_info: dict):
+        return {
+            "conversation_id": conversation_id,
+            "message_id": str(uuid.uuid4()),
+            "agent": NodeId.FRAMEWORK.value,
+            "role": "assistant",
+            "content": json.dumps(final_result_info, ensure_ascii=False),
+            "message_type": MessageType.MESSAGE_CHUNK.value,
+            "event": StreamEvent.ERROR.value,
+            "created_time": get_current_time()
+        }
+
+    @staticmethod
+    def _build_stream_end_payload(conversation_id: str):
+        return {
+            "conversation_id": conversation_id,
+            "message_id": str(uuid.uuid4()),
+            "agent": NodeId.FRAMEWORK.value,
+            "role": "assistant",
+            "content": "ALL END",
+            "message_type": MessageType.MESSAGE_CHUNK.value,
+            "event": StreamEvent.SUMMARY_RESPONSE.value,
+            "created_time": get_current_time()
+        }
+
+    @staticmethod
+    async def _emit_error_and_end_stream(conversation_id: str, final_result_info: dict):
+        try:
+            yield json.dumps(DeepresearchAgent._build_stream_error_payload(conversation_id, final_result_info),
+                             ensure_ascii=False)
+            yield json.dumps(DeepresearchAgent._build_stream_end_payload(conversation_id), ensure_ascii=False)
+        except Exception as stream_err:
+            logger.warning("[DeepResearchAgent.run] Failed to emit error stream event: %s", stream_err)
+
+    @staticmethod
+    def _prepare_stream_query(message: str, interrupt_feedback: str):
+        is_report_feedback = _is_report_feedback_payload(message)
+        if interrupt_feedback and not is_report_feedback:
+            return json.dumps({
+                "interrupt_feedback": interrupt_feedback,
+                "feedback": message
+            }), is_report_feedback
+        return message, is_report_feedback
+
+    async def _consume_stream_chunks(
+            self,
+            conversation_id: str,
+            message: str,
+            decoded_template: str,
+            interrupt_feedback: str,
+            session_agent_config: dict,
+    ):
+        is_all_end = False
+        final_result_info = {}
+        filter_dup_flag = False
+        stream_query, is_report_feedback = self._prepare_stream_query(message, interrupt_feedback)
+
+        async for chunk in Runner.run_agent_streaming(
+                agent=self.agent,
+                inputs={"query": stream_query,
+                        "thread_id": conversation_id,
+                        "conversation_id": conversation_id,
+                        "report_template": decoded_template,
+                        "interrupt_feedback": interrupt_feedback,
+                        "resume_interaction": is_report_feedback,
+                        "agent_config": session_agent_config}):
+            if getattr(chunk, "type", "") == "__interaction__":
+                filter_dup_flag = False
+                yield self._build_interrupt_message(conversation_id, chunk), is_all_end, final_result_info
+                continue
+            if filter_dup_flag:
+                continue
+            if isinstance(chunk, CustomSchema):
+                agent = getattr(chunk, "agent", "")
+                event = getattr(chunk, "event", "")
+                if agent == NodeId.GENERATE_QUESTIONS.value and event == StreamEvent.DONE.value:
+                    filter_dup_flag = True
+                endnode_info = parse_endnode_content(chunk)
+                if endnode_info:
+                    final_result_info = endnode_info
+                if getattr(chunk, "content", "") == "ALL END":
+                    is_all_end = True
+                yield self._build_output_message(conversation_id, chunk), is_all_end, final_result_info
+
     async def run(self,
                   message: Optional[str] = None,
                   conversation_id: Optional[str] = None,
@@ -320,6 +434,9 @@ class DeepresearchAgent(BaseAgent):
         validate_vlm_chart_generator_field(agent_config)
 
         start_time = time.time()
+        llm_token = None
+        web_search_token = None
+        local_search_token = None
 
         try:
             session_agent_config = AgentConfig.model_validate(agent_config)
@@ -337,20 +454,9 @@ class DeepresearchAgent(BaseAgent):
             llm_token = llm_context.set(all_llms)
 
             web_search_token, local_search_token = self._initialize_tools(session_agent_config)
-            for name, engine in local_search_context.get().items():
-                if hasattr(engine, "aopen"):
-                    try:
-                        await engine.aopen()
-                        logger.debug("LocalSearch engine [%s] opened.", name)
-                    except Exception as e:
-                        logger.warning(f"Failed to open local search engine [{name}]: {e}")
+            await self._aopen_local_search_engines()
         except (ValidationError, CustomValueException) as e:
-            if "llm_token" in locals():
-                llm_context.reset(llm_token)
-            if "web_search_token" in locals():
-                web_search_context.reset(web_search_token)
-            if "local_search_token" in locals():
-                local_search_context.reset(local_search_token)
+            self._reset_context_tokens(llm_token, web_search_token, local_search_token)
             if LogManager.is_sensitive():
                 raise CustomValueException(
                     StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR_NO_PRINT.code,
@@ -370,48 +476,17 @@ class DeepresearchAgent(BaseAgent):
 
         is_all_end = False
         final_result_info = {}
-        filter_dup_flag = False
         try:
             session_agent_config = session_agent_config.model_dump()
-            is_report_feedback = _is_report_feedback_payload(message)
-            # 当有 interrupt_feedback 时，将 message 封装为 JSON 对象
-            if interrupt_feedback and not is_report_feedback:
-                message = json.dumps({
-                    "interrupt_feedback": interrupt_feedback,
-                    "feedback": message
-                })
-            async for chunk in Runner.run_agent_streaming(
-                    agent=self.agent,
-                    inputs={"query": message,
-                            "thread_id": conversation_id,
-                            "conversation_id": conversation_id,
-                            "report_template": decoded_template,
-                            "interrupt_feedback": interrupt_feedback,
-                            "resume_interaction": is_report_feedback,
-                            "agent_config": session_agent_config}):
-                # 检查是否是 __interaction__ 类型，如果是则重置过滤标志
-                if getattr(chunk, "type", "") == "__interaction__":
-                    filter_dup_flag = False
-                    yield self._build_interrupt_message(conversation_id, chunk)
-                    continue
-
-                # 如果过滤标志为True，跳过输出
-                if filter_dup_flag:
-                    continue
-
-                if isinstance(chunk, CustomSchema):
-                    # 检查是否是 generate_questions 的 done 事件，如果是则设置过滤标志
-                    agent = getattr(chunk, "agent", "")
-                    event = getattr(chunk, "event", "")
-                    if agent == NodeId.GENERATE_QUESTIONS.value and event == StreamEvent.DONE.value:
-                        filter_dup_flag = True
-
-                    yield self._build_output_message(conversation_id, chunk)
-                    endnode_info = parse_endnode_content(chunk)
-                    if endnode_info:
-                        final_result_info = endnode_info
-                    if getattr(chunk, "content", "") == "ALL END":
-                        is_all_end = True
+            async for payload, stream_end, stream_info in self._consume_stream_chunks(
+                    conversation_id=conversation_id,
+                    message=message,
+                    decoded_template=decoded_template,
+                    interrupt_feedback=interrupt_feedback,
+                    session_agent_config=session_agent_config):
+                is_all_end = stream_end
+                final_result_info = stream_info
+                yield payload
         except Exception as e:
             if not LogManager.is_sensitive() or isinstance(e, CustomValueException):
                 logger.error(f"[DeepResearchAgent.run] Session closed with error: {e}")
@@ -431,34 +506,8 @@ class DeepresearchAgent(BaseAgent):
                 if not is_workflow_llm_usage_empty(workflow_usage):
                     final_result_info["workflow_llm_token_usage"] = workflow_usage
 
-            # 异常场景下，主动向前端发送错误事件和终止事件。
-            try:
-                error_payload = {
-                    "conversation_id": conversation_id,
-                    "message_id": str(uuid.uuid4()),
-                    "agent": NodeId.FRAMEWORK.value,
-                    "role": "assistant",
-                    "content": json.dumps(final_result_info, ensure_ascii=False),
-                    "message_type": MessageType.MESSAGE_CHUNK.value,
-                    "event": StreamEvent.ERROR.value,
-                    "created_time": get_current_time()
-                }
-                yield json.dumps(error_payload, ensure_ascii=False)
-
-                end_payload = {
-                    "conversation_id": conversation_id,
-                    "message_id": str(uuid.uuid4()),
-                    "agent": NodeId.FRAMEWORK.value,
-                    "role": "assistant",
-                    "content": "ALL END",
-                    "message_type": MessageType.MESSAGE_CHUNK.value,
-                    "event": StreamEvent.SUMMARY_RESPONSE.value,
-                    "created_time": get_current_time()
-                }
-                yield json.dumps(end_payload, ensure_ascii=False)
-            except Exception as stream_err:
-                # 若流输出本身失败，仅记录日志，避免掩盖原始异常
-                logger.warning("[DeepResearchAgent.run] Failed to emit error stream event: %s", stream_err)
+            async for payload in self._emit_error_and_end_stream(conversation_id, final_result_info):
+                yield payload
 
             await self.agent.release_session(conversation_id)
             await self._release_checkpointer_session(conversation_id)
@@ -477,25 +526,14 @@ class DeepresearchAgent(BaseAgent):
                 response_info=final_result_info if bool(final_result_info.get("exception_info")) else {}
             )
             try:
-                for name, engine in local_search_context.get().items():
-                    if hasattr(engine, "aclose"):
-                        try:
-                            await engine.aclose()
-                            logger.debug("LocalSearch engine [%s] async closed.", name)
-                        except Exception as e:
-                            logger.warning(f"Failed to async close local search engine [{name}]: {e}")
+                await self._aclose_local_search_engines()
             except Exception as e:
                 if not LogManager.is_sensitive():
                     logger.warning(f"Failed to close local search engines: {e}")
                 else:
                     logger.warning(f"Failed to close local search engines.")
             finally:
-                if "llm_token" in locals():
-                    llm_context.reset(llm_token)
-                if "web_search_token" in locals():
-                    web_search_context.reset(web_search_token)
-                if "local_search_token" in locals():
-                    local_search_context.reset(local_search_token)
+                self._reset_context_tokens(llm_token, web_search_token, local_search_token)
 
             if is_all_end:
                 zero_secret(session_agent_config.get("web_search_engine_config", {}).get(
@@ -762,8 +800,7 @@ def parse_endnode_content(chunk: CustomSchema | dict) -> dict:
         parsed_result = json.loads(content)
         if isinstance(parsed_result, dict) and "exception_info" in parsed_result:
             return parsed_result
-        else:
-            return {}
+        return {}
     except json.JSONDecodeError:
         logger.debug("[DeepResearchAgent.run] EndNode returned non-JSON content.")
         return {}

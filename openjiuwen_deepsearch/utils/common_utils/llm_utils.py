@@ -779,14 +779,15 @@ async def ainvoke_llm_with_stats(*args, **kwargs):
     Returns:
         dict | BaseModel: schema 不为空时返回 schema 实例，否则返回统一后的 dict。
     """
-    llm = kwargs.get("llm", args[0] if len(args) > 0 else None)
-    messages = kwargs.get("messages", args[1] if len(args) > 1 else None)
-    llm_type = kwargs.get("llm_type", "basic")
-    agent_name = kwargs.get("agent_name", "AI")
-    schema = kwargs.get("schema", None)
-    tools = kwargs.get("tools", None)
-    need_stream_out = kwargs.get("need_stream_out", False)
-    stream_meta = kwargs.get("stream_meta", None)
+    invoke_args = _parse_invoke_llm_args(args, kwargs)
+    llm = invoke_args["llm"]
+    messages = invoke_args["messages"]
+    llm_type = invoke_args["llm_type"]
+    agent_name = invoke_args["agent_name"]
+    schema = invoke_args["schema"]
+    tools = invoke_args["tools"]
+    need_stream_out = invoke_args["need_stream_out"]
+    stream_meta = invoke_args["stream_meta"]
 
     _raise_if_cancelled()
     if not llm:
@@ -872,6 +873,19 @@ async def ainvoke_llm_with_stats(*args, **kwargs):
         response = schema.model_validate_json(response.content)
         return response
     return _unify_responnse(response)
+
+
+def _parse_invoke_llm_args(args, kwargs) -> dict:
+    return {
+        "llm": kwargs.get("llm", args[0] if len(args) > 0 else None),
+        "messages": kwargs.get("messages", args[1] if len(args) > 1 else None),
+        "llm_type": kwargs.get("llm_type", "basic"),
+        "agent_name": kwargs.get("agent_name", "AI"),
+        "schema": kwargs.get("schema", None),
+        "tools": kwargs.get("tools", None),
+        "need_stream_out": kwargs.get("need_stream_out", False),
+        "stream_meta": kwargs.get("stream_meta", None),
+    }
 
 
 def _unify_responnse(response):

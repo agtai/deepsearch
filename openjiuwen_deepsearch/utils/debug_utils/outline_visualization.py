@@ -845,43 +845,8 @@ class OutlineToExcelExporter:
 
     def _create_summary_sheet(self, writer, sections_data, workbook):
         """创建汇总表"""
-        summary_data = []
-
-        # 计算统计
-        total_sections = len(sections_data['sections'])
-        total_plans = len(sections_data['plans'])
-        total_steps = len(sections_data['steps'])
-
-        total_queries = 0
-        for section in sections_data['sections']:
-            for step in sections_data['steps']:
-                if step['section_id'] == section['section_id']:
-                    total_queries += int(step['query_count'])
-
-        total_documents = len(sections_data['retrieval_query_docs'])
-        core_sections = sum(1 for s in sections_data['sections'] if '⭐' in s['is_core_section'])
-
-        # 添加汇总信息
-        summary_data.append(['📊 大纲结构汇总统计', '', ''])
-        summary_data.append(['生成时间', datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), ''])
-        summary_data.append(['大纲标题', self.outline.get('title', '无标题'), ''])
-        summary_data.append(['', '', ''])
-
-        summary_data.append(['📈 数量统计', '数值', '说明'])
-        summary_data.append(['章节总数', str(total_sections), f'核心章节: {core_sections}'])
-        summary_data.append(
-            ['计划总数', str(total_plans),
-             f'平均每个章节: {total_plans / total_sections:.1f}' if total_plans > 0 else '0'])
-        summary_data.append(
-            ['步骤总数', str(total_steps),
-             f'平均每个计划: {total_steps / total_plans:.1f}' if total_plans > 0 else '0'])
-        summary_data.append(
-            ['查询总数', str(total_queries),
-             f'平均每个步骤: {total_queries / total_steps:.1f}' if total_steps > 0 else '0'])
-        summary_data.append(
-            ['文档总数', str(total_documents),
-             f'平均每个查询: {total_documents / total_queries:.1f}' if total_queries > 0 else '0'])
-        summary_data.append(['', '', ''])
+        summary_metrics = self._build_summary_metrics(sections_data)
+        summary_data = self._build_summary_rows(summary_metrics)
 
         # 添加章节详情
         summary_data.append(['📋 章节详情', '计划数', '步骤数', '查询数', '文档数'])
@@ -944,3 +909,45 @@ class OutlineToExcelExporter:
         worksheet.set_column('C:C', 25)
         worksheet.set_column('D:D', 25)
         worksheet.set_column('E:E', 25)
+
+    @staticmethod
+    def _build_summary_metrics(sections_data: Dict[str, List[Dict]]) -> Dict[str, int]:
+        total_sections = len(sections_data['sections'])
+        total_plans = len(sections_data['plans'])
+        total_steps = len(sections_data['steps'])
+        total_queries = sum(int(step['query_count']) for step in sections_data['steps'])
+        total_documents = len(sections_data['retrieval_query_docs'])
+        core_sections = sum(1 for section in sections_data['sections'] if '⭐' in section['is_core_section'])
+        return {
+            "total_sections": total_sections,
+            "total_plans": total_plans,
+            "total_steps": total_steps,
+            "total_queries": total_queries,
+            "total_documents": total_documents,
+            "core_sections": core_sections,
+        }
+
+    def _build_summary_rows(self, metrics: Dict[str, int]) -> List[List[str]]:
+        total_sections = metrics["total_sections"]
+        total_plans = metrics["total_plans"]
+        total_steps = metrics["total_steps"]
+        total_queries = metrics["total_queries"]
+        total_documents = metrics["total_documents"]
+        core_sections = metrics["core_sections"]
+        return [
+            ['📊 大纲结构汇总统计', '', ''],
+            ['生成时间', datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), ''],
+            ['大纲标题', self.outline.get('title', '无标题'), ''],
+            ['', '', ''],
+            ['📈 数量统计', '数值', '说明'],
+            ['章节总数', str(total_sections), f'核心章节: {core_sections}'],
+            ['计划总数', str(total_plans), f'平均每个章节: {total_plans / total_sections:.1f}' if total_plans > 0 else '0'],
+            ['步骤总数', str(total_steps), f'平均每个计划: {total_steps / total_plans:.1f}' if total_plans > 0 else '0'],
+            ['查询总数', str(total_queries), f'平均每个步骤: {total_queries / total_steps:.1f}' if total_steps > 0 else '0'],
+            [
+                '文档总数',
+                str(total_documents),
+                f'平均每个查询: {total_documents / total_queries:.1f}' if total_queries > 0 else '0'
+            ],
+            ['', '', ''],
+        ]

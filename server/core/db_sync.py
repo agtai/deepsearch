@@ -39,6 +39,45 @@ class DatabaseSync:
             }
         return columns
 
+    @staticmethod
+    def _types_match(model_type: str, db_type: str) -> bool:
+        """比较两种类型是否匹配
+
+        处理类型字符串的格式差异，如 "LONGTEXT" vs "longTEXT"
+        忽略 COLLATE、CHARACTER SET 等修饰符
+        """
+        # 移除 COLLATE、CHARACTER SET 等修饰符
+        def normalize_type(type_str: str) -> str:
+            # 移除 COLLATE 子句
+            type_str = re.sub(r'collate\s+"?\w+"?', '', type_str, flags=re.IGNORECASE)
+            # 移除 CHARACTER SET 子句
+            type_str = re.sub(r'character\s+set\s+\w+', '', type_str, flags=re.IGNORECASE)
+            # 转换为小写并去除多余空格
+            type_str = type_str.lower().strip()
+            # 压缩多个空格为一个
+            type_str = re.sub(r'\s+', ' ', type_str)
+            return type_str
+
+        model_normalized = normalize_type(model_type)
+        db_normalized = normalize_type(db_type)
+
+        # 处理等价类型映射
+        # MySQL: BOOLEAN 就是 TINYINT(1) 的别名
+        if set(['boolean', 'tinyint']) & set([model_normalized, db_normalized]):
+            model_is_bool = 'boolean' in model_normalized
+            db_is_bool = 'boolean' in db_normalized
+            model_is_tinyint = 'tinyint' in model_normalized
+            db_is_tinyint = 'tinyint' in db_normalized
+
+            # 如果一个是 BOOLEAN 另一个是 TINYINT，视为等价
+            if model_is_bool and db_is_tinyint:
+                return True
+            if model_is_tinyint and db_is_bool:
+                return True
+
+        # 直接比较核心类型
+        return model_normalized == db_normalized
+
     def get_table_columns(self, table_name: str) -> Dict[str, Any]:
         """获取数据库表的实际列信息"""
         columns = {}
@@ -91,45 +130,6 @@ class DatabaseSync:
                     }
 
         return mismatched_columns
-
-    @staticmethod
-    def _types_match(model_type: str, db_type: str) -> bool:
-        """比较两种类型是否匹配
-
-        处理类型字符串的格式差异，如 "LONGTEXT" vs "longTEXT"
-        忽略 COLLATE、CHARACTER SET 等修饰符
-        """
-        # 移除 COLLATE、CHARACTER SET 等修饰符
-        def normalize_type(type_str: str) -> str:
-            # 移除 COLLATE 子句
-            type_str = re.sub(r'collate\s+"?\w+"?', '', type_str, flags=re.IGNORECASE)
-            # 移除 CHARACTER SET 子句
-            type_str = re.sub(r'character\s+set\s+\w+', '', type_str, flags=re.IGNORECASE)
-            # 转换为小写并去除多余空格
-            type_str = type_str.lower().strip()
-            # 压缩多个空格为一个
-            type_str = re.sub(r'\s+', ' ', type_str)
-            return type_str
-
-        model_normalized = normalize_type(model_type)
-        db_normalized = normalize_type(db_type)
-
-        # 处理等价类型映射
-        # MySQL: BOOLEAN 就是 TINYINT(1) 的别名
-        if set(['boolean', 'tinyint']) & set([model_normalized, db_normalized]):
-            model_is_bool = 'boolean' in model_normalized
-            db_is_bool = 'boolean' in db_normalized
-            model_is_tinyint = 'tinyint' in model_normalized
-            db_is_tinyint = 'tinyint' in db_normalized
-
-            # 如果一个是 BOOLEAN 另一个是 TINYINT，视为等价
-            if model_is_bool and db_is_tinyint:
-                return True
-            if model_is_tinyint and db_is_bool:
-                return True
-
-        # 直接比较核心类型
-        return model_normalized == db_normalized
 
     def add_column_to_table(self, model_class, column_name: str):
         """向数据库表添加列"""

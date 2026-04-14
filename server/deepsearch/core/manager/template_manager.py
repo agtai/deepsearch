@@ -53,21 +53,6 @@ class ReportTemplateManager:
     def __init__(self):
         pass
 
-    def _validate_template_name(self, name: str) -> None:
-        """Validate template name"""
-        if not name:
-            raise TemplateValidationError("Template name cannot be empty")
-
-        name = name.strip()
-        if len(name) > self._MAX_NAME_LENGTH:
-            raise TemplateValidationError(f"Template name too long")
-
-        if not self._NAME_PATTERN.match(name):
-            raise TemplateValidationError(
-                f"Invalid template name: {name}. Only Chinese/English letters, "
-                f"numbers, underscores (_), hyphens (-), and dots (.) are allowed."
-            )
-
     async def import_template(
             self,
             db: Session,
@@ -217,6 +202,21 @@ class ReportTemplateManager:
             repo.rollback()
             logger.error(f"Template update failed: {str(e)}")
             raise
+
+    def _validate_template_name(self, name: str) -> None:
+        """Validate template name"""
+        if not name:
+            raise TemplateValidationError("Template name cannot be empty")
+
+        name = name.strip()
+        if len(name) > self._MAX_NAME_LENGTH:
+            raise TemplateValidationError("Template name too long")
+
+        if not self._NAME_PATTERN.match(name):
+            raise TemplateValidationError(
+                f"Invalid template name: {name}. Only Chinese/English letters, "
+                f"numbers, underscores (_), hyphens (-), and dots (.) are allowed."
+            )
 
 
 report_template_manager = ReportTemplateManager()

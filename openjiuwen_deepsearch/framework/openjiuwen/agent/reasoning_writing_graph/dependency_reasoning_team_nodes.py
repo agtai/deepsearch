@@ -308,39 +308,19 @@ class DependencyInfoCollectorNode(InfoCollectorNode):
         current_plan = state.get("current_plan")
         messages = state.get("messages", [])
         warning_infos = list(state.get("warning_infos") or [])
-        current_doc_num = 0
 
         # 1. 没有任务执行，区分是全部完成还是被依赖阻塞
         if not plan_executed_steps:
-            history_plans = state.get("history_plans", [])
-            completed_step_ids = {step.id for step in plan_completed_steps if step.id}
-            pending_steps = [
-                step
-                for step in (current_plan.steps or [])
-                if step.id not in completed_step_ids
-            ]
-
-            if pending_steps:
-                blocked_step_ids = [step.id for step in pending_steps if step.id]
-                blocked_msg = (
-                    f"[{StatusCode.INFO_COLLECTING_EMPTY.code}] {self.log_prefix} "
-                    f"依赖计划存在未满足父步骤的阻塞任务: {blocked_step_ids}"
-                )
-                warning_infos.append(blocked_msg)
-                logger.warning(blocked_msg)
-            else:
-                # 填充执行完的steps到current plan，并保存在history plans
-                plan_background_knowledge.update(_extract_plan_background_knowledge(plan_completed_steps))
-                current_plan.steps = plan_completed_steps
-                state["plan_background_knowledge"] = plan_background_knowledge
-
-            history_plans.append(current_plan)
-            state["history_plans"] = history_plans
-            state["warning_infos"] = warning_infos
-            state["current_plan_is_completed"] = True
-            return state
+            return self._finalize_without_executed_steps(
+                state=state,
+                current_plan=current_plan,
+                plan_completed_steps=plan_completed_steps,
+                plan_background_knowledge=plan_background_knowledge,
+                warning_infos=warning_infos,
+            )
 
         # 2. 执行任务后，获取任务执行完成的结果
+        current_doc_num = 0
         for step, collector_context in zip(plan_executed_steps, collector_results):
             plan_completed_steps.append(step)
             step.retrieval_queries = collector_context.get("history_queries")
@@ -387,6 +367,41 @@ class DependencyInfoCollectorNode(InfoCollectorNode):
         step_background_knowledge.update(_extract_step_background_knowledge(plan_executed_steps))
         state["step_background_knowledge"] = step_background_knowledge
 
+        return state
+
+    def _finalize_without_executed_steps(
+            self,
+            state: dict,
+            current_plan: Plan,
+            plan_completed_steps: list,
+            plan_background_knowledge: dict,
+            warning_infos: list,
+    ) -> dict:
+        history_plans = state.get("history_plans", [])
+        completed_step_ids = {step.id for step in plan_completed_steps if step.id}
+        pending_steps = [
+            step
+            for step in (current_plan.steps or [])
+            if step.id not in completed_step_ids
+        ]
+
+        if pending_steps:
+            blocked_step_ids = [step.id for step in pending_steps if step.id]
+            blocked_msg = (
+                f"[{StatusCode.INFO_COLLECTING_EMPTY.code}] {self.log_prefix} "
+                f"依赖计划存在未满足父步骤的阻塞任务: {blocked_step_ids}"
+            )
+            warning_infos.append(blocked_msg)
+            logger.warning(blocked_msg)
+        else:
+            plan_background_knowledge.update(_extract_plan_background_knowledge(plan_completed_steps))
+            current_plan.steps = plan_completed_steps
+            state["plan_background_knowledge"] = plan_background_knowledge
+
+        history_plans.append(current_plan)
+        state["history_plans"] = history_plans
+        state["warning_infos"] = warning_infos
+        state["current_plan_is_completed"] = True
         return state
 
 

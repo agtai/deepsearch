@@ -62,12 +62,11 @@ class WebSearchEngineRepository(WebSearchEngineRepositoryInter):
     def delete_by_id(self, space_id: str, web_search_engine_id: int):
         """删除指定记录"""
         record = self.get_by_id(space_id, web_search_engine_id)
-        if record:
-            self.db.delete(record)
-            self.db.commit()
-        else:
+        if not record:
             raise WebSearchEngineNotFoundException(f"web search engine id {web_search_engine_id}"
                                                    f" not found under your space.")
+        self.db.delete(record)
+        self.db.commit()
 
     def get_list_by_id(self, space_id: str):
         """查询指定用户id下所有联网增强引擎记录"""
@@ -97,23 +96,22 @@ class WebSearchEngineRepository(WebSearchEngineRepositoryInter):
         if not record:
             raise WebSearchEngineNotFoundException(f"web search engine id {model.web_search_engine_id} "
                                                    f"not found under your space.")
-        else:
-            if model.search_engine_name is not None:
-                record.search_engine_name = model.search_engine_name
-            if model.search_api_key is not None:
-                record.search_api_key = model.search_api_key
-            if model.search_url is not None:
-                record.search_url = model.search_url
-            if model.extension is not None:
-                record.extension = model.extension
-            if model.is_active is not None:
-                record.is_active = model.is_active
-            self.db.commit()
+        if model.search_engine_name is not None:
+            record.search_engine_name = model.search_engine_name
+        if model.search_api_key is not None:
+            record.search_api_key = model.search_api_key
+        if model.search_url is not None:
+            record.search_url = model.search_url
+        if model.extension is not None:
+            record.extension = model.extension
+        if model.is_active is not None:
+            record.is_active = model.is_active
+        self.db.commit()
 
-    def get_engine_detail_by_id(self, space_id, engine_id):
+    def get_engine_detail_by_id(self, space_id: str, web_search_engine_id: int) -> Optional[WebSearchEngineDetail]:
         """获取联网增强引擎详细信息"""
         try:
-            record = self.get_by_id(space_id, engine_id)
+            record = self.get_by_id(space_id, web_search_engine_id)
             if not record:
                 logger.warning(f"Web search engine not found under your space.")
                 return None

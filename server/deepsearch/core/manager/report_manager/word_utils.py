@@ -27,6 +27,26 @@ HYPERLINK_URI = (
 OMML_URI = "http://schemas.openxmlformats.org/officeDocument/2006/math"  # URI for word omml
 
 
+def _docx_run_element(run):
+    return run._element  # pylint: disable=protected-access
+
+
+def _docx_run_r(run):
+    return run._r  # pylint: disable=protected-access
+
+
+def _docx_paragraph_p(paragraph):
+    return paragraph._p  # pylint: disable=protected-access
+
+
+def _docx_table_element(table):
+    return table._element  # pylint: disable=protected-access
+
+
+def _docx_style_element(style):
+    return style._element  # pylint: disable=protected-access
+
+
 def _get_style_def_by_tag(tag: str) -> str:
     """
     将 HTML 标签映射为语义名称。
@@ -79,7 +99,7 @@ def _apply_style_font_on_para_run(p: Paragraph, style_r_fonts) -> None:
 
     # make sure there is rFonts
     for run in p.runs:
-        e = run._element  # pylint: disable=protected-access
+        e = _docx_run_element(run)
         if e.rPr is None:
             e.insert(0, OxmlElement('w:rPr'))
         if e.rPr.rFonts is None:
@@ -96,7 +116,7 @@ def _apply_style_font_on_para_run(p: Paragraph, style_r_fonts) -> None:
 
 
 def _apply_inline_style(run, tag_name):
-    r_pr = run._r.get_or_add_rPr()  # pylint: disable=protected-access
+    r_pr = _docx_run_r(run).get_or_add_rPr()
 
     if tag_name in ("strong", "b"):
         b = OxmlElement("w:b")
@@ -116,7 +136,7 @@ def _apply_style_font_on_run(run, style_r_fonts) -> None:
     if style_r_fonts is None:
         return
 
-    e = run._element  # pylint: disable=protected-access
+    e = _docx_run_element(run)
     if e.rPr is None:
         e.insert(0, OxmlElement('w:rPr'))
     if e.rPr.rFonts is None:
@@ -165,7 +185,7 @@ def _add_hyperlink(paragraph, url, text):
     r.append(t)
 
     hyperlink.append(r)
-    paragraph._p.append(hyperlink)  # pylint: disable=protected-access
+    _docx_paragraph_p(paragraph).append(hyperlink)
 
 
 def _process_inline(p, node, style_r_fonts, current_run=None):
@@ -190,7 +210,7 @@ def _process_inline(p, node, style_r_fonts, current_run=None):
     if node.name == "img":
         src = node.get("src")
         if src and src.startswith("data:image"):
-            header, b64data = src.split(",", 1)
+            _, b64data = src.split(",", 1)
             img_bytes = base64.b64decode(b64data)
             run = p.add_run()
             run.add_picture(io.BytesIO(img_bytes))
@@ -241,7 +261,7 @@ def _insert_omml(paragraph, omml_xml: str):
 
         # 2. 插入到 run 中
         run = paragraph.add_run()
-        run._r.append(omath)  # pylint: disable=protected-access
+        _docx_run_r(run).append(omath)
 
     except Exception as e:
         raise ValueError("insert omml to doc failed") from e
@@ -322,7 +342,7 @@ def _set_default_table_border(table):
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
 
     # 设置边框（模拟 Table Grid）
-    tbl = table._element  # pylint: disable=protected-access
+    tbl = _docx_table_element(table)
     tbl_pr = tbl.xpath('./w:tblPr')[0]
 
     tbl_borders = OxmlElement('w:tblBorders')
@@ -370,7 +390,7 @@ def html_to_doc(doc, html, style_dict):
             para.paragraph_format.space_before = Pt(6)
             para.paragraph_format.space_after = Pt(6)
 
-        elif element.name == 'ul' or element.name == 'ol':
+        elif element.name in ('ul', 'ol'):
             paragraph_style = _get_style_by_tag("p", style_dict, doc)
             for li in element.find_all('li'):
                 p = doc.add_paragraph(li.get_text(strip=True), style=paragraph_style)
@@ -409,7 +429,7 @@ def set_global_styles(doc, font_name="微软雅黑", font_size=11):
     normal_font = normal_style.font
     normal_font.name = font_name
     normal_font.size = Pt(font_size)
-    normal_style._element.rPr.rFonts.set(qn('w:eastAsia'), font_name)  # pylint: disable=protected-access
+    _docx_style_element(normal_style).rPr.rFonts.set(qn('w:eastAsia'), font_name)
 
     heading_sizes = [24, 18, 16, 14, 12, 11]
     for i in range(1, 7):
@@ -418,7 +438,7 @@ def set_global_styles(doc, font_name="微软雅黑", font_size=11):
         heading_font.name = font_name
         heading_font.size = Pt(heading_sizes[i - 1])
         heading_font.italic = False
-        heading_style._element.rPr.rFonts.set(qn('w:eastAsia'), font_name)  # pylint: disable=protected-access
+        _docx_style_element(heading_style).rPr.rFonts.set(qn('w:eastAsia'), font_name)
 
     for style in doc.styles:
         if style.type == 1:  # Paragraph style

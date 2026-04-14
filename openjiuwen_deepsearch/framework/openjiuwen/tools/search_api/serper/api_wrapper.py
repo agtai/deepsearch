@@ -119,8 +119,7 @@ class GoogleSearchAPIWrapper(BaseModel, Generic[T]):
 
         if is_async:
             return self._async_search(headers, params, url, verify)
-        else:
-            return self._sync_search(headers, params, url, verify)
+        return self._sync_search(headers, params, url, verify)
 
     def _sync_search(
             self, headers: dict, params: dict, url: str, verify: Union[str, bool]

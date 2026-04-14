@@ -19,7 +19,7 @@ class LlmConfigCategory(enum.Enum):
 
     # 4. 编程、数学能力较强模型，用于准确生成报告及图文渲染，校验溯源
     WRITING_CHECKING = "writing_checking"
-    
+
     # 5. 多模态模型，用于处理报告图表迭代生成
     VLM_CHART_GENERATING = "vlm_chart_generating"
 

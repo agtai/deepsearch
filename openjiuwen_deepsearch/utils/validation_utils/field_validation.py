@@ -95,12 +95,11 @@ def validate_agent_required_field(data: dict) -> None:
             StatusCode.PARAM_CHECK_ERROR_FIELD_EMPTY.code,
             StatusCode.PARAM_CHECK_ERROR_FIELD_EMPTY.errmsg.format(field="search_engine_config")
         )
-        
-    
-    
+
+
 def validate_vlm_chart_generator_field(data: dict) -> None:
     """校验 VLM 图表生成器配置字段是否合法。"""
-    
+
     vlm_chart_generator_enable = data.get("vlm_chart_generator_enable", False)
     vlm_chart_generator_max_iterations = data.get("vlm_chart_generator_max_iterations", 1)
     vlm_model_config = data.get("llm_config", {}).get("vlm_chart_generating", {})
@@ -109,8 +108,12 @@ def validate_vlm_chart_generator_field(data: dict) -> None:
     if vlm_chart_generator_enable:
         # vlm迭代轮次大于0, 必须传入vlm模型相关配置
         if vlm_chart_generator_max_iterations > 0:
-            model_config = [vlm_model_config.get("model_name", ""), vlm_model_config.get("model_type", ""), 
-                            vlm_model_config.get("base_url", ""), vlm_model_config.get("api_key", "")]
+            model_config = [
+                vlm_model_config.get("model_name", ""),
+                vlm_model_config.get("model_type", ""),
+                vlm_model_config.get("base_url", ""),
+                vlm_model_config.get("api_key", ""),
+            ]
             if not all(model_config):
                 data["vlm_chart_generator_enable"] = False
                 data["vlm_chart_generator_max_iterations"] = 0

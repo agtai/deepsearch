@@ -84,6 +84,33 @@ class DeepSearchAgentManager:
         }
         return mapping.get(method, "none")
 
+    @staticmethod
+    def _create_vector_store_param(kb_id: str):
+        milvus_host = os.getenv("MILVUS_HOST", "localhost")
+        milvus_port = os.getenv("MILVUS_PORT", "19530")
+        milvus_token = os.getenv("MILVUS_TOKEN") or ""
+
+        # 组合 Milvus URI (格式: http://host:port 或 tcp://host:port)
+        # 默认使用 http:// 协议
+        milvus_uri = f"http://{milvus_host}:{milvus_port}"
+
+        return {
+            "collection_name": f"ds_kb_{kb_id}_chunks",
+            "uri": milvus_uri,
+            "token": milvus_token
+        }
+
+    @staticmethod
+    def _compute_agent_cache_key(request: DeepSearchRequest) -> str:
+        """
+        生成 Agent 缓存键。排除仅影响单次对话内容的字段（message、conversation_id），
+        保留与 build_agent_config 相关的全部字段（含 space_id、local_search_config_ids、
+        web_search_config_id、LLM 与各开关），保证换知识库/引擎后不会误复用旧 Agent。
+        """
+        payload = request.model_dump(exclude={"message", "interrupt_feedback"})
+        serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
     @classmethod
     def _normalize_runtime_api_tool(cls, tool: RuntimeApiToolRequest, index: int) -> dict[str, Any]:
         sanitized_name = cls._sanitize_tool_name(tool.name, fallback=f"runtime_api_tool_{index}")
@@ -142,38 +169,10 @@ class DeepSearchAgentManager:
     def _build_api_tools_config(cls, tools: list[RuntimeApiToolRequest]) -> dict[str, Any]:
         normalized_tools = [cls._normalize_runtime_api_tool(tool, index) for index, tool in enumerate(tools, start=1)]
         # Shallow copy so planner vs collector config lists are not the same object (avoids accidental shared mutation).
-        out = {
+        return {
             "query_understanding_tools": normalized_tools,
             "collector_tools": list(normalized_tools),
         }
-        return out
-
-    @staticmethod
-    def _create_vector_store_param(kb_id: str):
-        milvus_host = os.getenv("MILVUS_HOST", "localhost")
-        milvus_port = os.getenv("MILVUS_PORT", "19530")
-        milvus_token = os.getenv("MILVUS_TOKEN") or ""
-
-        # 组合 Milvus URI (格式: http://host:port 或 tcp://host:port)
-        # 默认使用 http:// 协议
-        milvus_uri = f"http://{milvus_host}:{milvus_port}"
-
-        return {
-            "collection_name": f"ds_kb_{kb_id}_chunks",
-            "uri": milvus_uri,
-            "token": milvus_token
-        }
-
-    @staticmethod
-    def _compute_agent_cache_key(request: DeepSearchRequest) -> str:
-        """
-        生成 Agent 缓存键。排除仅影响单次对话内容的字段，
-        保留与 build_agent_config 相关的全部字段（含 space_id、local_search_config_ids、
-        web_search_config_id、LLM 与各开关），保证换知识库/引擎后不会误复用旧 Agent。
-        """
-        payload = request.model_dump(exclude={"message", "interrupt_feedback"})
-        serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
-        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _build_session_cache_scope(space_id: str, conversation_id: str) -> str:
@@ -342,6 +341,23 @@ class DeepSearchAgentManager:
         return res
 
     @staticmethod
+    def load_template_content(space_id: str, template_id: int) -> Dict[str, Any]:
+        """加载并返回模板正文与元数据。"""
+        try:
+            db = next(get_db())
+            repo = ReportTemplateRepository(db)
+            template = repo.get_by_id(space_id, template_id)
+            if not template:
+                logger.info("Report template ID %s not found under space %s.", template_id, space_id)
+                raise ReportTemplateNotFoundException(
+                    f"Report template ID {template_id} not found under space {space_id}."
+                )
+            return template.template_content
+        except Exception as e:
+            logger.error("Failed to load template content: %s", str(e))
+            raise ReportTemplateNotFoundException(f"Failed to load report template: {str(e)}") from e
+
+    @staticmethod
     def _load_web_search_config(space_id: str, web_search_config: WebSearchConfig, db: Session) -> Dict[str, Any]:
         try:
             repo = WebSearchEngineRepository(db)
@@ -446,20 +462,3 @@ class DeepSearchAgentManager:
         except Exception as e:
             logger.error("Failed to load local search config: %s", str(e))
             raise LocalSearchEngineConfigGetException(f"Failed to build config: {str(e)}") from e
-
-    @staticmethod
-    def load_template_content(space_id: str, template_id: int) -> Dict[str, Any]:
-        """加载并返回模板正文与元数据。"""
-        try:
-            db = next(get_db())
-            repo = ReportTemplateRepository(db)
-            template = repo.get_by_id(space_id, template_id)
-            if not template:
-                logger.info("Report template ID %s not found under space %s.", template_id, space_id)
-                raise ReportTemplateNotFoundException(
-                    f"Report template ID {template_id} not found under space {space_id}."
-                )
-            return template.template_content
-        except Exception as e:
-            logger.error("Failed to load template content: %s", str(e))
-            raise ReportTemplateNotFoundException(f"Failed to load report template: {str(e)}") from e
