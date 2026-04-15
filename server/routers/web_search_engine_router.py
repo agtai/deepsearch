@@ -39,10 +39,9 @@ def handler_response(func):
         except Exception as e:
             if WebSearchEngineBasicException.CODE in str(e) or isinstance(e, ValidationError):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-            elif isinstance(e, HTTPException):
+            if isinstance(e, HTTPException):
                 raise e
-            else:
-                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
 
     return wrapper
 

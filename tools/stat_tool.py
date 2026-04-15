@@ -116,10 +116,9 @@ def assign_parent_node_for_line(current_node: str) -> str:
     """为当前节点推导并分配父节点编号。"""
     if current_node in editor_team_nodes:
         return "EditorTeamNode"
-    elif current_node in info_collector_child_nodes:
+    if current_node in info_collector_child_nodes:
         return info_collector_parent_node_value if info_collector_parent_node_value else current_node
-    else:
-        return "None"
+    return "None"
 
 
 if not df_node.empty:
@@ -236,10 +235,9 @@ if not df_llm.empty:
         """用于父节点排序的辅助函数。"""
         if val is None or str(val).lower() == "none":
             return 0
-        elif val == "EditorTeamNode":
+        if val == "EditorTeamNode":
             return 1
-        else:
-            return 2
+        return 2
 
 
     df_llm["ParentOrder"] = df_llm["Parent Node"].apply(parent_order)
