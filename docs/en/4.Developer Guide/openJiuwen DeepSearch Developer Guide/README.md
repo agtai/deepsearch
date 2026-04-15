@@ -37,7 +37,7 @@ DeepSearch can assign up to four logical models:
 - **info_collecting** — information gathering (InfoCollector).
 - **writing_checking** — report body and rich content (Sub-reporter).
 - **general** — default for any stage without a specific model (**required**).
-- **vlm_chart_generating** — multimodal model specialized for chart processing, can receive chart image inputs. Currently supports qwen3.5-plus (VLMChartGenerator).
+- **vlm_chart_generating** — multimodal model specialized for chart processing, can receive chart image inputs.(VLMChartGenerator).
 
 **general must be configured**; other slots fall back to **general**. Prefer a strong model for **general**.
 
@@ -47,6 +47,19 @@ Supported backends (OpenAI-compatible):
 - OpenAI-compatible HTTP APIs: set `model_type` to `openai`.
 
 > Obtain `api_key`, `model_name`, and `base_url` from your provider.
+
+### vlm_chart_generating multimodal model reference
+
+| Model | Time per image / 1 evaluation iteration (s) | Advantages |
+| :---: | :---: | :--- |
+| qwen3.5-plus | 34.18 | Qwen's most powerful visual understanding model |
+| qwen3.5-flash | 20.28 | Faster speed, lower cost; suitable for latency-sensitive scenarios |
+| qwen3-vl-plus | 4.68 | Strongest model in Qwen3-VL series |
+| qwen3-vl-flash | 3.7 | Faster speed, lower cost; suitable for latency-sensitive scenarios |
+| qwen-vl-max | 4.88 | Best-performing model in Qwen2.5-VL series |
+| qwen-vl-plus | 2.7 | Faster speed; good balance between quality and cost |
+
+> Supports other qwen-series VLM models and OpenAI-compatible models.
 
 ## Web search / augmentation configuration
 

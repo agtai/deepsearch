@@ -37,7 +37,7 @@ openJiuwen-DeepSearch 当前可以为全部模块配置四个模型：
 - **info_collecting:** 该模型用于信息收集各个步骤，配置在InfoCollector
 - **writing_checking:** 该模型用于准确生成报告及插入图文，配置在Sub_reporter
 - **general:** 该模型为通用模型，综合能力较强，所有模块都可调用该模型 
-- **vlm_chart_generating** 该模型为专门处理图表的多模态模型，可以接收图表输入，目前仅支持qwen3.5-plus，配置在VLMChartGenerator
+- **vlm_chart_generating** 该模型为专门处理图表的多模态模型（参考下表），可以接收图表输入，配置在VLMChartGenerator
 
 其中，**general模型必须配置**，其他模型配置可选，其他模型未配置时，默认使用general模型，因此，建议general配置综合能力较强的模型    
 
@@ -47,6 +47,18 @@ openJiuwen-DeepSearch 当前可以为全部模块配置四个模型：
 
 
 > 说明：用户需要自行前往硅基流动或者OpenAI的官网注册账号，以便获取模型广场中可用模型的api_key、模型名称model_name和模型调用的URL请求地址base_url。
+
+vlm_chart_generating 多模态模型参考表
+
+| 模型 | 单张图 / 1次测评迭代 耗时 (s) | 模型优势 |
+| :---: | :---: | :--- |
+| qwen3.5-plus | 34.18 | 千问性能最强的视觉理解模型 |
+| qwen3.5-flash | 20.28 | 速度更快，成本更低，适用于对响应速度敏感的场景 |
+| qwen3-vl-plus | 4.68 | Qwen3-VL 系列中性能最强的模型 |
+| qwen3-vl-flash | 3.7 | 速度更快，成本更低，适用于对响应速度敏感的场景 |
+| qwen-vl-max | 4.88 | Qwen2.5-VL 系列中效果最佳的模型 |
+| qwen-vl-plus | 2.7 | 速度更快，在效果与成本之间实现良好平衡 |
+> 支持qwen系列的其他vlm模型，以及适配openai类型的模型。
 
 ## 联网增强引擎配置说明
 

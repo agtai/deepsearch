@@ -61,7 +61,7 @@ class ChartGenerator:
         self._log_prefix = "[ChartGenerator]"
 
         if self._vlm_max_iterations > 0 and not self._vlm_model:
-            error_msg = "使用VLM评估时，必须提供VLM模型名称, 参考模型名称：qwen3.5-plus"
+            error_msg = "使用VLM评估时，必须提供VLM模型名称"
             logger.error(f"{self._log_prefix} {error_msg}")
             raise CustomValueException(
                 StatusCode.CHART_VLM_GENERATION_ERROR.code,
