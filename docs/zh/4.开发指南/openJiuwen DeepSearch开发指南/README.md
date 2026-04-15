@@ -410,6 +410,8 @@ SDK 层通过 `agent_config` 接收这些参数。
 
 **运行时 API 工具（可选）**：Server 层 **`DeepSearchRequest.tools`** 用于传入 HTTP 接口型工具列表（元素类型见 `RuntimeApiToolRequest`）。服务端在构建 Agent 时会将其规范化为 **`api_tools_config`**。
 
+**运行时 API URL 安全校验开关**：默认会对 Runtime API URL 进行安全校验（例如拒绝私网/本机地址）。仅本地调试场景可通过环境变量 `RUNTIME_API_ALLOW_UNSAFE_URL=true`（等价真值 `1/true/yes`）放宽校验；未设置时保持安全校验开启。生产环境不建议开启该开关，否则会削弱 SSRF 防护。
+
 ---
 
 ### Server 层请求示例

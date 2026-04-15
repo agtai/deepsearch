@@ -301,6 +301,8 @@ Server fields (`DeepSearchRequest`): `outline_interaction_enabled`, `outline_int
 
 **Runtime API tools (optional)**: at the Server layer, `DeepSearchRequest.tools` accepts a list of HTTP API tools (see `RuntimeApiToolRequest`). During agent construction, the server normalizes this list into `api_tools_config`. The normalized tools are then used in both query-understanding stages (planner/outliner) and collector stages.
 
+**Runtime API URL safety toggle**: Runtime API URLs are validated by default (for example, private/local addresses are rejected). For local debugging only, you can relax this check with `RUNTIME_API_ALLOW_UNSAFE_URL=true` (truthy values: `1/true/yes`). If unset, safety validation stays enabled. Do not enable this in production, or SSRF protection will be weakened.
+
 ### `space_id` and local knowledge bases
 
 `space_id` scopes tenants: KB creation/upload APIs are tied to it. When calling `run` with local search, every id in `local_search_config.local_search_config_ids` must belong to that `space_id`; cross-space ids are rejected.
