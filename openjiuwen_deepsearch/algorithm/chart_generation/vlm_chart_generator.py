@@ -17,7 +17,6 @@ from typing import Dict, List, Any, Optional, Tuple
 
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
-from openjiuwen_deepsearch.algorithm.chart_generation.utils import get_chart_base64
 from openjiuwen_deepsearch.config.config import Config
 from openjiuwen_deepsearch.algorithm.chart_generation.figure_placeholders import (
     FigurePlaceholderGenerator,
@@ -162,6 +161,6 @@ class VLMChartGenerator:
                     "chart_id": chart.get("chart_id", ""),
                     "chart_title": chart.get("chart_title", ""),
                     "description": chart.get("description", ""),
-                    "base64": get_chart_base64(chart.get("chart_path", ""))
+                    "base64": chart.get("chart_base64", "")
                 })
         return chart_messages

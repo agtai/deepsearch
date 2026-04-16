@@ -21,7 +21,6 @@ from typing import Dict, List, Tuple, Optional, Any
 from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
 from openjiuwen_deepsearch.algorithm.chart_generation.utils import (
     call_model,
-    get_chart_base64,
     CallModelInput,
 )
 from openjiuwen_deepsearch.common.exception import CustomValueException
@@ -71,13 +70,9 @@ class ChartGenerator:
         # 确保输出目录存在
         os.makedirs(self.output_dir, exist_ok=True)
 
-    def _create_code_executor(
-        self, output_dir: str, figure_id: str
-    ) -> AsyncCodeExecutor:
+    def _create_code_executor(self) -> AsyncCodeExecutor:
         """为单个图表任务创建独立沙箱执行器，避免并发任务共享全局变量。"""
         code_executor = AsyncCodeExecutor(working_dir=self.output_dir, exec_timeout=120)
-        code_executor.set_variable("figure_output_dir", output_dir)
-        code_executor.set_variable("figure_id", figure_id)
         return code_executor
 
     async def generate_charts(
@@ -179,7 +174,7 @@ class ChartGenerator:
             for result, chart_task in zip(results, section_chart_tasks):
                 if result:
                     section_chart_results.append(chart_task.copy())
-                    section_chart_results[-1]["chart_path"] = result
+                    section_chart_results[-1]["chart_base64"] = result
                     section_chart_results[-1]["chart_id"] = (
                         f"chart_{section_idx}_{section_chart_idx}"
                     )
@@ -197,7 +192,7 @@ class ChartGenerator:
             chart_task: 图表生成任务
 
         Returns:
-            Optional[str]: 图表文件路径，失败返回None
+            Optional[str]: 图表base64编码，失败返回None
         """
 
         try:
@@ -226,27 +221,23 @@ class ChartGenerator:
 
             # ---------- Part 1: Generate code and execute code ----------
             result = await self._generate_and_execute_code(gen_chart_input, figure_id)
-            if not result or not result.get("chart_path"):
+            if not result or not result.get("chart_base64"):
                 logger.warning(f"Failed to generate chart for {figure_id}")
                 return None
             code = result.get("code", "")
-            chart_path = result.get("chart_path", "")
+            chart_base64 = result.get("chart_base64", "")
 
             if self._vlm_max_iterations == 0:
-                return chart_path
+                return chart_base64
 
             # ---------- Part 2: VLM评估反馈（可选） ----------
             for _ in range(self._vlm_max_iterations):
-                chart_base64 = get_chart_base64(chart_path)
-                if not chart_base64:
-                    logger.warning(f"Failed to get chart base64 for {chart_path}")
-                    return None
                 suggestions = await self._vlm_iterate(
                     chart_base64, gen_chart_input, suggestion_list
                 )
                 if "pass" in suggestions.lower():
-                    logger.info(f"Chart generated successfully: {chart_path}")
-                    return chart_path
+                    logger.info(f"Chart generated successfully: {figure_id}")
+                    return chart_base64
                 else:
                     suggestion_list.append(suggestions)
                     gen_chart_input["history_messages"] = {
@@ -259,17 +250,17 @@ class ChartGenerator:
                     result = await self._generate_and_execute_code(
                         gen_chart_input, figure_id
                     )
-                    if not result or not result.get("chart_path"):
+                    if not result or not result.get("chart_base64"):
                         logger.warning(f"Failed to generate chart for {figure_id}")
                         return None
                     code = result.get("code", "")
-                    chart_path = result.get("chart_path", "")
+                    chart_base64 = result.get("chart_base64", "")
 
         except Exception as e:
             logger.warning(f"Error generating chart: {e}")
             return None
 
-        return chart_path
+        return chart_base64
 
     async def _generate_and_execute_code(
         self, gen_chart_input: Dict[str, Any], figure_id: str
@@ -283,12 +274,12 @@ class ChartGenerator:
         Returns:
             Dict[str, str]: {
                 "code": 图表代码,
-                "chart_path": 图表文件路径
+                "chart_base64": 图表base64编码
             }
         """
 
-        # 为当前图表任务创建独立执行器，避免并发任务之间变量污染（如 figure_id 被覆盖）
-        code_executor = self._create_code_executor(self.output_dir, figure_id)
+        # 为当前图表任务创建独立执行器，避免并发任务之间变量污染
+        code_executor = self._create_code_executor()
 
         for _ in range(3):  # 最多迭代3次
             # 先取上一次的suggestion，用于后续的提示
@@ -318,37 +309,13 @@ class ChartGenerator:
                 }
                 continue
 
-            # 检查代码中是否保存了图表
-            # plt.savefig(os.path.join(figure_output_dir, figure_id + ".png"))
-            chart_filenames = []
-            if re.search(
-                r"""os\.path\.join\(\s*figure_output_dir\s*,\s*figure_id\s*\+\s*["']\.png["']\s*\)""",
-                code,
-            ):
-                chart_filenames = [f"{figure_id}.png"]
-            if not chart_filenames:
-                logger.warning(f"No chart file generated in code: {code}")
-                gen_chart_input["history_messages"] = {
-                    "code": code,
-                    "error_msg": None,
-                    "suggestion": (
-                        pre_suggestion if isinstance(pre_suggestion, list) else []
-                    )
-                    + [
-                        "\nPlease add \
-                        `plt.savefig(os.path.join(figure_output_dir, figure_id+'.png'))` \
-                            to your code."
-                    ],
-                }
-                continue
-
-            # 检查图表是否生成
-            chart_path = os.path.join(self.output_dir, f"{figure_id}.png")
-            if os.path.exists(chart_path):
-                logger.info(f"Chart generated successfully: {chart_path}")
-                return {"code": code, "chart_path": chart_path}
+            # 第3步：获取图表base64
+            chart_base64 = result.get("chart_base64")
+            if chart_base64:
+                logger.info(f"Chart generated successfully in memory for {figure_id}")
+                return {"code": code, "chart_base64": chart_base64}
             else:
-                logger.warning(f"Chart file not generated: {chart_path}")
+                logger.warning(f"No chart generated in code execution for {figure_id}")
                 gen_chart_input["history_messages"] = {
                     "code": code,
                     "error_msg": None,
@@ -356,9 +323,7 @@ class ChartGenerator:
                         pre_suggestion if isinstance(pre_suggestion, list) else []
                     )
                     + [
-                        "\nThe chart file is not generated. Please add \
-                        `plt.savefig(os.path.join(figure_output_dir, figure_id+'.png'))` \
-                            to your code."
+                        "\nThe chart was not generated. Please ensure you create a matplotlib figure."
                     ],
                 }
                 continue

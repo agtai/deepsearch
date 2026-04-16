@@ -196,6 +196,20 @@ except Exception:
 finally:
     try:
         import matplotlib.pyplot as _plt
+        import base64 as _b64
+        import io as _io
+        # 获取所有活跃的figures并转换为base64
+        _figs = [_plt.figure(i) for i in _plt.get_fignums()]
+        if _figs:
+            _buf = _io.BytesIO()
+            _figs[0].savefig(_buf, format='png', bbox_inches='tight')
+            _buf.seek(0)
+            _chart_b64 = _b64.b64encode(_buf.read()).decode('utf-8')
+            # 输出标记分隔的base64内容
+            print("__CHART_BASE64_START__")
+            print(_chart_b64)
+            print("__CHART_BASE64_END__")
+            _buf.close()
         _plt.close("all")
     except Exception:
         pass
@@ -294,15 +308,29 @@ class AsyncCodeExecutor:
                         f"{self.exec_timeout}s limit\n"
                     ),
                     "error": True,
+                    "chart_base64": None,
                 }
 
             stdout = stdout_raw.decode("utf-8", errors="replace")
             stderr = stderr_raw.decode("utf-8", errors="replace")
 
+            # 解析stdout中的chart_base64
+            chart_base64 = None
+            start_marker = "__CHART_BASE64_START__"
+            end_marker = "__CHART_BASE64_END__"
+            if start_marker in stdout and end_marker in stdout:
+                start_idx = stdout.find(start_marker) + len(start_marker)
+                end_idx = stdout.find(end_marker)
+                chart_base64 = stdout[start_idx:end_idx].strip()
+                # 清理stdout，移除base64标记和内容
+                stdout = stdout[:stdout.find(start_marker)] + stdout[end_idx + len(end_marker):]
+                stdout = stdout.strip()
+
             return {
                 "stdout": stdout if stdout.strip() else "Run completed with no output.",
                 "stderr": stderr,
                 "error": proc.returncode != 0,
+                "chart_base64": chart_base64,
             }
 
         except Exception as exc:
@@ -311,6 +339,7 @@ class AsyncCodeExecutor:
                 "stdout": "",
                 "stderr": f"SandboxError: [{type(exc).__name__}] {exc}\n",
                 "error": True,
+                "chart_base64": None,
             }
         finally:
             try:

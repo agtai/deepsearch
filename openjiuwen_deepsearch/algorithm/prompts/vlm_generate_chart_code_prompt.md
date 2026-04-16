@@ -72,16 +72,11 @@ Generate plotting code using `chart_title`, `chart_description`, `chart_type`, a
 
 After plotting, you MUST execute the refinement workflow before saving.
 
-### Step 4: Save
+### Step 4: No Manual Save Required
 
-`figure_output_dir` and `figure_id` are **pre-defined variables** already available in the execution environment. You MUST NOT redefine or reassign them. Use them directly:
+You MUST NOT call `plt.savefig()` or `plt.show()`. The chart will be automatically captured by the sandbox executor and converted to base64.
 
-```python
-plt.savefig(os.path.join(figure_output_dir, figure_id + ".png"), bbox_inches='tight')
-plt.close()
-```
-
-NEVER call `plt.show()`. NEVER assign new values to `figure_output_dir` or `figure_id`.
+Simply complete your plotting code. The execution environment will handle figure capture automatically.
 
 ---
 
@@ -124,32 +119,20 @@ Execute in order after plotting, before saving:
 
 ---
 
-## Pre-defined Environment Variables (Both Modes)
-
-The following variables are **already defined** in the execution environment. You MUST use them directly and MUST NOT redefine or reassign them:
-
-| Variable | Description |
-|----------|-------------|
-| `figure_output_dir` | Output directory path for saving the chart image |
-| `figure_id` | Unique identifier for this chart |
-
 ## Output Format (Both Modes)
 
 You MUST output a single markdown code block containing complete, executable Python code:
 
 ```python
 import matplotlib.pyplot as plt
-import os
 plt.figure()
 # ... plotting code ...
-# figure_output_dir and figure_id are pre-defined — use them directly, do NOT redefine
-plt.savefig(os.path.join(figure_output_dir, figure_id + ".png"), bbox_inches='tight')
-plt.close()
+# DO NOT call plt.savefig() or plt.show() — the sandbox captures the figure automatically
 ```
 
 If chart code cannot be generated, output exactly: `NO CODE`
 
-NEVER call `plt.show()`. NEVER redefine `figure_output_dir` or `figure_id`. NEVER output anything outside the code block.
+NEVER call `plt.savefig()` or `plt.show()`. NEVER output anything outside the code block.
 
 ## Input Data
 
