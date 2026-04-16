@@ -1136,6 +1136,9 @@ class UserFeedbackProcessorNode(BaseNode):
                 final_result_json = json.dumps(final_result, ensure_ascii=False)
                 await custom_stream_output(session, str(uuid.uuid4()), final_result_json,
                 NodeId.USER_FEEDBACK_PROCESSOR.value)
+                # 注意：session.interact 可能触发中断并提前结束当前轮执行，
+                # 这里需要立即持久化快照标记，避免下一轮重复发送首帧快照。
+                session.update_global_state({"search_context.feedback_snapshot_sent": True})
                 mark_feedback_snapshot_sent = True
             else:
                 logger.error("[UserFeedbackProcessorNode] Final result not found")

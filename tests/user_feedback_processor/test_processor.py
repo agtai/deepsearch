@@ -575,6 +575,8 @@ class TestSendResult:
                 "response_content": "完整改写后的报告",
                 "citation_messages": {"code": 0, "msg": "success", "data": []},
                 "infer_messages": [{"id": 0, "content": "保留推理"}],
+                "exception_info": "[212405] stale error",
+                "warning_info": "ignored",
             },
         }
 

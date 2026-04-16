@@ -285,6 +285,19 @@ class TestUserFeedbackProcessorNode:
         mock_stream_output.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_build_algorithm_output_persists_snapshot_flag_before_waiting_feedback(self, node):
+        session = make_mock_session()
+        current_inputs = node._pre_handle(None, session, None)
+
+        with patch(f"{NODE_MODULE_PATH}.custom_stream_output", new_callable=AsyncMock) as mock_stream_output:
+            with patch.object(node, "_get_user_feedback", new_callable=AsyncMock, side_effect=RuntimeError("interrupt")):
+                with pytest.raises(RuntimeError, match="interrupt"):
+                    await node._build_algorithm_output(current_inputs, session, None)
+
+        mock_stream_output.assert_awaited_once()
+        session.update_global_state.assert_any_call({"search_context.feedback_snapshot_sent": True})
+
+    @pytest.mark.asyncio
     async def test_do_invoke_execute_exception_loops_back(self, node):
         session = make_mock_session()
         feedback = {

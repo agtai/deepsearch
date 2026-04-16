@@ -645,11 +645,7 @@ class UserFeedbackProcessor:
             "feedback_interaction_count": feedback_interaction_count,
         }
         if final_result is not None:
-            content_payload["final_result"] = {
-                "response_content": final_result.get("response_content", ""),
-                "citation_messages": final_result.get("citation_messages", {}),
-                "infer_messages": final_result.get("infer_messages", []),
-            }
+            content_payload["final_result"] = final_result
 
         content = json.dumps(content_payload, ensure_ascii=False)
         await session.write_custom_stream({
