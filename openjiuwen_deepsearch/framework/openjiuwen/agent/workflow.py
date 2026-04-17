@@ -42,7 +42,6 @@ from openjiuwen_deepsearch.utils.common_utils.llm_utils import (
     get_effective_workflow_llm_usage,
     is_workflow_llm_usage_empty,
     pop_workflow_llm_usage,
-    reset_workflow_llm_usage,
 )
 from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
 from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import llm_context, web_search_context, \
@@ -468,8 +467,6 @@ class DeepresearchAgent(BaseAgent):
 
         token = session_id_ctx.set(conversation_id)
         stats_info_llm_enabled = bool(session_agent_config.stats_info_llm)
-        if stats_info_llm_enabled:
-            reset_workflow_llm_usage(conversation_id)
         decoded_template = report_template
         if report_template:
             decoded_template = self._handle_report_template(report_template)
@@ -509,6 +506,9 @@ class DeepresearchAgent(BaseAgent):
             async for payload in self._emit_error_and_end_stream(conversation_id, final_result_info):
                 yield payload
 
+            if stats_info_llm_enabled:
+                pop_workflow_llm_usage(conversation_id)
+
             await self.agent.release_session(conversation_id)
             await self._release_checkpointer_session(conversation_id)
             session_id_ctx.reset(token)
@@ -543,7 +543,7 @@ class DeepresearchAgent(BaseAgent):
                 await self.agent.release_session(conversation_id)
                 await self._release_checkpointer_session(conversation_id)
                 session_id_ctx.reset(token)
-            if stats_info_llm_enabled:
+            if stats_info_llm_enabled and is_all_end:
                 pop_workflow_llm_usage(conversation_id)
 
     def _build_research_workflow(self):

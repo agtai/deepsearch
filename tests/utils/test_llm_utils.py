@@ -9,7 +9,6 @@ from openjiuwen_deepsearch.utils.common_utils.llm_utils import (
     add_workflow_llm_usage,
     get_workflow_llm_usage,
     pop_workflow_llm_usage,
-    reset_workflow_llm_usage,
     save_workflow_llm_usage_to_session,
 )
 
@@ -213,7 +212,7 @@ async def test_ainvoke_prefers_session_stats_flag_over_global_default():
 def test_workflow_llm_usage_can_accumulate_and_pop():
     """验证 workflow 级 token 统计可以累加并清理。"""
     thread_id = "workflow-usage-case"
-    reset_workflow_llm_usage(thread_id)
+    pop_workflow_llm_usage(thread_id)
 
     add_workflow_llm_usage(thread_id, input_tokens=3, output_tokens=5, total_tokens=8, agent_name="entry")
     add_workflow_llm_usage(thread_id, input_tokens=7, output_tokens=11, total_tokens=18, agent_name="entry")
@@ -258,7 +257,7 @@ def test_workflow_llm_usage_can_accumulate_and_pop():
 async def test_workflow_llm_usage_is_stable_under_coroutine_concurrency():
     """验证协程并发累加场景下 workflow 级 token 统计结果正确。"""
     thread_id = "workflow-usage-concurrency"
-    reset_workflow_llm_usage(thread_id)
+    pop_workflow_llm_usage(thread_id)
     workers = 10
     rounds = 100
 
@@ -373,7 +372,7 @@ async def test_ainvoke_can_resume_workflow_usage_from_session_snapshot():
 def test_save_workflow_llm_usage_to_session_writes_snapshot():
     """验证可将当前 workflow token 累计写入 session。"""
     thread_id = "save-workflow-usage"
-    reset_workflow_llm_usage(thread_id)
+    pop_workflow_llm_usage(thread_id)
     add_workflow_llm_usage(thread_id, input_tokens=2, output_tokens=3, total_tokens=5, agent_name="entry")
     captured = {}
 

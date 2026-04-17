@@ -227,17 +227,6 @@ def save_workflow_llm_usage_to_session(session: Any, session_id: str) -> dict[st
     return usage
 
 
-def reset_workflow_llm_usage(session_id: str) -> None:
-    """重置指定 workflow 的 LLM token 汇总信息。
-
-    Args:
-        session_id (str): workflow 对应会话 ID。
-    """
-    if not session_id or session_id == "-":
-        return
-    _WORKFLOW_LLM_USAGE[session_id] = _build_empty_workflow_llm_usage()
-
-
 def add_workflow_llm_usage(
     session_id: str,
     input_tokens: int,
