@@ -1,6 +1,7 @@
 # coding: utf-8
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
 
+import json
 from typing import Generic, TypeVar, List, Dict
 import logging
 import aiohttp
@@ -44,11 +45,25 @@ class PetalSearchAPIWrapper(BaseModel, Generic[T]):
     def build_headers(self, search_term: str):
         """Build headers for search requests."""
         search_api_key = self.search_api_key.decode('utf-8')
-        authorization = search_api_key if search_api_key.startswith("Bearer") else f"Bearer {search_api_key}"
         search_headers = {
-            "Authorization": authorization,
             "Content-Type": "application/json",
         }
+        # 判断search_api_key格式
+        if search_api_key.strip().startswith('{') and search_api_key.strip().endswith('}'):
+            # 可能是json字符串，尝试解析
+            temp_headers = json.loads(search_api_key)
+            # 如果是Basic认证，直接合并
+            auth = temp_headers.get("Authorization") if isinstance(temp_headers, dict) else ""
+            if auth.startswith("Basic"):
+                search_headers.update(temp_headers)
+            else:
+                # 不是Basic，无效的auth信息
+                logger.error("invalid search_api_key format")
+        else:
+            # 不是json字符串，直接按Bearer逻辑
+            authorization = search_api_key if search_api_key.startswith("Bearer") else f"Bearer {search_api_key}"
+            search_headers['Authorization'] = authorization
+
         search_url = self.search_url.get_secret_value()
         search_data = {
             "query": search_term,
