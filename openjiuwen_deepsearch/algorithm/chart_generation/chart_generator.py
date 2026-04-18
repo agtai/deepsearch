@@ -298,7 +298,7 @@ class ChartGenerator:
             # 在沙箱中执行代码
             result = await code_executor.execute(code)
             if result["error"]:
-                logger.warning(f"Error executing chart code: {result['stderr']}")
+                logger.debug("Error executing chart code: %s", result['stderr'])
                 gen_chart_input["history_messages"] = {
                     "code": code,
                     "error_msg": f"stdout: {result['stdout']}\nstderr: {result['stderr']}",

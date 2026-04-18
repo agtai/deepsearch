@@ -334,7 +334,7 @@ class AsyncCodeExecutor:
             }
 
         except Exception as exc:
-            _sandbox_logger.error("Sandbox launch failed: %s", exc, exc_info=True)
+            _sandbox_logger.debug("Sandbox launch failed: %s", exc, exc_info=True)
             return {
                 "stdout": "",
                 "stderr": f"SandboxError: [{type(exc).__name__}] {exc}\n",
