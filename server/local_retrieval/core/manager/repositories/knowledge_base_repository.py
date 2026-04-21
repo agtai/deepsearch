@@ -1,5 +1,6 @@
 # -*- coding: UTF-8 -*-
 # Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
+from contextvars import ContextVar
 from functools import wraps
 import logging
 
@@ -19,8 +20,50 @@ logger = logging.getLogger(__name__)
 
 
 class KnowledgeBaseRepository:
-    def __init__(self, db: Session) -> None:
-        self.db = db
+    def __init__(self, db: Session | None = None, session_factory=SessionLocal) -> None:
+        self.bound_db = db
+        self.session_factory = session_factory
+        self.active_session: ContextVar[Session | None] = ContextVar(
+            f"{self.__class__.__name__} active_session",
+            default=None,
+        )
+
+    @property
+    def db(self) -> Session:
+        session = self.active_session.get()
+        if session is not None:
+            return session
+        if self.bound_db is not None:
+            return self.bound_db
+        raise RuntimeError("Database session is not initialized")
+
+    @staticmethod
+    def with_session(func_):
+        @wraps(func_)
+        def wrapper(self, *args, **kwargs):
+            created_session = False
+            db_session = self.bound_db
+            if db_session is None:
+                db_session = self.session_factory()
+                created_session = True
+
+            token = self.active_session.set(db_session)
+            try:
+                return func_(self, *args, **kwargs)
+            except Exception as e:
+                logger.error(f"Error in {func_.__name__}: {type(e).__name__}")
+                try:
+                    db_session.rollback()
+                    logger.error("DB session rollback successfully")
+                except Exception as db_rollback_error:
+                    logger.error(f"Error during db session rollback: {type(db_rollback_error).__name__}")
+                    raise db_rollback_error
+                raise e
+            finally:
+                self.active_session.reset(token)
+                if created_session:
+                    db_session.close()
+        return wrapper
 
     @staticmethod
     def with_exception_handling(func_):
@@ -62,6 +105,7 @@ class KnowledgeBaseRepository:
     return {*}
     '''
     @with_exception_handling
+    @with_session
     def knowledge_base_create(self, kb_data: dict) -> ResponseModel[None]:
         """创建知识库记录。"""
         if not kb_data or not kb_data.get("kb_id"):
@@ -95,6 +139,7 @@ class KnowledgeBaseRepository:
     return {*}
     '''
     @with_exception_handling
+    @with_session
     def knowledge_base_get(self, kb_get: KnowledgeBaseGet) -> ResponseModel[dict | None]:
         """查询单个知识库详情。"""
         try:
@@ -111,6 +156,7 @@ class KnowledgeBaseRepository:
     return {*}
     '''
     @with_exception_handling
+    @with_session
     def knowledge_base_delete(self, kb_get: KnowledgeBaseGet) -> ResponseModel[None]:
         """删除知识库及关联资源。"""
         try:
@@ -144,6 +190,7 @@ class KnowledgeBaseRepository:
     return {ResponseModel[bool]}  True表示名称已存在，False表示不存在
     '''
     @with_exception_handling
+    @with_session
     def knowledge_base_check_name_exists(
         self,
         space_id: str,
@@ -181,6 +228,7 @@ class KnowledgeBaseRepository:
     return {*}
     '''
     @with_exception_handling
+    @with_session
     def knowledge_base_update(
         self,
         space_id: str,
@@ -212,6 +260,7 @@ class KnowledgeBaseRepository:
     return {*}
     '''
     @with_exception_handling
+    @with_session
     def document_create(self, doc_data: dict) -> ResponseModel[None]:
         """创建知识库文档记录。"""
         if not doc_data or not doc_data.get("doc_id"):
@@ -247,6 +296,7 @@ class KnowledgeBaseRepository:
     return {*}
     '''
     @with_exception_handling
+    @with_session
     def document_get(
         self,
         space_id: str,
@@ -270,6 +320,7 @@ class KnowledgeBaseRepository:
     return {*}
     '''
     @with_exception_handling
+    @with_session
     def document_delete(
         self,
         space_id: str,
@@ -298,6 +349,7 @@ class KnowledgeBaseRepository:
     return {*}
     '''
     @with_exception_handling
+    @with_session
     def document_update_status(self, *args, **kwargs) -> ResponseModel[None]:
         """更新文档处理状态。"""
         space_id = kwargs.get("space_id", args[0] if len(args) > 0 else None)
@@ -307,6 +359,7 @@ class KnowledgeBaseRepository:
         process_info = kwargs.get("process_info", args[4] if len(args) > 4 else None)
         es_index_name = kwargs.get("es_index_name", args[5] if len(args) > 5 else None)
         chunk_count = kwargs.get("chunk_count", args[6] if len(args) > 6 else None)
+    
         try:
             record = self._query_doc(space_id, kb_id, doc_id).first()
             if not record:
@@ -341,6 +394,7 @@ class KnowledgeBaseRepository:
     return {*}
     '''
     @with_exception_handling
+    @with_session
     def document_update(
         self,
         space_id: str,
@@ -371,6 +425,7 @@ class KnowledgeBaseRepository:
     return {*}
     '''
     @with_exception_handling
+    @with_session
     def knowledge_base_search(
         self,
         space_id: str,
@@ -423,6 +478,7 @@ class KnowledgeBaseRepository:
     return {*}
     '''
     @with_exception_handling
+    @with_session
     def knowledge_base_list(
         self,
         space_id: str,
@@ -486,6 +542,7 @@ class KnowledgeBaseRepository:
     return {*}
     '''
     @with_exception_handling
+    @with_session
     def document_list(
         self,
         space_id: str,
@@ -547,6 +604,7 @@ class KnowledgeBaseRepository:
     return {*}
     '''
     @with_exception_handling
+    @with_session
     def document_status_list(
         self,
         space_id: str,
@@ -577,6 +635,7 @@ class KnowledgeBaseRepository:
     return {*}
     '''
     @with_exception_handling
+    @with_session
     def document_id_list(
         self,
         space_id: str,
@@ -607,6 +666,7 @@ class KnowledgeBaseRepository:
     return {bool} 是否有图增强文档
     '''
     @with_exception_handling
+    @with_session
     def has_graph_enhancement_documents(self, space_id: str, kb_id: str) -> bool:
         """判断知识库中是否存在图增强文档。"""
         try:
@@ -630,5 +690,5 @@ class KnowledgeBaseRepository:
             return False
 
 # 创建全局实例
-knowledge_base_repository = KnowledgeBaseRepository(SessionLocal())
+knowledge_base_repository = KnowledgeBaseRepository(session_factory=SessionLocal)
 
