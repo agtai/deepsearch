@@ -11,7 +11,6 @@
 
 import asyncio
 import logging
-from multiprocessing import Value
 import os
 import re
 import json
@@ -33,6 +32,8 @@ logger = logging.getLogger(__name__)
 
 # Use __file__ for robust path resolution in SDK mode
 FONT_PATH = os.path.join(os.path.dirname(__file__), "fonts", "kt_font.ttf")
+# 并发控制：限制同时执行的沙箱子进程数量，避免内存耗尽和进程阻塞
+MAX_CONCURRENT_CHART_TASKS = 3
 
 
 class ChartGenerator:
@@ -58,6 +59,8 @@ class ChartGenerator:
         self.output_dir = output_dir
         self._vlm_max_iterations = vlm_max_iterations
         self._log_prefix = "[ChartGenerator]"
+        # 最大并发图表生成任务数，限制子进程数量
+        self._max_concurrent_tasks = MAX_CONCURRENT_CHART_TASKS
 
         if self._vlm_max_iterations > 0 and not self._vlm_model:
             error_msg = "使用VLM评估时，必须提供VLM模型名称"
@@ -140,13 +143,21 @@ class ChartGenerator:
         self, section_chart_tasks: List[Dict[str, Any]], section_idx: int
     ) -> List[Dict[str, Any]]:
         """
-        生成同一章节中的图表
+        生成同一章节中的图表，使用并发控制限制同时执行的沙箱进程数
         """
 
-        # 异步生成每一个图表
+        # 创建信号量控制并发
+        semaphore = asyncio.Semaphore(self._max_concurrent_tasks)
+
+        async def _generate_with_semaphore(chart_task: Dict[str, Any]):
+            """带并发控制的图表生成"""
+            async with semaphore:
+                return await self._generate_single_chart(chart_task)
+
+        # 异步生成每一个图表（带并发控制）
         tasks = []
         for chart_task in section_chart_tasks:
-            tasks.append(self._generate_single_chart(chart_task))
+            tasks.append(_generate_with_semaphore(chart_task))
 
         # 等待所有图表生成完成
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -235,11 +246,18 @@ class ChartGenerator:
                 suggestions = await self._vlm_iterate(
                     chart_base64, gen_chart_input, suggestion_list
                 )
+
                 if "pass" in suggestions.lower():
                     logger.info(f"Chart generated successfully: {figure_id}")
-                    return chart_base64
+                    final_base64 = chart_base64
+                    # 释放内存
+                    del chart_base64
+                    del suggestion_list
+                    del result
+                    return final_base64
                 else:
                     suggestion_list.append(suggestions)
+
                     gen_chart_input["history_messages"] = {
                         "code": code,
                         "error_msg": None,
@@ -247,6 +265,10 @@ class ChartGenerator:
                     }
 
                     # ---------- Part 3: Generate code and execute code again ----------
+                    # 释放旧的base64数据
+                    old_base64 = chart_base64
+                    del old_base64
+
                     result = await self._generate_and_execute_code(
                         gen_chart_input, figure_id
                     )

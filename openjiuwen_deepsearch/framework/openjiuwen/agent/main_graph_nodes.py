@@ -43,6 +43,7 @@ from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import mode
 from openjiuwen_deepsearch.utils.debug_utils.node_debug import add_debug_log_wrapper, NodeType, NodeDebugData
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -1414,9 +1415,7 @@ class VLMChartGeneratorNode(BaseNode):
         )
 
     async def _run_vlm_chart_generator_handle(
-        self, inputs: Input,
-        session: Session,
-        context: ModelContext,
+        self,
         current_inputs: dict
     ) -> dict:
         logger.info("[VLMChartGeneratorNode] Run VLMChartGeneratorNode.")
@@ -1464,8 +1463,7 @@ class VLMChartGeneratorNode(BaseNode):
                 raise ValueError(error_msg)
 
 
-            vlm_chart_generator_output = await self._run_vlm_chart_generator_handle(inputs, session,
-                                                                                    context, current_inputs)
+            vlm_chart_generator_output = await self._run_vlm_chart_generator_handle(current_inputs)
 
         except CustomException as e:
             if LogManager.is_sensitive():

@@ -63,6 +63,7 @@ _variables   = _cfg.get("variables", {})
 _restricted  = frozenset(_cfg.get("restricted_modules", []))
 _font_path   = _cfg.get("font_path", "")
 _code_path   = _cfg["code_path"]
+_chart_result_path = _cfg.get("chart_result_path", "")
 
 # ════════════════════════════════════════════════════════════════
 # Phase 1: 在无任何限制的环境下预加载所有受信任的科学计算库
@@ -205,12 +206,22 @@ finally:
             _figs[0].savefig(_buf, format='png', bbox_inches='tight')
             _buf.seek(0)
             _chart_b64 = _b64.b64encode(_buf.read()).decode('utf-8')
-            # 输出标记分隔的base64内容
-            print("__CHART_BASE64_START__")
-            print(_chart_b64)
-            print("__CHART_BASE64_END__")
             _buf.close()
+            # 使用临时文件传输大型base64数据，避免stdout管道阻塞
+            # 使用传入的唯一路径，避免并发时文件覆盖
+            if _chart_result_path:
+                _chart_file = _chart_result_path
+            else:
+                _chart_file = os.path.join(_working_dir, "_chart_result.tmp")
+            with _orig_open(_chart_file, "w", encoding="utf-8") as _cf:
+                _cf.write(_chart_b64)
+            # 只输出标记，不输出完整base64
+            print(f"__CHART_RESULT_FILE__: {_chart_file}")
         _plt.close("all")
+        # 显式释放内存
+        del _figs
+        del _buf
+        del _chart_b64
     except Exception:
         pass
 '''
@@ -262,12 +273,15 @@ class AsyncCodeExecutor:
         3. 启动子进程，通过 stdin 注入 worker 引导脚本
         4. worker 在子进程中设置安全限制后执行用户代码
         5. 捕获 stdout/stderr，超时则 SIGKILL 终止
+        6. 从临时文件读取base64数据（避免管道阻塞）
 
         Returns:
             {"stdout": str, "stderr": str, "error": bool}
         """
         tag = uuid.uuid4().hex[:12]
         code_path = os.path.join(self.working_dir, f"_sandbox_{tag}.py")
+        # 使用唯一的临时文件名，避免并发时文件覆盖
+        chart_result_file = os.path.join(self.working_dir, f"_chart_result_{tag}.tmp")
 
         try:
             with open(code_path, "w", encoding="utf-8") as f:
@@ -279,6 +293,7 @@ class AsyncCodeExecutor:
                 "restricted_modules": list(RESTRICTED_MODULES),
                 "font_path": self._font_path,
                 "code_path": os.path.abspath(code_path),
+                "chart_result_path": chart_result_file,  # 传入唯一的临时文件路径
             }
 
             env = os.environ.copy()
@@ -314,17 +329,30 @@ class AsyncCodeExecutor:
             stdout = stdout_raw.decode("utf-8", errors="replace")
             stderr = stderr_raw.decode("utf-8", errors="replace")
 
-            # 解析stdout中的chart_base64
+            # 从临时文件读取base64数据（避免stdout管道阻塞）
             chart_base64 = None
-            start_marker = "__CHART_BASE64_START__"
-            end_marker = "__CHART_BASE64_END__"
-            if start_marker in stdout and end_marker in stdout:
-                start_idx = stdout.find(start_marker) + len(start_marker)
-                end_idx = stdout.find(end_marker)
-                chart_base64 = stdout[start_idx:end_idx].strip()
-                # 清理stdout，移除base64标记和内容
-                stdout = stdout[:stdout.find(start_marker)] + stdout[end_idx + len(end_marker):]
+            file_marker = "__CHART_RESULT_FILE__:"
+            if file_marker in stdout:
+                # 提取文件路径
+                idx = stdout.find(file_marker) + len(file_marker)
+                chart_file_path = stdout[idx:].strip()
+                # 清理stdout中的标记
+                stdout = stdout[:stdout.find(file_marker)]
                 stdout = stdout.strip()
+
+                # 读取图表base64
+                if os.path.exists(chart_file_path):
+                    try:
+                        with open(chart_file_path, "r", encoding="utf-8") as cf:
+                            chart_base64 = cf.read()
+                    except Exception as e:
+                        _sandbox_logger.warning("Failed to read chart result file: %s", e)
+                    finally:
+                        # 清理临时文件
+                        try:
+                            os.unlink(chart_file_path)
+                        except OSError:
+                            pass
 
             return {
                 "stdout": stdout if stdout.strip() else "Run completed with no output.",
@@ -344,6 +372,12 @@ class AsyncCodeExecutor:
         finally:
             try:
                 os.unlink(code_path)
+            except OSError:
+                pass
+            # 清理图表结果临时文件
+            try:
+                if os.path.exists(chart_result_file):
+                    os.unlink(chart_result_file)
             except OSError:
                 pass
 
