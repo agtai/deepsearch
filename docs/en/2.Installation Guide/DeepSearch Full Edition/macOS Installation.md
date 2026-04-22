@@ -37,8 +37,8 @@ Ensure the machine meets:
 
 ### 1. Download the package (skip if you already have it)
 
-* x86_64: [DeepSearch v0.1.3](https://openjiuwen-ci.obs.cn-north-4.myhuaweicloud.com/deepsearch/deployTool_0.1.3_amd64.zip)
-* ARM64: [DeepSearch v0.1.3](https://openjiuwen-ci.obs.cn-north-4.myhuaweicloud.com/deepsearch/deployTool_0.1.3_arm64.zip)
+* x86_64: [DeepSearch v0.1.4](https://openjiuwen-ci.obs.cn-north-4.myhuaweicloud.com/deepsearch/deployTool_0.1.4_amd64.zip)
+* ARM64: [DeepSearch v0.1.4](https://openjiuwen-ci.obs.cn-north-4.myhuaweicloud.com/deepsearch/deployTool_0.1.4_arm64.zip)
 
 ### 2. Start DeepSearch
 
@@ -51,6 +51,11 @@ Ensure the machine meets:
   ```
 
 * To change the web UI port, see [this guide](https://gitcode.com/openJiuwen/agent-studio/blob/main/scripts/README.md#如何修改前端页面服务的端口号).
+
+- Locate and edit the .env.custom file in the deployment tool directory, then add the following configuration item according to your actual runtime environment:
+```
+IP=<local IP address of the machine running the deployment tool>
+```
 
 * In Terminal, from the folder containing *service.sh*:
 

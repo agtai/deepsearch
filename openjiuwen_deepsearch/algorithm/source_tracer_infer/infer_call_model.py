@@ -4,6 +4,7 @@ import logging
 import json
 from dataclasses import dataclass, field
 from typing import List, Dict, NamedTuple, Set
+import copy
 
 from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import llm_context
 from openjiuwen_deepsearch.algorithm.prompts.template import apply_system_prompt
@@ -35,10 +36,17 @@ class NumberNodeParam:
     node_index: int = 0
     citation_ids: Set[int] = field(default_factory=set)
     conclusion_ids: Set[int] = field(default_factory=set)
+    
+    tail_id: int = -1
+    head_id_list: List = field(default_factory=list)
+    structured_inference: List = field(default_factory=list)
 
+    def update_structured_inference(self, relation: str):
+        self.structured_inference.append([copy.deepcopy(self.head_id_list), relation, self.tail_id])
 
 
 def type_check(result, expected_type):
+    """校验结果类型是否符合预期类型。"""
     if not isinstance(result, expected_type):
         error_msg = f"[SOURCE TRACER INFER]: 生成结果类型错误, 生成结果类型{type(result)}, 期望类型为{expected_type}"
         raise CustomValueException(StatusCode.SOURCE_TRACER_INFER_DATA_TYPE_ERROR.code,
@@ -47,6 +55,7 @@ def type_check(result, expected_type):
 
 
 def is_equal_length(result, target):
+    """校验结果是否为固定长度的结构。"""
     type_check(result, list)
     for r in result:
         type_check(r, list)

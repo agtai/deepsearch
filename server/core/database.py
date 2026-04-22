@@ -16,14 +16,13 @@ def get_database_url() -> str:
         return (f"mysql+pymysql://{settings.db_user}:{settings.db_password}@"
                 f"{settings.db_host}:{settings.db_port}/{settings.deepsearch_db_name}?charset=utf8mb4")
 
-    elif settings.db_type.lower() == "sqlite":
+    if settings.db_type.lower() == "sqlite":
         # 确保数据库目录存在
         db_path = Path(settings.sqlite_db_path)
         db_path.mkdir(parents=True, exist_ok=True)
         return f"sqlite:///{db_path}/{settings.deepsearch_sqlite_db}"
 
-    else:
-        raise ValueError(f"Unsupported database type: {settings.db_type.lower()}")
+    raise ValueError(f"Unsupported database type: {settings.db_type.lower()}")
 
 
 database_url = get_database_url()
@@ -50,6 +49,7 @@ Base = declarative_base()
 
 # Dependency to get database session
 def get_db():
+    """提供数据库会话并在请求结束后释放连接。"""
     db = SessionLocal()
     try:
         yield db

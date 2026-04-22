@@ -37,7 +37,31 @@ Sub-report shell: **section_id**, **section_task**, **background_knowledge** (de
 Aggregated report: **report_task**, **report_template**, **sub_reports**, **report_content**, **all_classified_contents**, **merged_trace_source_datas**, **checked_trace_source_report_content**, **checked_trace_source_datas**.
 
 ## `FinalResult`
-**response_content**, **citation_messages**, **infer_messages**, **exception_info**, **warning_info**.
+**response_content**, **citation_messages**, **infer_messages**, **chart_messages**, **exception_info**, **warning_info**.
+
+- `infer_messages` stores source-tracing graph payloads. Report export reads `html_base64` and writes standalone HTML resources.
+- `chart_messages` stores VLM chart payloads. Report export reads `base64` and writes image resources.
 
 ## `SearchContext`
-Runtime state: **session_id**, **query**, **messages**, **language** (default `zh-CN`), **report_template**, **search_mode** (default `research`), **questions**, **user_feedback**, **outline_interactions**, **outline_executed_num**, **current_outline**, **history_outlines**, **report_generated_num**, **current_report**, **history_reports**, **final_result**, **debug_pre_step**, **feedback_interaction_count**, **rewrite_history**.
+**Fields**:
+
+- **session_id**: Session ID.
+- **query**: User query.
+- **messages**: Conversation messages.
+- **language**: Language. Default value: `zh-CN`.
+- **report_template**: Report template.
+- **search_mode**: Search mode. Default value: `research`.
+- **questions**: Clarification questions.
+- **user_feedback**: User feedback.
+- **outline_interactions**: Outline interaction history.
+- **outline_executed_num**: Number of outline executions.
+- **current_outline**: Current outline.
+- **history_outlines**: Historical outlines.
+- **report_generated_num**: Default value: `0`.
+- **current_report**: Current report.
+- **history_reports**: Historical reports.
+- **final_result**: Final result.
+- **debug_pre_step**: Previous-step debug log.
+- **feedback_interaction_count**: Number of post-report local editing interactions. Default value: `0`.
+- **feedback_snapshot_sent**: Whether the initial feedback snapshot has already been pushed to the frontend. Default value: `False`.
+- **rewrite_history**: Local rewrite history.

@@ -5,7 +5,9 @@ from unittest.mock import patch, AsyncMock
 import pytest
 
 from openjiuwen_deepsearch.algorithm.source_tracer_infer.infer import SourceTracerInfer
-from openjiuwen_deepsearch.algorithm.source_tracer_infer.infer_call_model import GraphInfo
+from openjiuwen_deepsearch.algorithm.source_tracer_infer.infer_call_model import (
+    GraphInfo,
+)
 
 
 class TestSourceTracerInfer:
@@ -56,7 +58,7 @@ class TestSourceTracerInfer:
         expected_result = [{"conclusion": "test", "search_records": []}]
 
         with patch(
-                "openjiuwen_deepsearch.algorithm.source_tracer_infer.infer.ResearchInferPreprocess"
+            "openjiuwen_deepsearch.algorithm.source_tracer_infer.infer.ResearchInferPreprocess"
         ) as mock_preprocessor:
             mock_instance = AsyncMock()
             mock_instance.run.return_value = expected_result
@@ -75,8 +77,8 @@ class TestSourceTracerInfer:
         }
 
         with patch(
-                "openjiuwen_deepsearch.algorithm.source_tracer_infer.infer.call_model",
-                new_callable=AsyncMock,
+            "openjiuwen_deepsearch.algorithm.source_tracer_infer.infer.call_model",
+            new_callable=AsyncMock,
         ) as mock_call_model:
             mock_call_model.return_value = []
 
@@ -96,8 +98,8 @@ class TestSourceTracerInfer:
         }
 
         with patch(
-                "openjiuwen_deepsearch.algorithm.source_tracer_infer.infer.call_model",
-                new_callable=AsyncMock,
+            "openjiuwen_deepsearch.algorithm.source_tracer_infer.infer.call_model",
+            new_callable=AsyncMock,
         ) as mock_call_model:
             mock_call_model.return_value = [0, 1]  # Both records are valid
 
@@ -117,8 +119,8 @@ class TestSourceTracerInfer:
         }
 
         with patch(
-                "openjiuwen_deepsearch.algorithm.source_tracer_infer.infer.call_model",
-                new_callable=AsyncMock,
+            "openjiuwen_deepsearch.algorithm.source_tracer_infer.infer.call_model",
+            new_callable=AsyncMock,
         ) as mock_call_model:
             mock_call_model.return_value = [5]  # Invalid index
 
@@ -136,8 +138,8 @@ class TestSourceTracerInfer:
         }
 
         with patch(
-                "openjiuwen_deepsearch.algorithm.source_tracer_infer.infer.call_model",
-                new_callable=AsyncMock,
+            "openjiuwen_deepsearch.algorithm.source_tracer_infer.infer.call_model",
+            new_callable=AsyncMock,
         ) as mock_call_model:
             mock_call_model.return_value = ["test inference"]
 
@@ -152,8 +154,8 @@ class TestSourceTracerInfer:
         evidences = {"conclusion": "test conclusion", "reference": []}
 
         with patch(
-                "openjiuwen_deepsearch.algorithm.source_tracer_infer.infer.call_model",
-                new_callable=AsyncMock,
+            "openjiuwen_deepsearch.algorithm.source_tracer_infer.infer.call_model",
+            new_callable=AsyncMock,
         ) as mock_call_model:
             mock_call_model.return_value = []
 
@@ -168,10 +170,10 @@ class TestSourceTracerInfer:
         inferences = {"inference": "valid inference"}
 
         with patch(
-                "openjiuwen_deepsearch.algorithm.source_tracer_infer.infer.call_model",
-                new_callable=AsyncMock,
+            "openjiuwen_deepsearch.algorithm.source_tracer_infer.infer.call_model",
+            new_callable=AsyncMock,
         ) as mock_call_model:
-            mock_call_model.return_value = json.dumps(["filtered"])
+            mock_call_model.return_value = "true"
 
             result = await self.source_tracer_infer.filter_invalid_infer(inferences)
 
@@ -179,19 +181,34 @@ class TestSourceTracerInfer:
 
     @pytest.mark.asyncio
     async def test_filter_invalid_infer_empty_result(self):
-        """Test filter_invalid_infer with empty result."""
+        """Test filter_invalid_infer with empty/falsy result raises ValueError."""
         inferences = {"inference": "invalid inference"}
 
         with patch(
-                "openjiuwen_deepsearch.algorithm.source_tracer_infer.infer.call_model",
-                new_callable=AsyncMock,
+            "openjiuwen_deepsearch.algorithm.source_tracer_infer.infer.call_model",
+            new_callable=AsyncMock,
         ) as mock_call_model:
-            mock_call_model.return_value = json.dumps([])
+            mock_call_model.return_value = ""
 
             with pytest.raises(ValueError) as exc_info:
                 await self.source_tracer_infer.filter_invalid_infer(inferences)
 
             assert "invalid inference" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_filter_invalid_infer_false_result(self):
+        """Test filter_invalid_infer with 'false' string result."""
+        inferences = {"inference": "invalid inference"}
+
+        with patch(
+            "openjiuwen_deepsearch.algorithm.source_tracer_infer.infer.call_model",
+            new_callable=AsyncMock,
+        ) as mock_call_model:
+            mock_call_model.return_value = "false"
+
+            result = await self.source_tracer_infer.filter_invalid_infer(inferences)
+
+            assert result == inferences
 
     @pytest.mark.asyncio
     async def test_structured_infer_valid(self):
@@ -200,8 +217,8 @@ class TestSourceTracerInfer:
         expected_result = [([0], "relation", 1)]
 
         with patch(
-                "openjiuwen_deepsearch.algorithm.source_tracer_infer.infer.call_model",
-                new_callable=AsyncMock,
+            "openjiuwen_deepsearch.algorithm.source_tracer_infer.infer.call_model",
+            new_callable=AsyncMock,
         ) as mock_call_model:
             mock_call_model.return_value = expected_result
 
@@ -215,8 +232,8 @@ class TestSourceTracerInfer:
         inference = {"inference": "test"}
 
         with patch(
-                "openjiuwen_deepsearch.algorithm.source_tracer_infer.infer.call_model",
-                new_callable=AsyncMock,
+            "openjiuwen_deepsearch.algorithm.source_tracer_infer.infer.call_model",
+            new_callable=AsyncMock,
         ) as mock_call_model:
             mock_call_model.return_value = []
 
@@ -315,12 +332,12 @@ class TestSourceTracerInfer:
         datas = {"conclusion": ["test"], "search_records": [{"content": "test"}]}
 
         with patch.object(
-                self.source_tracer_infer, "extract_reference", new_callable=AsyncMock
+            self.source_tracer_infer, "extract_reference", new_callable=AsyncMock
         ) as mock_extract:
             mock_extract.return_value = {"conclusion": "test", "reference": []}
 
             with patch.object(
-                    self.source_tracer_infer, "infer", new_callable=AsyncMock
+                self.source_tracer_infer, "infer", new_callable=AsyncMock
             ) as mock_infer:
                 mock_infer.return_value = {
                     "conclusion": "test",
@@ -328,9 +345,9 @@ class TestSourceTracerInfer:
                 }
 
                 with patch.object(
-                        self.source_tracer_infer,
-                        "filter_invalid_infer",
-                        new_callable=AsyncMock,
+                    self.source_tracer_infer,
+                    "filter_invalid_infer",
+                    new_callable=AsyncMock,
                 ) as mock_filter:
                     mock_filter.return_value = {
                         "conclusion": "test",
@@ -338,14 +355,14 @@ class TestSourceTracerInfer:
                     }
 
                     with patch.object(
-                            self.source_tracer_infer,
-                            "structured_infer",
-                            new_callable=AsyncMock,
+                        self.source_tracer_infer,
+                        "structured_infer",
+                        new_callable=AsyncMock,
                     ) as mock_structured:
                         mock_structured.return_value = [([0], "relation", 1)]
 
                         with patch.object(
-                                self.source_tracer_infer.node_number, "number_node"
+                            self.source_tracer_infer.node_number, "number_node"
                         ) as mock_number:
                             mock_number.return_value = (
                                 [([0], "relation", 1)],
@@ -355,9 +372,9 @@ class TestSourceTracerInfer:
                             )
 
                             with patch.object(
-                                    self.source_tracer_infer.supplement_graph,
-                                    "run",
-                                    new_callable=AsyncMock,
+                                self.source_tracer_infer.supplement_graph,
+                                "run",
+                                new_callable=AsyncMock,
                             ) as mock_supplement:
                                 mock_supplement.return_value = (
                                     [([0], "relation", 1)],
@@ -367,8 +384,7 @@ class TestSourceTracerInfer:
                                 )
 
                                 with patch.object(
-                                        self.source_tracer_infer.generate_html,
-                                        "run"
+                                    self.source_tracer_infer.generate_html, "run"
                                 ) as mock_html:
                                     mock_html.return_value = "<html>test</html>"
 
@@ -388,7 +404,7 @@ class TestSourceTracerInfer:
         datas = {"conclusion": [], "search_records": []}
 
         with patch.object(
-                self.source_tracer_infer, "extract_reference", new_callable=AsyncMock
+            self.source_tracer_infer, "extract_reference", new_callable=AsyncMock
         ) as mock_extract:
             mock_extract.return_value = {}
 
@@ -405,7 +421,7 @@ class TestSourceTracerInfer:
         datas = {"conclusion": ["test"], "search_records": [{"content": "test"}]}
 
         with patch.object(
-                self.source_tracer_infer, "extract_reference", new_callable=AsyncMock
+            self.source_tracer_infer, "extract_reference", new_callable=AsyncMock
         ) as mock_extract:
             mock_extract.side_effect = Exception("Test error")
 
@@ -429,7 +445,7 @@ class TestSourceTracerInfer:
         ]
 
         with patch.object(
-                self.source_tracer_infer, "async_run", new_callable=AsyncMock
+            self.source_tracer_infer, "async_run", new_callable=AsyncMock
         ) as mock_async_run:
             mock_async_run.return_value = (
                 {
@@ -442,7 +458,7 @@ class TestSourceTracerInfer:
             )
 
             with patch.object(
-                    self.source_tracer_infer, "mark_conclusion_in_report"
+                self.source_tracer_infer, "mark_conclusion_in_report"
             ) as mock_mark:
                 mock_mark.return_value = "marked response"
 
@@ -465,9 +481,9 @@ class TestSourceTracerInfer:
         """Test run when conclusion_with_records is None."""
 
         with patch.object(
-                self.source_tracer_infer,
-                "get_conclusion_and_records",
-                new_callable=AsyncMock,
+            self.source_tracer_infer,
+            "get_conclusion_and_records",
+            new_callable=AsyncMock,
         ) as mock_get:
             mock_get.return_value = None
 
@@ -494,7 +510,7 @@ class TestSourceTracerInfer:
         ]
 
         with patch.object(
-                self.source_tracer_infer, "async_run", new_callable=AsyncMock
+            self.source_tracer_infer, "async_run", new_callable=AsyncMock
         ) as mock_async_run:
             mock_async_run.side_effect = Exception("Test error")
 
@@ -519,7 +535,7 @@ class TestSourceTracerInfer:
         ]
 
         with patch.object(
-                self.source_tracer_infer, "async_run", new_callable=AsyncMock
+            self.source_tracer_infer, "async_run", new_callable=AsyncMock
         ) as mock_async_run:
             mock_async_run.return_value = (
                 {"id": 0, "html_base64": ""},  # Empty html_base64

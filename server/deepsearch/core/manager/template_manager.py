@@ -53,21 +53,6 @@ class ReportTemplateManager:
     def __init__(self):
         pass
 
-    def _validate_template_name(self, name: str) -> None:
-        """Validate template name"""
-        if not name:
-            raise TemplateValidationError("Template name cannot be empty")
-
-        name = name.strip()
-        if len(name) > self._MAX_NAME_LENGTH:
-            raise TemplateValidationError(f"Template name too long")
-
-        if not self._NAME_PATTERN.match(name):
-            raise TemplateValidationError(
-                f"Invalid template name: {name}. Only Chinese/English letters, "
-                f"numbers, underscores (_), hyphens (-), and dots (.) are allowed."
-            )
-
     async def import_template(
             self,
             db: Session,
@@ -143,7 +128,8 @@ class ReportTemplateManager:
             repo.rollback()
             raise
 
-    def list_templates(self, db: Session, space_id: str) -> Dict[str, Any]:
+    @staticmethod
+    def list_templates(db: Session, space_id: str) -> Dict[str, Any]:
         """List all templates in a space"""
         repo = ReportTemplateRepository(db)
         templates = repo.list_by_space(space_id)
@@ -160,7 +146,8 @@ class ReportTemplateManager:
 
         return {"code": status.HTTP_200_OK, "msg": "success", "data": data}
 
-    def get_template_content(self, db: Session, space_id: str, template_id: int) -> Dict[str, Any]:
+    @staticmethod
+    def get_template_content(db: Session, space_id: str, template_id: int) -> Dict[str, Any]:
         """Return the content of a template"""
         repo = ReportTemplateRepository(db)
         template = repo.get_by_id(space_id, template_id)
@@ -175,7 +162,8 @@ class ReportTemplateManager:
             "template_content": template.template_content
         }
 
-    def delete_template(self, db: Session, space_id: str, template_id: int) -> Dict[str, Any]:
+    @staticmethod
+    def delete_template(db: Session, space_id: str, template_id: int) -> Dict[str, Any]:
         """Delete a specific template"""
         repo = ReportTemplateRepository(db)
         template = repo.get_by_id(space_id, template_id)
@@ -214,6 +202,21 @@ class ReportTemplateManager:
             repo.rollback()
             logger.error(f"Template update failed: {str(e)}")
             raise
+
+    def _validate_template_name(self, name: str) -> None:
+        """Validate template name"""
+        if not name:
+            raise TemplateValidationError("Template name cannot be empty")
+
+        name = name.strip()
+        if len(name) > self._MAX_NAME_LENGTH:
+            raise TemplateValidationError("Template name too long")
+
+        if not self._NAME_PATTERN.match(name):
+            raise TemplateValidationError(
+                f"Invalid template name: {name}. Only Chinese/English letters, "
+                f"numbers, underscores (_), hyphens (-), and dots (.) are allowed."
+            )
 
 
 report_template_manager = ReportTemplateManager()

@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 from openjiuwen_deepsearch.algorithm.prompts.template import apply_system_prompt
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
+from openjiuwen_deepsearch.framework.openjiuwen.tools.runtime_api import build_runtime_api_tools, \
+    merge_runtime_api_tools
 from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import Plan, StepType, Step
 from openjiuwen_deepsearch.utils.common_utils.llm_utils import messages_to_json, ainvoke_llm_with_stats
 from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
@@ -203,7 +205,13 @@ class Planner:
             logger.info(f"{log_prefix}planner invoke messages: %s", messages_to_json(prompt))
 
         planner_result = PlannerResult()
-        tool = create_plan_tool(current_inputs, self.config.prompt)
+        tools = [create_plan_tool(current_inputs, self.config.prompt)]
+        api_tools = build_runtime_api_tools(
+            current_inputs.get("api_tools_config", {}).get("query_understanding_tools", []),
+            response_model=Plan,
+        )
+        tools = merge_runtime_api_tools(tools, api_tools)
+        tool_dict = {tool.card.name: tool for tool in tools}
         stream_meta = {"plan_idx": str(current_inputs.get("plan_executed_num", 0) + 1)}
         # 重试机制
         max_retries = self.config.max_retry_num
@@ -214,16 +222,17 @@ class Planner:
                 response = await ainvoke_llm_with_stats(
                     llm=self.config.llm,
                     messages=prompt,
-                    tools=[tool.card.tool_info()],
+                    tools=[tool.card.tool_info() for tool in tools],
                     agent_name=NodeId.PLAN_REASONING.value,
                     need_stream_out=False,
                     stream_meta=stream_meta
                 )
 
                 tool_calls = response.get('tool_calls', [])
-                check_tool_call(tool, tool_calls)
+                check_tool_call(tool_dict, tool_calls)
 
                 for tool_call in tool_calls:
+                    tool = tool_dict[tool_call.get("name")]
                     plan = await tool.invoke(tool_call.get("args"))
                     # 规划成功
                     planner_result.plan_success = True
@@ -261,10 +270,10 @@ class Planner:
         return planner_result
 
 
-def check_tool_call(tool: LocalFunction, tool_calls: list):
+def check_tool_call(tool_dict: dict[str, LocalFunction], tool_calls: list):
     """
         Args:
-            tool: 定义的 plan FunctionCall
+            tool_dict: 定义的 plan FunctionCall 映射
             tool_calls: 模型实际的给出的 tool_calls
     """
     is_sensitive = LogManager.is_sensitive()
@@ -275,10 +284,16 @@ def check_tool_call(tool: LocalFunction, tool_calls: list):
     for tool_call in tool_calls:
         tool_name = tool_call.get("name", "")
         arguments = tool_call.get("args", {})
-        if tool_name != tool.card.name:
-            # 手动纠正工具名
+        tool = tool_dict.get(tool_name)
+        if tool is None and len(tool_dict) == 1:
+            tool = next(iter(tool_dict.values()))
             tool_call["name"] = tool.card.name
             logger.error(f"Tool name is not match({tool.card.name}): {'**' if is_sensitive else tool_name}")
+        elif tool is None:
+            raise CustomValueException(
+                StatusCode.PLANNER_GENERATE_ERROR.code,
+                f"Tool name '{tool_name}' not found in tool call: {'**' if is_sensitive else tool_call}"
+            )
         if not arguments:
             raise CustomValueException(
                 StatusCode.PLANNER_GENERATE_ERROR.code,
@@ -290,7 +305,7 @@ def check_tool_call(tool: LocalFunction, tool_calls: list):
                 f"Args is not a dict in tool call: {'**' if is_sensitive else tool_call}"
             )
         input_params = tool.card.input_params.get("properties", {})
-        for param_name, param_info in input_params.items():
+        for param_name, _ in input_params.items():
             required = param_name in tool.card.input_params.get("required", [])
             if required and param_name not in arguments:
                 raise CustomValueException(
@@ -298,12 +313,13 @@ def check_tool_call(tool: LocalFunction, tool_calls: list):
                     f"Required param '{param_name}' not found in tool call: {'**' if is_sensitive else tool_call}"
                 )
 
-        # 信息不充足，但是没有详细的任务步骤
-        if not arguments["is_research_completed"] and not arguments.get("steps"):
-            raise CustomValueException(
-                StatusCode.PLANNER_GENERATE_ERROR.code,
-                f"Research not completed but steps are empty: {'**' if is_sensitive else tool_call}"
-            )
+        # generate_plan 等内置工具：未完成研究且未给 steps 则报错。运行时 API 工具无该字段，跳过。
+        if "is_research_completed" in input_params:
+            if not arguments.get("is_research_completed") and not arguments.get("steps"):
+                raise CustomValueException(
+                    StatusCode.PLANNER_GENERATE_ERROR.code,
+                    f"Research not completed but steps are empty: {'**' if is_sensitive else tool_call}"
+                )
 
         # 效验steps内部
         _check_steps(arguments, tool, tool_call)

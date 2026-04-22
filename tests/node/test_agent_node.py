@@ -1,19 +1,28 @@
 import logging
+import json
 from contextvars import Context
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from openjiuwen.core.session.node import Session
 from openjiuwen.core.workflow.base import WorkflowCard
 from openjiuwen.core.workflow.workflow import Workflow
 
+from openjiuwen_deepsearch.framework.openjiuwen.agent.base_node import BaseNode
 from openjiuwen_deepsearch.framework.openjiuwen.agent.editor_team_manager_node import EditorTeamNode
-from openjiuwen_deepsearch.framework.openjiuwen.agent.main_graph_nodes import EndNode, StartNode
+from openjiuwen_deepsearch.framework.openjiuwen.agent.main_graph_nodes import (
+    EndNode,
+    FeedbackHandlerNode,
+    OutlineInteractionNode,
+    StartNode,
+    UserFeedbackProcessorNode,
+)
 from openjiuwen_deepsearch.framework.openjiuwen.agent.reasoning_writing_graph.editor_team_nodes import \
     build_editor_team_workflow
 from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import Outline, Section
 from openjiuwen_deepsearch.framework.openjiuwen.agent.workflow import DeepresearchAgent
 from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
+from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import session_context
 from tests.utils.mock_config import get_default_agent_config
 
 logger = logging.getLogger(__name__)
@@ -149,6 +158,22 @@ class TestEditorTeamNode(EditorTeamNode):
         return self._create_section_state_from_state(state, outline, section)
 
 
+class _SessionAwareNode(BaseNode):
+    """用于验证 BaseNode.invoke 会注入 session_context 的测试节点。"""
+
+    def _pre_handle(self, inputs, session, context):
+        """测试节点不需要预处理，直接返回空输入。"""
+        return {}
+
+    async def _do_invoke(self, inputs, session, context):
+        """读取 session_context 并回传是否为当前 session。"""
+        return {"same_session": session_context.get() is session}
+
+    def _post_handle(self, inputs, algorithm_output, session, context):
+        """测试节点无需后处理，直接透传结果。"""
+        return algorithm_output
+
+
 @pytest.mark.asyncio
 async def test_run_sub_graph():
     try:
@@ -162,6 +187,20 @@ async def test_run_sub_graph():
 
 
 @pytest.mark.asyncio
+async def test_base_node_invoke_injects_session_context():
+    """验证 BaseNode.invoke 会在执行前注入当前 session_context。"""
+    node = _SessionAwareNode()
+    session = AsyncMock(spec=Session)
+    token = session_context.set(object())
+    try:
+        output = await node.invoke({}, session, Context())
+    finally:
+        session_context.reset(token)
+
+    assert output["same_session"] is True
+
+
+@pytest.mark.asyncio
 async def test_pre_handle():
     try:
         editor_team_node = TestEditorTeamNode()
@@ -169,6 +208,195 @@ async def test_pre_handle():
         await editor_team_node.pre_handle({}, workflow_session, Context())
     except Exception as e:
         logger.error(f"fail to test_pre_handle: {e}")
+
+
+@pytest.mark.asyncio
+async def test_end_node_writes_workflow_llm_usage_when_stats_enabled():
+    """验证 EndNode 在开启统计时会写入 workflow 级 token 汇总。"""
+    session = AsyncMock(spec=Session)
+    final_result = {"response_content": "ok", "exception_info": ""}
+    workflow_usage = {
+        "input_tokens": 10,
+        "output_tokens": 6,
+        "total_tokens": 16,
+        "llm_call_count": 3,
+        "agent_name_token_usage": [
+            {
+                "agent_name": "entry",
+                "input_tokens": 10,
+                "output_tokens": 6,
+                "total_tokens": 16,
+                "llm_call_count": 3,
+            }
+        ],
+    }
+
+    def _get_global_state(key):
+        if key == "search_context.final_result":
+            return final_result
+        if key == "config.stats_info_llm":
+            return True
+        if key == "config.thread_id":
+            return "test-thread-id"
+        return None
+
+    session.get_global_state.side_effect = _get_global_state
+    session.write_custom_stream = AsyncMock()
+    session.update_global_state = Mock()
+    node = EndNode()
+
+    with patch(
+        "openjiuwen_deepsearch.framework.openjiuwen.agent.main_graph_nodes.get_effective_workflow_llm_usage",
+        return_value=workflow_usage,
+    ) as mock_get_workflow_usage:
+        output = await node.invoke({}, session, Context())
+
+    mock_get_workflow_usage.assert_called_once_with(session_id="test-thread-id", session=session)
+    session.update_global_state.assert_any_call(
+        {"search_context.final_result.workflow_llm_token_usage": workflow_usage}
+    )
+    result_data = json.loads(output["final_result"])
+    assert result_data["workflow_llm_token_usage"] == workflow_usage
+
+
+@pytest.mark.asyncio
+async def test_end_node_skips_workflow_llm_usage_when_stats_disabled():
+    """验证 EndNode 在关闭统计时不会注入 workflow 级 token 汇总。"""
+    session = AsyncMock(spec=Session)
+    final_result = {"response_content": "ok", "exception_info": ""}
+
+    def _get_global_state(key):
+        if key == "search_context.final_result":
+            return final_result
+        if key == "config.stats_info_llm":
+            return False
+        if key == "config.thread_id":
+            return "test-thread-id"
+        return None
+
+    session.get_global_state.side_effect = _get_global_state
+    session.write_custom_stream = AsyncMock()
+    session.update_global_state = Mock()
+    node = EndNode()
+
+    with patch(
+        "openjiuwen_deepsearch.framework.openjiuwen.agent.main_graph_nodes.get_effective_workflow_llm_usage"
+    ) as mock_get_workflow_usage:
+        output = await node.invoke({}, session, Context())
+
+    mock_get_workflow_usage.assert_not_called()
+    result_data = json.loads(output["final_result"])
+    assert "workflow_llm_token_usage" not in result_data
+
+
+@pytest.mark.asyncio
+async def test_end_node_falls_back_to_persisted_usage_when_local_empty():
+    """验证 EndNode 在本地累计为空时会回退 session 快照。"""
+    session = AsyncMock(spec=Session)
+    final_result = {"response_content": "ok", "exception_info": ""}
+    persisted_usage = {
+        "input_tokens": 8,
+        "output_tokens": 4,
+        "total_tokens": 12,
+        "llm_call_count": 2,
+        "agent_name_token_usage": [
+            {
+                "agent_name": "outline",
+                "input_tokens": 8,
+                "output_tokens": 4,
+                "total_tokens": 12,
+                "llm_call_count": 2,
+            }
+        ],
+    }
+
+    def _get_global_state(key):
+        if key == "search_context.final_result":
+            return final_result
+        if key == "config.stats_info_llm":
+            return True
+        if key == "config.thread_id":
+            return "test-thread-id"
+        if key == "search_context.final_result.workflow_llm_token_usage":
+            return persisted_usage
+        return None
+
+    session.get_global_state.side_effect = _get_global_state
+    session.write_custom_stream = AsyncMock()
+    session.update_global_state = Mock()
+    node = EndNode()
+    local_empty_usage = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "llm_call_count": 0,
+        "agent_name_token_usage": [],
+    }
+
+    with patch(
+        "openjiuwen_deepsearch.utils.common_utils.llm_utils.get_workflow_llm_usage",
+        return_value=local_empty_usage,
+    ):
+        output = await node.invoke({}, session, Context())
+
+    result_data = json.loads(output["final_result"])
+    assert result_data["workflow_llm_token_usage"] == persisted_usage
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("node_factory", "method_name", "method_args", "interact_payload", "assert_output", "thread_id"),
+    [
+        (
+            FeedbackHandlerNode,
+            "_get_user_feedback",
+            ("web",),
+            '{"feedback":"ok"}',
+            lambda output: output == "ok",
+            "tid-1",
+        ),
+        (
+            OutlineInteractionNode,
+            "_get_user_input",
+            ("web", "1"),
+            '{"interrupt_feedback":"accepted","feedback":"ok"}',
+            lambda output: output["interrupt_feedback"] == "accepted",
+            "tid-2",
+        ),
+        (
+            UserFeedbackProcessorNode,
+            "_get_user_feedback",
+            ("web",),
+            '{"action":"finish"}',
+            lambda output: output == '{"action":"finish"}',
+            "tid-3",
+        ),
+    ],
+)
+async def test_web_interaction_nodes_persist_usage_before_interact(
+    node_factory,
+    method_name,
+    method_args,
+    interact_payload,
+    assert_output,
+    thread_id,
+):
+    """验证各类 web 交互节点在 interact 前会持久化 token 累计。"""
+    session = AsyncMock(spec=Session)
+    session.get_global_state.side_effect = lambda key: {
+        "config.stats_info_llm": True,
+        "config.thread_id": thread_id,
+    }.get(key)
+    session.interact = AsyncMock(return_value=interact_payload)
+    node = node_factory()
+
+    with patch(
+        "openjiuwen_deepsearch.framework.openjiuwen.agent.main_graph_nodes.save_workflow_llm_usage_to_session"
+    ) as mock_save:
+        output = await getattr(node, method_name)(*method_args, session)
+
+    assert assert_output(output)
+    mock_save.assert_called_once_with(session=session, session_id=thread_id)
 
 
 class MockAgent(DeepresearchAgent):

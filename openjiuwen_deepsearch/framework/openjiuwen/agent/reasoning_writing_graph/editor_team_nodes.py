@@ -5,7 +5,6 @@ import uuid
 from typing import Type
 
 from openjiuwen.core.context_engine.base import ModelContext
-from openjiuwen.core.graph.base import CONFIG_KEY, INPUTS_KEY
 from openjiuwen.core.graph.executable import Input, Output
 from openjiuwen.core.session.node import Session
 from openjiuwen.core.workflow.components.flow.end_comp import End
@@ -20,11 +19,12 @@ from openjiuwen_deepsearch.algorithm.source_trace.source_tracer import SourceTra
 from openjiuwen_deepsearch.common.common_constants import CHINESE
 from openjiuwen_deepsearch.common.status_code import StatusCode
 from openjiuwen_deepsearch.framework.openjiuwen.agent.base_node import BaseNode, init_router
-from openjiuwen_deepsearch.framework.openjiuwen.agent.collector_graph.graph_builder import \
-    build_info_collector_sub_graph
+from openjiuwen_deepsearch.framework.openjiuwen.agent.collector_graph.collector_execution_service import (
+    CollectorExecutionService,
+    CollectorRunPlanConfig,
+)
 from openjiuwen_deepsearch.framework.openjiuwen.agent.reasoning_writing_graph.section_context import SectionContext
-from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import Message, StepType, Step, SubReportContent, \
-    Plan
+from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import SubReportContent
 from openjiuwen_deepsearch.framework.openjiuwen.llm.llm_adapter import adapt_llm_model_name
 from openjiuwen_deepsearch.utils.common_utils.llm_utils import messages_to_json
 from openjiuwen_deepsearch.utils.common_utils.stream_utils import custom_stream_output
@@ -34,6 +34,30 @@ from openjiuwen_deepsearch.utils.debug_utils.node_debug import add_debug_log_wra
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
 
 logger = logging.getLogger(__name__)
+
+
+def _collect_doc_infos(history_plans) -> list:
+    doc_infos: list = []
+    for plan in history_plans or []:
+        steps = plan.steps if hasattr(plan, "steps") else plan.get("steps", [])
+        for step in steps:
+            retrieval_queries = (
+                step.retrieval_queries
+                if hasattr(step, "retrieval_queries")
+                else step.get("retrieval_queries", [])
+            )
+            for query in retrieval_queries:
+                query_doc_infos = query.doc_infos if hasattr(query, "doc_infos") else query.get("doc_infos", [])
+                doc_infos.extend(query_doc_infos)
+    # 去重：title+url 作为 key
+    return list({(doc["title"], doc["url"]): doc for doc in doc_infos}.values())
+
+
+def _get_classify_doc_infos_single_time_num(session: Session) -> int:
+    value = session.get_global_state("config.sub_report_classify_doc_infos_single_time_num")
+    if not value or value <= 60:
+        return 60
+    return value
 
 
 class SectionStartNode(Start):
@@ -81,33 +105,22 @@ class BasePlanReasoningNode(BaseNode):
         section_idx = session.get_global_state("section_context.section_idx") or 1
         self.log_prefix = f"section_idx: {section_idx} | [{self.__class__.__name__}] "
         logger.info(f"{self.log_prefix} | Start {self.__class__.__name__}")
-        language = session.get_global_state("section_context.language")
-        messages = session.get_global_state("section_context.messages")
-        plan_executed_num = session.get_global_state("section_context.plan_executed_num")
-        collected_doc_num = session.get_global_state("section_context.collected_doc_num")
-        warning_infos = session.get_global_state("section_context.warning_infos")
-        exception_infos = session.get_global_state("section_context.exception_infos")
-        llm_model_name = adapt_llm_model_name(session, NodeId.PLAN_REASONING.value)
-
-        max_step_num = session.get_global_state("config.planner_max_step_num")
-        max_retry_num = session.get_global_state("config.planner_max_retry_num")
-        max_plan_executed_num = session.get_global_state("config.workflow_max_plan_executed_num")
-
         # 封装入参
-        return dict(
-            section_idx=section_idx,
-            language=language,
-            messages=messages,
-            plan_executed_num=plan_executed_num,
-            max_step_num=max_step_num,
-            max_retry_num=max_retry_num,
-            max_plan_executed_num=max_plan_executed_num,
-            collected_doc_num=collected_doc_num,
-            warning_infos=warning_infos,
-            exception_infos=exception_infos,
-            agent_name=NodeId.PLAN_REASONING.value,
-            llm_model_name=llm_model_name,
-        )
+        return {
+            "section_idx": section_idx,
+            "language": session.get_global_state("section_context.language"),
+            "messages": session.get_global_state("section_context.messages"),
+            "plan_executed_num": session.get_global_state("section_context.plan_executed_num"),
+            "max_step_num": session.get_global_state("config.planner_max_step_num"),
+            "max_retry_num": session.get_global_state("config.planner_max_retry_num"),
+            "max_plan_executed_num": session.get_global_state("config.workflow_max_plan_executed_num"),
+            "collected_doc_num": session.get_global_state("section_context.collected_doc_num"),
+            "warning_infos": session.get_global_state("section_context.warning_infos"),
+            "exception_infos": session.get_global_state("section_context.exception_infos"),
+            "agent_name": NodeId.PLAN_REASONING.value,
+            "llm_model_name": adapt_llm_model_name(session, NodeId.PLAN_REASONING.value),
+            "api_tools_config": session.get_global_state("config.api_tools_config") or {},
+        }
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
         session_context.set(session)
@@ -295,26 +308,6 @@ class SubReporterNode(BaseNode):
         self.log_prefix = f"section_idx: {section_idx} | [{self.__class__.__name__}] "
         logger.info(f"{self.log_prefix} Start [{self.__class__.__name__}].")
 
-        classify_doc_infos_single_time_num = session.get_global_state(
-            "config.sub_report_classify_doc_infos_single_time_num")
-        if not classify_doc_infos_single_time_num or classify_doc_infos_single_time_num <= 60:
-            classify_doc_infos_single_time_num = 60
-
-        # 提取doc_infos并去重
-        history_plans = session.get_global_state("section_context.history_plans")
-        doc_infos = []
-        for plan in history_plans:
-            steps = plan.steps if hasattr(plan, 'steps') else plan.get("steps", [])
-            for step in steps:
-                retrieval_queries = step.retrieval_queries if hasattr(step, 'retrieval_queries') else step.get(
-                    "retrieval_queries", [])
-                for query in retrieval_queries:
-                    query_doc_infos = query.doc_infos if hasattr(query, 'doc_infos') else query.get("doc_infos", [])
-                    doc_infos.extend(query_doc_infos)
-        doc_infos = list({(doc["title"], doc["url"]): doc for doc in doc_infos}.values())
-
-        llm_model_name = adapt_llm_model_name(session, NodeId.SUB_REPORTER.value)
-
         return dict(
             thread_id=session.get_global_state("section_context.session_id"),
             has_template=bool(session.get_global_state("section_context.report_template")),
@@ -327,16 +320,17 @@ class SubReporterNode(BaseNode):
             section_task=session.get_global_state("section_context.section_task"),  # 当前章节标题
             section_iscore=session.get_global_state("section_context.section_iscore") or False,  # 是否核心章节
             section_description=session.get_global_state("section_context.section_description"),  # 章节描述
-            doc_infos=doc_infos,
+            doc_infos=_collect_doc_infos(session.get_global_state("section_context.history_plans")),
             current_outline=session.get_global_state("section_context.current_outline")
             if session.get_global_state("section_context.current_outline") else "",
             max_generate_retry_num=session.get_global_state("config.report_max_generate_retry_num") or 3,
             classify_doc_infos_res_top_k_num=session.get_global_state(
                 "config.sub_report_classify_doc_infos_res_top_k_num") or 10,
-            classify_doc_infos_single_time_num=classify_doc_infos_single_time_num,
-            llm_model_name=llm_model_name,
+            classify_doc_infos_single_time_num=_get_classify_doc_infos_single_time_num(session),
+            llm_model_name=adapt_llm_model_name(session, NodeId.SUB_REPORTER.value),
             sub_report_background_knowledge=session.get_global_state(
                 "section_context.sub_report_background_knowledge") or [],
+            visualization_enable=session.get_global_state("config.visualization_enable"),
         )
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
@@ -355,17 +349,13 @@ class SubReporterNode(BaseNode):
 
         return self._post_handle(inputs, updating_state, session, context)
 
-    def _post_handle(self, inputs: Input, updating_state: dict, session: Session, context: ModelContext):
-        doc_infos = updating_state.get("doc_infos")
-        sub_report_success = updating_state.get("success")
-        generate_sub_report_msg = updating_state.get("msg")
-        classified_content = updating_state.get("classified_content", [])
-        sub_report_content_text = updating_state.get("sub_report_content", "")
-        sub_report_content_summary = updating_state.get("sub_report_summary", "")
-
-        detail_msg = (f"{generate_sub_report_msg}, doc_infos_num:{len(doc_infos)}, "
-                      f"classified_content_num:{len(classified_content)}")
-        if sub_report_success and sub_report_content_text:
+    def _post_handle(self, inputs: Input, algorithm_output: dict, session: Session, context: ModelContext):
+        doc_infos = algorithm_output.get("doc_infos") or []
+        detail_msg = (
+            f"{algorithm_output.get('msg')}, doc_infos_num:{len(doc_infos)}, "
+            f"classified_content_num:{len(algorithm_output.get('classified_content', []))}"
+        )
+        if algorithm_output.get("success") and algorithm_output.get("sub_report_content"):
             next_node = NodeId.SUB_SOURCE_TRACER.value
             logger.info(f"{self.log_prefix} Success to generate sub_report, detail: {detail_msg}, go to {next_node}")
         else:
@@ -375,15 +365,15 @@ class SubReporterNode(BaseNode):
             next_node = NodeId.END.value
 
         sub_report_debug_info_input = dict(
-            section_idx=updating_state.get("section_idx"),
-            report_task=updating_state.get("report_task"),
-            section_task=updating_state.get("section_task"),
+            section_idx=algorithm_output.get("section_idx"),
+            report_task=algorithm_output.get("report_task"),
+            section_task=algorithm_output.get("section_task"),
             doc_infos=doc_infos,
         )
         sub_report_content = SubReportContent(
-            classified_content=classified_content,
-            sub_report_content_text=sub_report_content_text,
-            sub_report_content_summary=sub_report_content_summary,
+            classified_content=algorithm_output.get("classified_content", []),
+            sub_report_content_text=algorithm_output.get("sub_report_content", ""),
+            sub_report_content_summary=algorithm_output.get("sub_report_summary", ""),
         )
         sub_report_debug_info_output = sub_report_content.model_dump()
         # 添加SubReporterNode debug日志
@@ -534,39 +524,21 @@ class InfoCollectorNode(BaseNode):
                            f"[{self.__class__.__name__}] |")
         logger.info(f"{self.log_prefix} Current plan is: {'*' if LogManager.is_sensitive() else current_plan}")
 
-        collect_steps: list[Step] = []
-        current_doc_num = 0
-        messages = state.get("messages", [])
-        for idx, step in enumerate(current_plan.steps):
-            step.id = f"{idx + 1}"
-            if step.type == StepType.INFO_COLLECTING and not step.step_result:
-                sub_inputs = self._input_build(state, step)
-                inputs.update({INPUTS_KEY: sub_inputs})
+        service = CollectorExecutionService()
+        execution_result = await service.run_plan(
+            plan=current_plan,
+            run_config=CollectorRunPlanConfig(
+                language=state.get("language", "zh-CN"),
+                section_idx=state.get("section_idx", 0),
+                initial_search_query_count=state.get("initial_search_query_count", 2),
+                max_research_loops=state.get("max_research_loops", 2),
+                max_react_recursion_limit=state.get("max_react_recursion_limit", 8),
+            ),
+            session=session,
+            context=context
+        )
 
-                logger.info(
-                    f"{self.log_prefix} Start step {step.id}: The input is"
-                    f"{'*' if LogManager.is_sensitive() else sub_inputs}"
-                )
-
-                collector_context = await self._run_collector_graph(inputs, session, context)
-                step.step_result = collector_context.get("info_summary")
-                step.evaluation = collector_context.get("evaluation")
-                step.retrieval_queries = collector_context.get("history_queries")
-                current_doc_num += len(collector_context.get("doc_infos", []))
-                collect_steps.append(step)
-
-                logger.info(
-                    f"{self.log_prefix} End step {step.id}: The result is: "
-                    f"{'*' if LogManager.is_sensitive() else step.model_dump()}"
-                )
-
-                messages.append(
-                    Message(
-                        role="assistant",
-                        content=step.step_result,
-                    )
-                )
-
+        current_doc_num = execution_result.collected_doc_num
         if current_doc_num == 0:
             collector_warning = (f"[{StatusCode.INFO_COLLECTING_EMPTY.code}] {self.log_prefix} "
                                  f"{StatusCode.INFO_COLLECTING_EMPTY.errmsg}")
@@ -575,9 +547,11 @@ class InfoCollectorNode(BaseNode):
             logger.warning(collector_warning)
 
         state["collected_doc_num"] = state.get("collected_doc_num", 0) + current_doc_num
-        current_plan.steps = collect_steps
+        current_plan.steps = execution_result.collect_steps
         history_plans = state.get("history_plans", [])
         history_plans.append(current_plan)
+        messages = state.get("messages", [])
+        messages.extend(execution_result.messages)
         state["messages"] = messages
         result = self._post_handle(inputs, state, session, context)
 
@@ -595,46 +569,6 @@ class InfoCollectorNode(BaseNode):
                               output_content=str(algorithm_output).replace("\\n", "\n")))
 
         return dict(next_node=NodeId.PLAN_REASONING.value)
-
-    async def _run_collector_graph(self, inputs: dict, session: Session, context: ModelContext):
-        collector_graph = build_info_collector_sub_graph()
-        await collector_graph.invoke(inputs.get(INPUTS_KEY), session, context, is_sub=True,
-                                     config=inputs.get(CONFIG_KEY))
-        collector_context: dict = session.get_global_state("collector_context")
-        return collector_context
-
-    def _input_build(self, state: dict, step: Step):
-        plan: Plan = state.get("current_plan")
-        # 构造上下文message
-        message = f"Now deal with the task: \n"
-        message += f"You should focus on [Topic]: {plan.title}\n"
-        message += f"pay attention to [Condition]: {plan.thought}"
-        message += f":\n[Task Title]: {step.title}\n[Problem]: {step.description}"
-        message += "\nPlease analyze this task and start your ReAct process:\n"
-        message += "1. Reason about what information you need to gather\n"
-        message += "2. Use appropriate tools to get that information\n"
-        message += "3. Continue reasoning and acting until you have sufficient information\n"
-        message += "4. Call info_seeker_task_done when ready to provide your complete findings\n\n"
-        message += "Begin with your initial reasoning about the task."
-
-        initial_search_query_count = state.get("initial_search_query_count", 2)
-        max_research_loops = state.get("max_research_loops", 2)
-        max_react_recursion_limit = state.get("max_react_recursion_limit", 8)
-
-        agent_input = {
-            "language": state.get("language", "zh-CN"),
-            "messages": [Message(role="user", content=message)],
-            "section_idx": state.get("section_idx", 0),
-            "plan_idx": plan.id,
-            "step_idx": step.id,
-            "step_title": step.title,
-            "step_description": step.description,
-            "initial_search_query_count": initial_search_query_count,
-            "max_research_loops": max_research_loops,
-            "max_react_recursion_limit": max_react_recursion_limit,
-        }
-
-        return agent_input
 
 
 class SectionEndNode(End):

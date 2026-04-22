@@ -159,6 +159,15 @@ if __name__ == "__main__":
     parser.add_argument("--llm_model_type", type=str, required=True, help="llm 模型类型，openai or siliconflow")
     parser.add_argument("--llm_base_url", type=str, required=True, help="llm 模型服务地址")
     parser.add_argument("--llm_api_key", type=str, required=True, help="llm 模型密钥")
+    
+    # 添加vlm配置参数
+    parser.add_argument("--vlm_model_name", type=str, help="vlm 模型名称")
+    parser.add_argument("--vlm_model_type", type=str, help="vlm 模型类型，openai or siliconflow")
+    parser.add_argument("--vlm_base_url", type=str, help="vlm 模型服务地址")
+    parser.add_argument("--vlm_api_key", type=str, help="vlm 模型密钥")
+    parser.add_argument("--vlm_chart_generator_max_iterations", type=int, default=1,
+                        help="vlm 迭代生成图最大迭代次数, 最大值: 3")
+    parser.add_argument("--vlm_chart_generator_enable", action="store_true", help="开启 vlm 迭代生成图")
 
     # 添加联网增强引擎配置参数
     parser.add_argument("--web_search_engine_name", type=str, required=True, help="联网增强引擎名称, tavily or google")
@@ -194,6 +203,27 @@ if __name__ == "__main__":
     current_agent_config["llm_config"]["general"]["model_type"] = args.llm_model_type
     current_agent_config["llm_config"]["general"]["base_url"] = args.llm_base_url
     current_agent_config["llm_config"]["general"]["api_key"] = bytearray(args.llm_api_key, encoding="utf-8")
+
+    # 解析多模态llm配置
+    if args.vlm_chart_generator_enable:
+        # vlm迭代轮次大于0, 必须传入vlm模型相关配置
+        current_agent_config["vlm_chart_generator_enable"] = True
+        if args.vlm_chart_generator_max_iterations > 0:
+            current_agent_config["vlm_chart_generator_max_iterations"] = args.vlm_chart_generator_max_iterations
+            vlm_configs = [args.vlm_model_name, args.vlm_model_type,
+                          args.vlm_base_url, args.vlm_api_key]
+            if all(vlm_configs):
+                current_agent_config["llm_config"]["vlm_chart_generating"] = {}
+                current_agent_config["llm_config"]["vlm_chart_generating"]["model_name"] = args.vlm_model_name
+                current_agent_config["llm_config"]["vlm_chart_generating"]["model_type"] = args.vlm_model_type
+                current_agent_config["llm_config"]["vlm_chart_generating"]["base_url"] = args.vlm_base_url
+                current_agent_config["llm_config"]["vlm_chart_generating"]["api_key"] = bytearray(args.vlm_api_key, 
+                                                                                                encoding="utf-8")
+            else:
+                current_agent_config["vlm_chart_generator_enable"] = False
+                current_agent_config["vlm_chart_generator_max_iterations"] = 0
+                logger.warning("开启vlm迭代生成图开关且vlm迭代轮次大于0时，\
+                               必须提供 vlm_model_name、type、base_url 和 api_key， 当前vlm迭代生成图开关已关闭。")
 
     # 解析联网增强引擎配置
     current_agent_config["web_search_engine_config"]["search_engine_name"] = args.web_search_engine_name

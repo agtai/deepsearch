@@ -41,12 +41,12 @@
 
   - 下载 x86_64 架构版本包
     ```
-    wget https://openjiuwen-ci.obs.cn-north-4.myhuaweicloud.com/deepsearch/deployTool_0.1.3_amd64.zip
+    wget https://openjiuwen-ci.obs.cn-north-4.myhuaweicloud.com/deepsearch/deployTool_0.1.4_amd64.zip
     ```
 
   - 下载 arm 架构版本包：
     ```
-    wget https://openjiuwen-ci.obs.cn-north-4.myhuaweicloud.com/deepsearch/deployTool_0.1.3_arm64.zip
+    wget https://openjiuwen-ci.obs.cn-north-4.myhuaweicloud.com/deepsearch/deployTool_0.1.4_arm64.zip
     ```
 
 ### 2. 启动 DeepSearch
@@ -61,15 +61,15 @@
 * 解压对应的架构版本包。
   - 解压 x86_64 架构版本包
     ```
-    unzip deployTool_0.1.3_amd64.zip
+    unzip deployTool_0.1.4_amd64.zip
     ```
 
   - 解压 arm 架构版本包
     ```
-    unzip deployTool_0.1.3_arm64.zip
+    unzip deployTool_0.1.4_arm64.zip
     ```
 
-* 进入 *deployTool_0.1.3_xxx64* 目录，输入以下命令确认 Docker 已启动：
+* 进入 *deployTool_0.1.4_xxx64* 目录，输入以下命令确认 Docker 已启动：
 
   ```bash
   sudo systemctl start docker
@@ -78,6 +78,12 @@
   > **说明**：若输出 “inactive” ，请参考 <a href="https://docs.docker.com/engine/install/" target="_blank" rel="nofollow noopener noreferrer">Docker 官方安装指南</a> 以及 <a href="https://docs.docker.com/compose/install/" target="_blank" rel="nofollow noopener noreferrer"> Docker Compose 官方安装指南</a>。
 
 * 如需修改前端页面服务的端口号，请参考[这里](https://gitcode.com/openJiuwen/agent-studio/blob/main/scripts/README.md#如何修改前端页面服务的端口号)。
+
+* 在部署工具所在目录中，找到并编辑 .env.custom 配置文件，根据实际运行环境添加以下配置项：
+
+```
+IP=<运行部署工具的本机 IP 地址>
+```
 
 * 输入以下命令启动 DeepSearch：
 

@@ -37,6 +37,7 @@ openJiuwen-DeepSearch 当前可以为全部模块配置四个模型：
 - **info_collecting:** 该模型用于信息收集各个步骤，配置在InfoCollector
 - **writing_checking:** 该模型用于准确生成报告及插入图文，配置在Sub_reporter
 - **general:** 该模型为通用模型，综合能力较强，所有模块都可调用该模型 
+- **vlm_chart_generating** 该模型为专门处理图表的多模态模型（参考下表），可以接收图表输入，配置在VLMChartGenerator
 
 其中，**general模型必须配置**，其他模型配置可选，其他模型未配置时，默认使用general模型，因此，建议general配置综合能力较强的模型    
 
@@ -46,6 +47,18 @@ openJiuwen-DeepSearch 当前可以为全部模块配置四个模型：
 
 
 > 说明：用户需要自行前往硅基流动或者OpenAI的官网注册账号，以便获取模型广场中可用模型的api_key、模型名称model_name和模型调用的URL请求地址base_url。
+
+vlm_chart_generating 多模态模型参考表
+
+| 模型 | 单张图 / 1次测评迭代 耗时 (s) | 模型优势 |
+| :---: | :---: | :--- |
+| qwen3.5-plus | 34.18 | 千问性能最强的视觉理解模型 |
+| qwen3.5-flash | 20.28 | 速度更快，成本更低，适用于对响应速度敏感的场景 |
+| qwen3-vl-plus | 4.68 | Qwen3-VL 系列中性能最强的模型 |
+| qwen3-vl-flash | 3.7 | 速度更快，成本更低，适用于对响应速度敏感的场景 |
+| qwen-vl-max | 4.88 | Qwen2.5-VL 系列中效果最佳的模型 |
+| qwen-vl-plus | 2.7 | 速度更快，在效果与成本之间实现良好平衡 |
+> 支持qwen系列的其他vlm模型，以及适配openai类型的模型。
 
 ## 联网增强引擎配置说明
 
@@ -407,6 +420,10 @@ agent_config["outline_interaction_enabled"] = True
 
 SDK 层通过 `agent_config` 接收这些参数。
 
+**运行时 API 工具（可选）**：Server 层 **`DeepSearchRequest.tools`** 用于传入 HTTP 接口型工具列表（元素类型见 `RuntimeApiToolRequest`）。服务端在构建 Agent 时会将其规范化为 **`api_tools_config`**。
+
+**运行时 API URL 安全校验开关**：默认会对 Runtime API URL 进行安全校验（例如拒绝私网/本机地址）。仅本地调试场景可通过环境变量 `RUNTIME_API_ALLOW_UNSAFE_URL=true`（等价真值 `1/true/yes`）放宽校验；未设置时保持安全校验开启。生产环境不建议开启该开关，否则会削弱 SSRF 防护。
+
 ---
 
 ### Server 层请求示例
@@ -487,7 +504,7 @@ SDK 层通过 `agent_config` 接收这些参数。
 
 ```python
 agent_config["user_feedback_processor_enable"] = True
-agent_config["user_feedback_processor_max_interactions"] = 3
+agent_config["user_feedback_processor_max_interactions"] = 100
 ```
 
 该功能与前置 HITL 不同，它发生在报告和溯源结果已经生成之后。工作流会在内部进入`UserFeedbackProcessorNode`：
@@ -500,14 +517,30 @@ agent_config["user_feedback_processor_max_interactions"] = 3
 - `expand`：扩写选中文本。
 - `polish`：润色选中文本。
 - `shorten`：缩写选中文本。
+- `supplementary_search`：结合补充检索对选中内容定向增强（见下文「改写范围」）。
+- `sync`：将前端已编辑完成的整篇报告同步回后端状态。
 - `finish`：结束当前局部优化会话。
 
-其中，前三种动作的请求体建议包含以下字段：
-- `action`：动作类型。
+**协议约定（与实现一致）：**
+- **`action` 必填**：必须为已注册动作之一，且为非空字符串；不可省略或由后端推断。
+- **`rewrite_scope`（除 `finish` 外建议始终携带）**：通用字段。若省略或传空字符串，后端在解析阶段会默认补为 `selected_only`。当前合法取值：
+  - `selected_only`：仅替换用户选区对应片段（默认）。
+  - `selected_and_related`：替换选区所在**整章**，并允许衔接性联动改写（仅 `supplementary_search` 使用；其它动作即使携带也会在行为上忽略）。
+- 对 `supplementary_search`，`rewrite_scope` 必须为上述二者之一（否则在校验阶段报错）。
+
+局部改写动作（`expand`、`polish`、`shorten`、`supplementary_search`）的请求体需包含以下字段：
+- `action`：动作类型（必填）。
 - `selected_text`：用户当前选中的原始文本。
 - `start_offset`：选中文本在当前报告中的起始偏移。
 - `end_offset`：选中文本在当前报告中的结束偏移。
-- `user_instruction`：附加改写要求，可选。
+- `user_instruction`：附加改写或补充说明，可选；若出现则须为字符串。
+- `rewrite_scope`：可选，默认 `selected_only`；仅 `supplementary_search` 强制消费。
+
+`sync` 请求体只需要：
+- `action`：固定为 `sync`。
+- `selected_text`：前端编辑后的完整报告内容。
+
+`sync` 不需要传 `start_offset` / `end_offset`，也不会消耗 `feedback_interaction_count`。
 
 ```python
 import json
@@ -527,6 +560,7 @@ async for chunk in agent.run(message=message, conversation_id=conversation_id, a
 # 第二轮：对报告局部内容执行扩写
 feedback_message = json.dumps({
     "action": "expand",
+    "rewrite_scope": "selected_only",
     "selected_text": "需要扩写的原文片段",
     "start_offset": 120,
     "end_offset": 136,
@@ -536,16 +570,37 @@ feedback_message = json.dumps({
 async for chunk in agent.run(message=feedback_message, conversation_id=conversation_id, agent_config=agent_config):
     logger.debug("[Rewrite stream message: %s]", chunk)
 
+# 按需选用补充检索（与 expand 类似，将 message 换为下列之一后同样 agent.run）：
+# - 仅替换选区：rewrite_scope 为 selected_only，或省略 rewrite_scope（等价默认）
+# - 整章联动：rewrite_scope 为 selected_and_related（走后端另一套 prompt 与替换范围）
+# json.dumps({
+#     "action": "supplementary_search",
+#     "rewrite_scope": "selected_only",  # 或 "selected_and_related"
+#     "selected_text": "...",
+#     "start_offset": 0,
+#     "end_offset": 0,
+#     "user_instruction": "可选说明"
+# }, ensure_ascii=False)
+
 # 第三轮：结束局部优化
 finish_message = json.dumps({"action": "finish"}, ensure_ascii=False)
 async for chunk in agent.run(message=finish_message, conversation_id=conversation_id, agent_config=agent_config):
     logger.debug("[Finish stream message: %s]", chunk)
+
+# 前端也可以在整篇报告编辑完成后发送 sync，同步最新全文到后端状态：
+# json.dumps({
+#     "action": "sync",
+#     "selected_text": "完整编辑后报告"
+# }, ensure_ascii=False)
 ```
 
 说明：
-- `selected_text`必须与当前报告中`[start_offset, end_offset)`范围内的文本完全一致，否则会返回偏移校验错误。
-- 选中文本最大长度受`service_config.user_feedback_processor_max_text_length`控制，默认值为`2000`。
-- 局部改写会同步维护引用和溯源推理的偏移信息，因此前端应始终以最新返回的`final_result`为准继续交互。
+- 局部改写动作要求 `selected_text` 与当前报告中 `[start_offset, end_offset)` 范围内的文本完全一致，否则会返回偏移校验错误。
+- 改写结果仅更新 `final_result.response_content`，原有 citation / infer metadata 保持不变；后端不再额外维护 offset 映射。
+- `sync` 仅更新 `final_result.response_content`，不消耗 `feedback_interaction_count`，且只有整篇报告内容实际变化时才会追加一条 `search_context.rewrite_history` 记录。
+- 后端仅保留最近 10 条 `sync` 历史；内容未变化的 `sync` 不会新增历史记录。
+- 每次成功的普通局部改写会在 `search_context.rewrite_history` 中追加一条记录，其中包含 `action`、`rewrite_scope`（若有）及偏移等信息，便于排查与审计。
+- **兼容性**：省略 `rewrite_scope` 时与显式传 `selected_only` 等价；**`action` 不可省略或为空字符串**，若旧版前端仍依赖后端推断动作，需改为显式传入合法 `action`。
 
 
 

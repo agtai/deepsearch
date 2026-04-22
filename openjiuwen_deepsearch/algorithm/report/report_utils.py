@@ -350,6 +350,7 @@ class XYChartMermaidGenerator:
 
     @classmethod
     def generate_from_json(cls, json_string: str) -> str:
+        """将输入 JSON 字符串转换为目标报告片段。"""
         if not json_string:
             raise ValueError("empty input")
         data = json.loads(json_string)

@@ -24,6 +24,7 @@ def validate_request(request: Union[Dict, BaseModel], model_class: Type[T]) -> T
 
 
 def handle_response(res: ResponseModel) -> ResponseModel:
+    """统一封装接口响应对象的状态与消息字段。"""
     if res.code == status.HTTP_200_OK:
         return res
     raise HTTPException(status_code=res.code, detail=res.message)

@@ -38,6 +38,23 @@ class TavilySearchAPIWrapper(BaseModel, Generic[T]):
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
 
+    @staticmethod
+    async def _execute_async_http_request(
+        url: str, params: Dict, verify: Union[str, bool]
+    ) -> Dict:
+        """Execute asynchronous HTTP request to Tavily API."""
+
+        async with httpx.AsyncClient(verify=verify, timeout=30) as http_client:
+            api_response = await http_client.post(url, json=params)
+
+            if api_response.status_code not in (200, 201):
+                error_msg = (
+                    f"Error {api_response.status_code}: {api_response.reason_phrase}"
+                )
+                raise Exception(error_msg)
+            response_text = api_response.text
+            return json.loads(response_text)
+
     def raw_search_results(
         self,
         query: str,
@@ -184,20 +201,3 @@ class TavilySearchAPIWrapper(BaseModel, Generic[T]):
             "TOOL_SSL_VERIFY", "TOOL_SSL_CERT", ["false"]
         )
         return ssl_cert if ssl_verify else False
-
-    @staticmethod
-    async def _execute_async_http_request(
-        url: str, params: Dict, verify: Union[str, bool]
-    ) -> Dict:
-        """Execute asynchronous HTTP request to Tavily API."""
-
-        async with httpx.AsyncClient(verify=verify, timeout=30) as http_client:
-            api_response = await http_client.post(url, json=params)
-
-            if api_response.status_code not in (200, 201):
-                error_msg = (
-                    f"Error {api_response.status_code}: {api_response.reason_phrase}"
-                )
-                raise Exception(error_msg)
-            response_text = api_response.text
-            return json.loads(response_text)

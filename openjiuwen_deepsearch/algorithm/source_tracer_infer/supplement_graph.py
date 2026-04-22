@@ -15,71 +15,6 @@ class SupplementGraph:
     def __init__(self, model_name):
         self.model_name = model_name
 
-    async def run(self, graph_info: GraphInfo) -> GraphInfo:
-        """
-        检查存在的自环并删除，检查是否非连通，是则修补，无法修补则删除非必要子图使结果为连通图
-        Args:
-            graph_info: tuple(new_structured_inference, node_map, citation_ids, conclusion_ids)
-        Returns:
-            tuple(new_structured_inference, node_map, citation_ids, conclusion_ids)
-        """
-        logger.info(f"[SOURCE TRACER INFER] check_and_supplement_graph starting...")
-        try:
-            new_structured_inference = graph_info.structured_inference
-            node_map = graph_info.node_map
-            citation_ids = graph_info.citation_ids
-            conclusion_ids = graph_info.conclusion_ids
-            # 生成图
-            graph, new_structured_inference = self.generate_graph(new_structured_inference)
-            # 过滤不符合最终结论节点要求的节点 (过滤掉有出边的结论节点)
-            conclusion_ids = self.filter_conclusion_node(graph, conclusion_ids)
-            # 如果过滤后conclusion_ids为空，则无最终结论节点，或最终结论节点多于1个，该图不符合输出条件，过滤掉
-            if len(conclusion_ids) != 1:
-                logger.warning(f"[SOURCE TRACER INFER] The count of final conclusion node should be ONE.")
-                raise ValueError(f"Graphs with a number of conclusion nodes not equal to 1 are filtered out.")
-            # 删除没有入边的结论节点
-            (new_structured_inference, 
-             node_map, conclusion_ids) = self.remove_no_indegree_conclusion_node(new_structured_inference, 
-                                                                                node_map, citation_ids, 
-                                                                                conclusion_ids)
-            graph, new_structured_inference = self.generate_graph(new_structured_inference)
-            if nx.is_weakly_connected(graph):
-                # 连通图
-                logger.info(f"[SOURCE TRACER INFER] There is a connected graph. Return origin graph.")
-                # 剪枝
-                new_graph_info = self.cut_branch(new_structured_inference, node_map, citation_ids, conclusion_ids)
-                return new_graph_info
-            # 非连通图，先补边修复
-            new_tuples = await self.supplement_graph(graph, node_map, citation_ids, conclusion_ids)
-            if new_tuples:
-                new_structured_inference.extend(new_tuples)
-                # 添加的三元组不能是无依据理论节点
-                new_structured_inference, node_map, conclusion_ids = self.remove_no_indegree_conclusion_node(
-                    new_structured_inference, node_map, citation_ids, conclusion_ids)
-                graph, new_structured_inference = self.generate_graph(new_structured_inference)
-                # 再次检测是否连通
-                if nx.is_weakly_connected(graph):
-                    # 连通图
-                    logger.info(f"[SOURCE TRACER INFER] Successfully completed the disconnected graph.")
-                    # 剪枝
-                    new_graph_info = self.cut_branch(new_structured_inference, node_map, citation_ids, conclusion_ids)
-                    return new_graph_info
-            # 无法修复的非连通图
-            # 仅保留必要子图（包含最终结论的子图）
-            remove_nodes = self.remove_disconnected_subgraph(graph, conclusion_ids)
-            # 更新删除子图后的结构推理图和节点映射
-            new_structured_inference, node_map = self.update_graph_info_with_remove_nodes(new_structured_inference, 
-                                                                                         node_map, remove_nodes)
-            # 剪枝
-            new_graph_info = self.cut_branch(new_structured_inference, node_map, citation_ids, conclusion_ids)
-        except Exception as e:
-            if LogManager.is_sensitive():
-                logger.warning(f"[SOURCE TRACER INFER] ERROR in SupplementGraph: ***")
-            else:
-                logger.warning(f"[SOURCE TRACER INFER] ERROR in SupplementGraph: {e}")
-            raise e
-        return new_graph_info
-
     @staticmethod
     def generate_graph(structured_inference):
         """生成有向图，并删除图中的自环"""
@@ -116,34 +51,6 @@ class SupplementGraph:
         logger.info(f"[SOURCE TRACER INFER] The filtered conclusion_ids is {new_conclusion_ids}.")
         return new_conclusion_ids
 
-    def remove_no_indegree_conclusion_node(self, structured_inference, node_map, citation_ids, conclusion_ids):
-        """移除没有入边的结论节点（无来源结论）"""
-        logger.info(f"[source_tracer_infer] remove_no_indegree_conclusion_node starting...")
-        logger.info(f"[source_tracer_infer] The structured inference before removing is\n {structured_inference}.")
-        graph, structured_inference = self.generate_graph(structured_inference)
-        remove_nodes = set()
-        del_structure_index = []
-        for index, (head_ids, _, tail_id) in enumerate(structured_inference):
-            for head_id in head_ids:
-                if head_id not in citation_ids and graph.in_degree(head_id) == 0:
-                    if head_id in node_map:
-                        head_ids.remove(head_id)
-                        del node_map[head_id]
-                        remove_nodes.add(head_id)
-            # 检测尾实体在删除头实体后是否变成新的没有入边的结论节点
-            tail_node_parents = set(list(graph.predecessors(tail_id)))
-            is_subset = tail_node_parents.issubset(remove_nodes)
-            if is_subset and tail_id in node_map:
-                # 尾实体是没入边的结论，删除
-                del_structure_index.append(index)
-                del node_map[tail_id]
-                remove_nodes.add(tail_id)
-        conclusion_ids = [i for i in conclusion_ids if i not in remove_nodes]
-        new_structured_inference = [structure for index, structure in enumerate(structured_inference) 
-                                    if index not in del_structure_index]
-        logger.info(f"[source_tracer_infer] The structured inference after removing is\n {new_structured_inference}")
-        return new_structured_inference, node_map, conclusion_ids
-
     async def supplement_graph(self, graph, node_map, conclusion_ids, citation_ids):
         """
         加边修补非连通子图
@@ -162,8 +69,8 @@ class SupplementGraph:
             llm_input.append(input_comp)
 
         detection_func_and_args = {"detection_func": is_equal_length, "args": 3} # 需要添加检测函数，检测输出的每个结构为三元组
-        new_tuples = await call_model(self.model_name, "infer_supplement_prompt", 
-                                      {"graphs": llm_input}, detection_func_and_args, 
+        new_tuples = await call_model(self.model_name, "infer_supplement_prompt",
+                                      {"graphs": llm_input}, detection_func_and_args,
                                       agent_name=NodeId.SOURCE_TRACER_INFER.value + "_supplement_graph")
         # 去除可能存在的来自同一连通分量的新关系
         del_tuple_index = []
@@ -214,9 +121,58 @@ class SupplementGraph:
                     for head_id in head_id_list:
                         if head_id in node_map:
                             node_map.pop(head_id)
-            structured_inference = [structure for index, structure in enumerate(structured_inference) 
-                                    if index not in del_structure_index]
+            structured_inference = [
+                structure for index, structure in enumerate(structured_inference)
+                if index not in del_structure_index
+            ]
         return structured_inference, node_map
+
+    @staticmethod
+    def _del_redundant_node(structured_inference, node_map, citation_ids, save_node_set):
+        """删除剪枝后的冗余三元组和节点"""
+        # 删除 structured_inference 中的冗余
+        new_structured_inference = []
+        for index, (head_id_list, _, tail_id) in enumerate(structured_inference):
+            if tail_id in save_node_set and (set(head_id_list) <= save_node_set):
+                new_structured_inference.append(structured_inference[index])
+
+        # 删除 node_map 中的冗余
+        new_node_map = {node_id: info for node_id, info in node_map.items() if node_id in save_node_set}
+
+        # 删除citation_ids 中的冗余节点
+        new_citation_ids = [node_id for node_id in citation_ids if node_id in save_node_set]
+
+        return new_structured_inference, new_node_map, new_citation_ids
+
+    def remove_no_indegree_conclusion_node(self, structured_inference, node_map, citation_ids, conclusion_ids):
+        """移除没有入边的结论节点（无来源结论）"""
+        logger.info(f"[source_tracer_infer] remove_no_indegree_conclusion_node starting...")
+        logger.info(f"[source_tracer_infer] The structured inference before removing is\n {structured_inference}.")
+        graph, structured_inference = self.generate_graph(structured_inference)
+        remove_nodes = set()
+        del_structure_index = []
+        for index, (head_ids, _, tail_id) in enumerate(structured_inference):
+            for head_id in head_ids:
+                if head_id not in citation_ids and graph.in_degree(head_id) == 0:
+                    if head_id in node_map:
+                        head_ids.remove(head_id)
+                        del node_map[head_id]
+                        remove_nodes.add(head_id)
+            # 检测尾实体在删除头实体后是否变成新的没有入边的结论节点
+            tail_node_parents = set(list(graph.predecessors(tail_id)))
+            is_subset = tail_node_parents.issubset(remove_nodes)
+            if is_subset and tail_id in node_map:
+                # 尾实体是没入边的结论，删除
+                del_structure_index.append(index)
+                del node_map[tail_id]
+                remove_nodes.add(tail_id)
+        conclusion_ids = [i for i in conclusion_ids if i not in remove_nodes]
+        new_structured_inference = [
+            structure for index, structure in enumerate(structured_inference)
+            if index not in del_structure_index
+        ]
+        logger.info(f"[source_tracer_infer] The structured inference after removing is\n {new_structured_inference}")
+        return new_structured_inference, node_map, conclusion_ids
 
     def cut_branch(self, new_structured_inference, node_map, citation_ids, conclusion_ids) -> GraphInfo:
         """对图谱剪枝，剪掉冗余的分支"""
@@ -236,22 +192,70 @@ class SupplementGraph:
         # 删除冗余分支，更新图谱结构
         new_structured_inference, node_map, citation_ids = self._del_redundant_node(new_structured_inference, node_map,
                                                                                     citation_ids, save_node_set)
-        return GraphInfo(structured_inference=new_structured_inference, 
+        return GraphInfo(structured_inference=new_structured_inference,
                          node_map=node_map, citation_ids=citation_ids, conclusion_ids=conclusion_ids)
 
-    @staticmethod
-    def _del_redundant_node(structured_inference, node_map, citation_ids, save_node_set):
-        """删除剪枝后的冗余三元组和节点"""
-        # 删除 structured_inference 中的冗余
-        new_structured_inference = []
-        for index, (head_id_list, _, tail_id) in enumerate(structured_inference):
-            if tail_id in save_node_set and (set(head_id_list) <= save_node_set):
-                new_structured_inference.append(structured_inference[index])
-
-        # 删除 node_map 中的冗余
-        new_node_map = {node_id: info for node_id, info in node_map.items() if node_id in save_node_set}
-
-        # 删除citation_ids 中的冗余节点
-        new_citation_ids = [node_id for node_id in citation_ids if node_id in save_node_set]
-
-        return new_structured_inference, new_node_map, new_citation_ids
+    async def run(self, graph_info: GraphInfo) -> GraphInfo:
+        """
+        检查存在的自环并删除，检查是否非连通，是则修补，无法修补则删除非必要子图使结果为连通图
+        Args:
+            graph_info: tuple(new_structured_inference, node_map, citation_ids, conclusion_ids)
+        Returns:
+            tuple(new_structured_inference, node_map, citation_ids, conclusion_ids)
+        """
+        logger.info(f"[SOURCE TRACER INFER] check_and_supplement_graph starting...")
+        try:
+            new_structured_inference = graph_info.structured_inference
+            node_map = graph_info.node_map
+            citation_ids = graph_info.citation_ids
+            conclusion_ids = graph_info.conclusion_ids
+            # 生成图
+            graph, new_structured_inference = self.generate_graph(new_structured_inference)
+            # 过滤不符合最终结论节点要求的节点 (过滤掉有出边的结论节点)
+            conclusion_ids = self.filter_conclusion_node(graph, conclusion_ids)
+            # 如果过滤后conclusion_ids为空，则无最终结论节点，或最终结论节点多于1个，该图不符合输出条件，过滤掉
+            if len(conclusion_ids) != 1:
+                logger.warning(f"[SOURCE TRACER INFER] The count of final conclusion node should be ONE.")
+                raise ValueError(f"Graphs with a number of conclusion nodes not equal to 1 are filtered out.")
+            # 删除没有入边的结论节点
+            (new_structured_inference,
+             node_map, conclusion_ids) = self.remove_no_indegree_conclusion_node(new_structured_inference,
+                                                                                node_map, citation_ids,
+                                                                                conclusion_ids)
+            graph, new_structured_inference = self.generate_graph(new_structured_inference)
+            if nx.is_weakly_connected(graph):
+                # 连通图
+                logger.info(f"[SOURCE TRACER INFER] There is a connected graph. Return origin graph.")
+                # 剪枝
+                new_graph_info = self.cut_branch(new_structured_inference, node_map, citation_ids, conclusion_ids)
+                return new_graph_info
+            # 非连通图，先补边修复
+            new_tuples = await self.supplement_graph(graph, node_map, citation_ids, conclusion_ids)
+            if new_tuples:
+                new_structured_inference.extend(new_tuples)
+                # 添加的三元组不能是无依据理论节点
+                new_structured_inference, node_map, conclusion_ids = self.remove_no_indegree_conclusion_node(
+                    new_structured_inference, node_map, citation_ids, conclusion_ids)
+                graph, new_structured_inference = self.generate_graph(new_structured_inference)
+                # 再次检测是否连通
+                if nx.is_weakly_connected(graph):
+                    # 连通图
+                    logger.info(f"[SOURCE TRACER INFER] Successfully completed the disconnected graph.")
+                    # 剪枝
+                    new_graph_info = self.cut_branch(new_structured_inference, node_map, citation_ids, conclusion_ids)
+                    return new_graph_info
+            # 无法修复的非连通图
+            # 仅保留必要子图（包含最终结论的子图）
+            remove_nodes = self.remove_disconnected_subgraph(graph, conclusion_ids)
+            # 更新删除子图后的结构推理图和节点映射
+            new_structured_inference, node_map = self.update_graph_info_with_remove_nodes(new_structured_inference,
+                                                                                         node_map, remove_nodes)
+            # 剪枝
+            new_graph_info = self.cut_branch(new_structured_inference, node_map, citation_ids, conclusion_ids)
+        except Exception as e:
+            if LogManager.is_sensitive():
+                logger.warning(f"[SOURCE TRACER INFER] ERROR in SupplementGraph: ***")
+            else:
+                logger.warning(f"[SOURCE TRACER INFER] ERROR in SupplementGraph: {e}")
+            raise e
+        return new_graph_info

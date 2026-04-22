@@ -22,6 +22,7 @@ class ReportFormat(enum.Enum):
     PDF = "pdf"
 
     def get_name(self):
+        """返回当前报告配置的名称标识。"""
         return self.name.lower()
 
 

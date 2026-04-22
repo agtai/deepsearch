@@ -1,3 +1,5 @@
+# -*- coding: UTF-8 -*-
+# Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Dict
 from sqlalchemy import (JSON, BigInteger, Index, Integer, String,

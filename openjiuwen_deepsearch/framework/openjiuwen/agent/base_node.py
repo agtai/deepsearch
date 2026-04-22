@@ -11,6 +11,7 @@ from openjiuwen.core.workflow.components.flow.branch_router import BranchRouter
 
 from openjiuwen_deepsearch.common.exception import CustomJiuWenBaseException, CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
+from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import session_context
 from openjiuwen_deepsearch.utils.log_utils.log_metrics import async_time_logger
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,21 @@ class BaseNode(WorkflowComponent):
 
     @async_time_logger("invoke")
     async def invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
-        '''基础节点的invoke方法'''
+        """执行节点并注入当前会话上下文。
+
+        统一在节点入口设置 ``session_context``，确保下游公共能力
+        （如 `ainvoke_llm_with_stats`、流式输出等）能够读取到当前 workflow
+        的 session 配置，而不需要每个节点重复手动注入。
+
+        Args:
+            inputs: 节点输入。
+            session: 当前会话。
+            context: 模型上下文。
+
+        Returns:
+            Output: 节点执行结果。
+        """
+        session_context.set(session)
         return await self._do_invoke(inputs, session, context)
 
     def _pre_handle(self, inputs: Input, session: Session, context: ModelContext):

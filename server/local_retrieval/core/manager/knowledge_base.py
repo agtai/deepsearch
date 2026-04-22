@@ -3,6 +3,7 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import os
 import re
+import logging
 import uuid
 import time
 import inspect
@@ -13,7 +14,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Union, Tuple, Optional
 from fastapi import status, UploadFile
-from openjiuwen.core.common.logging import logger
 from openjiuwen.core.retrieval.indexing.processor.parser.auto_file_parser import AutoFileParser
 from openjiuwen.core.retrieval.indexing.processor.chunker.chunking import TextChunker
 from openjiuwen.core.retrieval.indexing.processor.extractor.triple_extractor import TripleExtractor
@@ -77,6 +77,7 @@ from server.local_retrieval.models.knowledge_base_document import DocumentStatus
 from server.core.manager.model_manager.utils import SecurityUtils
 from server.local_retrieval.core.object.aioboto_storage_client import AioBotoClient
 
+logger = logging.getLogger(__name__)
 _RESILIENT_PDF_REGISTERED = False
 
 
@@ -127,15 +128,18 @@ class OBSDocumentManager:
 
     @staticmethod
     def obs_name(space_id: str, kb_id: str, file_name: str) -> str:
+        """生成对象存储中的文件对象名。"""
         return f"{space_id}/{kb_id}/{file_name}"
 
     @classmethod
     def local_path(cls, space_id: str, kb_id: str, file_name: str) -> Path:
+        """生成本地文件存储路径。"""
         storage_path = cls.backend_dir / "data" / "knowledge_base" / space_id / kb_id
         storage_path.mkdir(parents=True, exist_ok=True)
         return storage_path / file_name
 
     async def delete_document(self, object_name: str):
+        """删除对象存储中的文档对象。"""
         if not self.bucket or not self.obs_client:
             return
         await self.obs_client.delete_object(self.bucket, object_name)
@@ -145,6 +149,7 @@ class OBSDocumentManager:
         object_name: str,
         file_path: str | Path,
     ):
+        """从对象存储下载文档到本地路径。"""
         if not self.bucket or not self.obs_client:
             return
         file_path = Path(file_path)
@@ -161,6 +166,7 @@ class OBSDocumentManager:
         object_name: str,
         file_path: str | Path,
     ):
+        """上传文档到对象存储并返回对象信息。"""
         if not self.bucket or not self.obs_client:
             raise RuntimeError(
                 "OBS upload skipped: OBS_BUCKET unset or object storage client unavailable"
@@ -174,6 +180,7 @@ class OBSDocumentManager:
         object_name: str,
         file_path: str,
     ):
+        """当远端文档更新时下载并覆盖本地缓存。"""
         if not self.bucket or not self.obs_client:
             return
         listed_objects = await self.obs_client.list_objects(
@@ -949,8 +956,9 @@ async def _parse_file(
 ) -> List[Document]:
     """调用新的知识库系统解析文件，返回Document列表"""
     logger.debug(
-        f"[PARSE] Parsing file - Path: {doc_path}, "
-        f"Strategy type: {parsing_strategy.strategy_type}"
+        "[PARSE] Parsing file - Path: %s, Strategy type: %s",
+        doc_path,
+        parsing_strategy.strategy_type,
     )
 
     if not doc_path:
@@ -984,7 +992,11 @@ async def _parse_file(
                 document.metadata = {}
             document.metadata["doc_id"] = document.id_
 
-        logger.debug(f"[PARSE] Parsed file - Path: {doc_path}, Documents: {len(documents)}")
+        logger.debug(
+            "[PARSE] Parsed file - Path: %s, Documents: %s",
+            doc_path,
+            len(documents),
+        )
         return documents
     finally:
         # 清理临时文件
@@ -993,7 +1005,9 @@ async def _parse_file(
                 corrected_path_obj = Path(corrected_path)
                 if corrected_path_obj.exists() and corrected_path_obj != Path(doc_path):
                     corrected_path_obj.unlink()
-                    logger.debug(f"[PARSE] Cleaned up temporary file: {corrected_path}")
+                    logger.debug(
+                        "[PARSE] Cleaned up temporary file: %s", corrected_path
+                    )
             except Exception as e:
                 logger.warning(
                     f"[PARSE] Failed to clean up temporary file {corrected_path}: {str(e)}"
@@ -1034,8 +1048,12 @@ def _create_chunker(segmentation_strategy, embed_model=None) -> TextChunker:
     chunk_overlap = int(chunk_size * (overlap_percent / 100)) if overlap_percent > 0 else 0
 
     logger.debug(
-        f"[CHUNK] Creating chunker - Chunk size: {chunk_size}, Overlap: {chunk_overlap} ({overlap_percent}%), "
-        f"Unit: {chunk_unit}, Preprocess: {preprocess_options}"
+        "[CHUNK] Creating chunker - Chunk size: %s, Overlap: %s (%s%%), Unit: %s, Preprocess: %s",
+        chunk_size,
+        chunk_overlap,
+        overlap_percent,
+        chunk_unit,
+        preprocess_options,
     )
 
     # 如果使用 token 分块，需要提供 embed_model
@@ -1058,13 +1076,16 @@ def _check_milvus_connection() -> Tuple[bool, str]:
     """
     try:
         from pymilvus import connections, utility
+    except ImportError:
+        return False, "无法连接到 Milvus: 未安装 pymilvus 库"
 
-        milvus_host = os.getenv("MILVUS_HOST", "localhost")
-        milvus_port = os.getenv("MILVUS_PORT", "19530")
-        milvus_token = os.getenv("MILVUS_TOKEN") or ""
+    milvus_host = os.getenv("MILVUS_HOST", "localhost")
+    milvus_port = os.getenv("MILVUS_PORT", "19530")
+    milvus_token = os.getenv("MILVUS_TOKEN") or ""
+    alias = "kb_connection_test"
+    try:
 
         # 尝试连接 Milvus
-        alias = "kb_connection_test"
         try:
             # 如果连接已存在，先断开
             if connections.has_connection(alias):
@@ -1096,15 +1117,10 @@ def _check_milvus_connection() -> Tuple[bool, str]:
             logger.warning(f"[MILVUS] Failed to disconnect connection: {alias}, Error: {str(e)}")
         return True, ""
 
-    except ImportError:
-        return False, "无法连接到 Milvus: 未安装 pymilvus 库"
     except Exception as e:
         error_msg = str(e)
         # 清理连接
         try:
-            alias = "kb_connection_test"
-            from pymilvus import connections
-
             if connections.has_connection(alias):
                 connections.disconnect(alias)
         except Exception as disconnect_error:
@@ -1173,13 +1189,12 @@ async def _delete_kb_indices(kb_id: str, space_id: str) -> dict:
     获取知识库下的所有文档，然后循环删除每个文档的 chunks 和 triples 索引数据
     """
     result = {"success_count": 0, "failed_count": 0, "errors": []}
+    all_documents = []
+    page = 1
+    page_size = 100
 
     try:
         # 获取知识库下的所有文档（分页获取，每页最多100条）
-        all_documents = []
-        page = 1
-        page_size = 100
-
         while True:
             doc_list_result = knowledge_base_repository.document_list(
                 space_id=space_id, kb_id=kb_id, page=page, size=page_size
@@ -1201,7 +1216,9 @@ async def _delete_kb_indices(kb_id: str, space_id: str) -> dict:
             page += 1
 
         if not all_documents:
-            logger.debug(f"[KB_DELETE] No documents to delete indices for KB {kb_id}")
+            logger.debug(
+                "[KB_DELETE] No documents to delete indices for KB %s", kb_id
+            )
             return result
 
         documents = all_documents
@@ -1314,7 +1331,9 @@ async def _delete_document_from_index(
         index_exists = await index_manager.index_exists(index_name)
         if not index_exists:
             logger.debug(
-                f"[DOC_DELETE] {index_type.capitalize()} index does not exist: {index_name}"
+                "[DOC_DELETE] %s index does not exist: %s",
+                index_type.capitalize(),
+                index_name,
             )
             return True
 
@@ -1327,7 +1346,10 @@ async def _delete_document_from_index(
             )
         else:
             logger.debug(
-                f"[DOC_DELETE] No {index_type} found for doc_id: {doc_id} in index: {index_name}"
+                "[DOC_DELETE] No %s found for doc_id: %s in index: %s",
+                index_type,
+                doc_id,
+                index_name,
             )
 
         return True
@@ -1337,7 +1359,10 @@ async def _delete_document_from_index(
         # 如果数据不存在，不算错误
         if "not exist" in error_msg.lower() or "not found" in error_msg.lower():
             logger.debug(
-                f"[DOC_DELETE] No {index_type} found for doc_id: {doc_id} in index: {index_name}"
+                "[DOC_DELETE] No %s found for doc_id: %s in index: %s",
+                index_type,
+                doc_id,
+                index_name,
             )
             return True
         else:
@@ -1347,17 +1372,16 @@ async def _delete_document_from_index(
             return False
 
 
-async def _index_documents(
-    documents: List[Document],
-    indexing_strategy,
-    segmentation_strategy,
-    space_id: str,
-    kb_id: str,
-    doc_id: str,
-    process_info: dict,
-    llm_config: Optional[LLMConfig] = None,
-    embed_model_config: Optional[EmbedModelConfig] = None,
-) -> dict:
+async def _index_documents(*args, **kwargs) -> dict:
+    documents = kwargs.get("documents", args[0] if len(args) > 0 else None)
+    indexing_strategy = kwargs.get("indexing_strategy", args[1] if len(args) > 1 else None)
+    segmentation_strategy = kwargs.get("segmentation_strategy", args[2] if len(args) > 2 else None)
+    space_id = kwargs.get("space_id", args[3] if len(args) > 3 else None)
+    kb_id = kwargs.get("kb_id", args[4] if len(args) > 4 else None)
+    doc_id = kwargs.get("doc_id", args[5] if len(args) > 5 else None)
+    process_info = kwargs.get("process_info", args[6] if len(args) > 6 else None)
+    llm_config = kwargs.get("llm_config", args[7] if len(args) > 7 else None)
+    embed_model_config = kwargs.get("embed_model_config", args[8] if len(args) > 8 else None)
 
     # 1. 更新状态为INDEXING
     update_indexing_result = knowledge_base_repository.document_update_status(
@@ -1475,8 +1499,10 @@ async def _index_documents(
                 estimated_chunks = max(1, total_text_length // chunker.chunk_size)
                 chunk_count = estimated_chunks
                 logger.debug(
-                    f"[INDEX] Estimated chunk count: {chunk_count} "
-                    f"(text length: {total_text_length}, chunk_size: {chunker.chunk_size})"
+                    "[INDEX] Estimated chunk count: %s (text length: %s, chunk_size: %s)",
+                    chunk_count,
+                    total_text_length,
+                    chunker.chunk_size,
                 )
         except Exception as e:
             logger.warning(f"[INDEX] Failed to estimate chunk count: {str(e)}")
@@ -1484,9 +1510,15 @@ async def _index_documents(
             chunk_count = len(documents)
 
         logger.debug(
-            f"[INDEX] Indexing completed - KB ID: {kb_id}, Doc ID: {doc_id}, "
-            f"Chunk index: {chunk_index}, Triple index: {triple_index}, "
-            f"Estimated chunks: {chunk_count}"
+            (
+                "[INDEX] Indexing completed - KB ID: %s, Doc ID: %s, "
+                "Chunk index: %s, Triple index: %s, Estimated chunks: %s"
+            ),
+            kb_id,
+            doc_id,
+            chunk_index,
+            triple_index,
+            chunk_count,
         )
 
         return {
@@ -1502,20 +1534,19 @@ async def _index_documents(
             logger.warning(f"[INDEX] Failed to close knowledge base: {str(e)}")
 
 
-async def process_single_document(
-    space_id: str,
-    kb_id: str,
-    doc_id: str,
-    file_path: str,
-    parsing_strategy,
-    segmentation_strategy,
-    indexing_strategy,
-    process_info: dict,
-    file_name: Optional[str] = None,
-    llm_config: Optional[LLMConfig] = None,
-    embed_model_config: Optional[EmbedModelConfig] = None,
-    obs_name: Optional[str] = None,
-):
+async def process_single_document(*args, **kwargs):
+    space_id = kwargs.get("space_id", args[0] if len(args) > 0 else None)
+    kb_id = kwargs.get("kb_id", args[1] if len(args) > 1 else None)
+    doc_id = kwargs.get("doc_id", args[2] if len(args) > 2 else None)
+    file_path = kwargs.get("file_path", args[3] if len(args) > 3 else None)
+    parsing_strategy = kwargs.get("parsing_strategy", args[4] if len(args) > 4 else None)
+    segmentation_strategy = kwargs.get("segmentation_strategy", args[5] if len(args) > 5 else None)
+    indexing_strategy = kwargs.get("indexing_strategy", args[6] if len(args) > 6 else None)
+    process_info = kwargs.get("process_info", args[7] if len(args) > 7 else None)
+    file_name = kwargs.get("file_name", args[8] if len(args) > 8 else None)
+    llm_config = kwargs.get("llm_config", args[9] if len(args) > 9 else None)
+    embed_model_config = kwargs.get("embed_model_config", args[10] if len(args) > 10 else None)
+    obs_name = kwargs.get("obs_name", args[11] if len(args) > 11 else None)
     """在后台异步处理单个文档"""
     try:
         logger.info(
@@ -1636,18 +1667,17 @@ async def process_single_document(
             )
 
 
-async def _process_documents_sequentially(
-    space_id: str,
-    kb_id: str,
-    documents: list[dict],
-    parsing_strategy,
-    segmentation_strategy,
-    indexing_strategy,
-    task_id: str,
-    process_info_base: dict,
-    llm_config: Optional[LLMConfig] = None,
-    embed_model_config: Optional[EmbedModelConfig] = None,
-):
+async def _process_documents_sequentially(*args, **kwargs):
+    space_id = kwargs.get("space_id", args[0] if len(args) > 0 else None)
+    kb_id = kwargs.get("kb_id", args[1] if len(args) > 1 else None)
+    documents = kwargs.get("documents", args[2] if len(args) > 2 else None)
+    parsing_strategy = kwargs.get("parsing_strategy", args[3] if len(args) > 3 else None)
+    segmentation_strategy = kwargs.get("segmentation_strategy", args[4] if len(args) > 4 else None)
+    indexing_strategy = kwargs.get("indexing_strategy", args[5] if len(args) > 5 else None)
+    task_id = kwargs.get("task_id", args[6] if len(args) > 6 else None)
+    process_info_base = kwargs.get("process_info_base", args[7] if len(args) > 7 else None)
+    llm_config = kwargs.get("llm_config", args[8] if len(args) > 8 else None)
+    embed_model_config = kwargs.get("embed_model_config", args[9] if len(args) > 9 else None)
     """串行处理多个文档（后台任务）"""
     logger.info(
         f"[DOC_PROCESS_SEQ] Starting sequential processing - Task ID: {task_id}, "
@@ -1922,7 +1952,11 @@ async def document_upload(
 
             obs_stored_name = object_name if obs_required else ""
 
-            logger.debug(f"[DOC_UPLOAD] File saved - Path: {file_path}, Size: {file_size} bytes")
+            logger.debug(
+                "[DOC_UPLOAD] File saved - Path: %s, Size: %s bytes",
+                file_path,
+                file_size,
+            )
 
             # 4.4 创建文档记录
             current_time = milliseconds()

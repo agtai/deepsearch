@@ -72,4 +72,11 @@ class AgentFactory:
                 )
             )
         agent = agent_class()
+        logger.info(
+            "Created agent class=%s research_name=%s search_mode=%s execution_method=%s",
+            agent.__class__.__name__,
+            getattr(agent, "research_name", ""),
+            search_mode,
+            execution_agent_key,
+        )
         return agent

@@ -1,3 +1,5 @@
+# -*- coding: UTF-8 -*-
+# Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import logging
 import asyncio
 import os
@@ -36,6 +38,33 @@ class NativeLocalSearchAPIWrapper(BaseModel):
         extra='ignore'  # 忽略掉config中多余的search_url等字段
     )
     
+    async def aopen(self) -> None:
+        """Initialize KB resources when run starts"""
+        if self._kb_instances is not None:
+            return
+        await self._init_kb_instances()
+
+    async def aresults(self, query: str) -> List[Dict[str, Any]]:
+        """Async search using native local search."""
+        return await self._async_search(query, num=self.max_local_search_results)
+    
+    async def aclose(self) -> None:
+        """释放资源"""
+        if not self._kb_instances:
+            return
+
+        for kb in self._kb_instances:
+            try:
+                await kb.close()
+            except Exception as e:
+                if LogManager.is_sensitive():
+                    logger.warning(f"[Native Search] Error closing Knowledge Base!")
+                else:
+                    logger.warning(
+                        f"[Native Search] Error closing Knowledge Base {kb.config.kb_id}: {e}"
+                    )
+        self._kb_instances = None
+
     async def _init_kb_instances(self):
         """从配置创建实例"""
         if self._kb_instances is not None:
@@ -66,7 +95,7 @@ class NativeLocalSearchAPIWrapper(BaseModel):
                     store_provider="milvus",
                     collection_name=kb_cfg.vector_store.collection_name,
                 )
-                
+
                 vector_store = MilvusVectorStore(
                     config=vs_config,
                     milvus_uri=kb_cfg.vector_store.uri,
@@ -86,26 +115,18 @@ class NativeLocalSearchAPIWrapper(BaseModel):
 
             except Exception as e:
                 if LogManager.is_sensitive():
-                    logger.error(f"[Native Search] Failed to init Knowledge Base!")
+                    logger.error("[Native Search] Failed to init Knowledge Base!")
                 else:
                     logger.error(
-                        f"[Native Search] Failed to init Knowledge Base {kb_cfg.id}! Error: {e}"
+                        "[Native Search] Failed to init Knowledge Base %s! Error: %s",
+                        kb_cfg.id,
+                        e,
                     )
                 continue
-        
+
         self._kb_instances = instances
         return instances
 
-    async def aopen(self) -> None:
-        """Initialize KB resources when run starts"""
-        if self._kb_instances is not None:
-            return
-        await self._init_kb_instances()
-
-    async def aresults(self, query: str) -> List[Dict[str, Any]]:
-        """Async search using native local search."""
-        return await self._async_search(query, num=self.max_local_search_results)
-    
     async def _async_search(self, search_term: str, num: int) -> List[Dict[str, Any]]:
         kbs = self._kb_instances
         if not kbs:
@@ -118,16 +139,15 @@ class NativeLocalSearchAPIWrapper(BaseModel):
                 return [{"raw": r, "kb_id": kb.config.kb_id} for r in raw_list]
             except Exception as e:
                 if LogManager.is_sensitive():
-                    logger.warning(f"[Native Search] Retrieval failed for a KB!")
+                    logger.warning("[Native Search] Retrieval failed for a KB!")
                 else:
-                    logger.warning(f"[Native Search] Retrieval failed for KB {kb.config.kb_id}: {e}")
+                    logger.warning("[Native Search] Retrieval failed for KB %s: %s", kb.config.kb_id, e)
                 return []
 
         tasks = [_single_kb_retrieve(kb) for kb in kbs]
         nested_results = await asyncio.gather(*tasks)
 
         all_wrapped_results = [item for sublist in nested_results for item in sublist]
-
         return self._process_and_format(all_wrapped_results, num)
 
     def _process_and_format(self, all_wrapped: List[Dict], num: int) -> List[Dict[str, Any]]:
@@ -143,7 +163,7 @@ class NativeLocalSearchAPIWrapper(BaseModel):
         for item in top_items:
             r = item["raw"]
             kb_id = item["kb_id"]
-            
+
             # 如果 doc_id 为空，使用 chunk_id
             unique_id = f"{r.doc_id}_id_{r.chunk_id}" if r.doc_id else f"missing_id_{r.chunk_id}"
             safe_content = r.text if r.text else ""
@@ -158,20 +178,3 @@ class NativeLocalSearchAPIWrapper(BaseModel):
                 "chunk_id": r.chunk_id
             })
         return final_results
-
-    async def aclose(self) -> None:
-        """释放资源"""
-        if not self._kb_instances:
-            return
-
-        for kb in self._kb_instances:
-            try:
-                await kb.close()
-            except Exception as e:
-                if LogManager.is_sensitive():
-                    logger.warning(f"[Native Search] Error closing Knowledge Base!")
-                else:
-                    logger.warning(
-                        f"[Native Search] Error closing Knowledge Base {kb.config.kb_id}: {e}"
-                    )
-        self._kb_instances = None

@@ -1,3 +1,5 @@
+# -*- coding: UTF-8 -*-
+# Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 from typing import (Any, Container, Dict, List, Optional, Sequence, Type,
                     TypeVar, Union, get_type_hints)
 
@@ -216,6 +218,7 @@ class DBFunBase:
     @classmethod
     def sqlalchemy_to_pydantic(cls, *, config: type = orm_config, 
                                exclude: set[str] | None = None) -> type[BaseModel]:
+        """将 SQLAlchemy 模型转换为 Pydantic 模型。"""
         exclude = exclude or set()
         # 因relationship等类型有时会先以str代表，先替换其为Any类，避免get_type_hints报错
         ann_back = cls.__annotations__.copy()
@@ -300,6 +303,7 @@ class DBFunBase:
         exclude: set | None = None,
         exclude_value: set | None = None,
     ):
+        """导出模型字段为字典表示。"""
         exclude = exclude or set()
         exclude_value = exclude_value or set()
         # 1. 取出已知字段
@@ -323,6 +327,7 @@ class DBFunBase:
     '''
 
     def to_dict(self, exclude_invalid: bool = False) -> Dict[str, Any]:
+        """将对象转换为字典，可选过滤无效字段。"""
         exclude = set()
         # 过滤掉无效值(None, ""等)
         if exclude_invalid:

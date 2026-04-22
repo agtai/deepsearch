@@ -37,6 +37,44 @@ class QPSRateLimiter:
         self._max_qps = float(max_qps) if max_qps is not None else None
         logger.info(f"[QPSRateLimiter] Set max_qps to {self._max_qps}")
 
+    async def acquire(self) -> None:
+        """
+        获取限流许可，支持超时和重试机制
+
+        超时后会自动重试一次，如果仍然超时则抛出异常。
+
+        Raises:
+            CustomRuntimeException: 限流超时异常
+        """
+        limiter = self._get_limiter()
+        if limiter is None:
+            return
+
+        timeout = self._calculate_timeout()
+        max_attempts = 2
+
+        for attempt in range(max_attempts):
+            try:
+                await self._acquire_with_timeout(timeout)
+                return
+            except asyncio.TimeoutError as e:
+                if attempt < max_attempts - 1:
+                    logger.warning(
+                        f"[QPSRateLimiter] Rate limit timeout, retrying... "
+                        f"(attempt {attempt + 1}/{max_attempts}), max_qps={self._max_qps}, timeout={timeout:.1f}s"
+                    )
+                else:
+                    logger.error(
+                        f"[QPSRateLimiter] Rate limit timeout after {max_attempts} attempts, "
+                        f"max_qps={self._max_qps}, timeout={timeout:.1f}s"
+                    )
+                    raise CustomRuntimeException(
+                        StatusCode.RATE_LIMIT_TIMEOUT_ERROR.code,
+                        StatusCode.RATE_LIMIT_TIMEOUT_ERROR.errmsg.format(
+                            timeout=timeout, max_qps=self._max_qps
+                        )
+                    ) from e
+
     def _get_limiter(self) -> Optional[AsyncLimiter]:
         """获取或创建限流器实例，当 max_qps 变化时重建"""
         max_qps = self._max_qps
@@ -96,45 +134,6 @@ class QPSRateLimiter:
         await asyncio.wait_for(limiter.acquire(1), timeout=timeout)
         logger.info(f"[QPSRateLimiter] Request permitted, max_qps={self._max_qps}")
         return True
-
-    async def acquire(self) -> None:
-        """
-        获取限流许可，支持超时和重试机制
-
-        超时后会自动重试一次，如果仍然超时则抛出异常。
-
-        Raises:
-            CustomRuntimeException: 限流超时异常
-        """
-        limiter = self._get_limiter()
-        if limiter is None:
-            return
-
-        timeout = self._calculate_timeout()
-        max_attempts = 2
-
-        for attempt in range(max_attempts):
-            try:
-                await self._acquire_with_timeout(timeout)
-                return
-            except asyncio.TimeoutError as e:
-                if attempt < max_attempts - 1:
-                    logger.warning(
-                        f"[QPSRateLimiter] Rate limit timeout, retrying... "
-                        f"(attempt {attempt + 1}/{max_attempts}), max_qps={self._max_qps}, timeout={timeout:.1f}s"
-                    )
-                else:
-                    logger.error(
-                        f"[QPSRateLimiter] Rate limit timeout after {max_attempts} attempts, "
-                        f"max_qps={self._max_qps}, timeout={timeout:.1f}s"
-                    )
-                    raise CustomRuntimeException(
-                        StatusCode.RATE_LIMIT_TIMEOUT_ERROR.code,
-                        StatusCode.RATE_LIMIT_TIMEOUT_ERROR.errmsg.format(
-                            timeout=timeout, max_qps=self._max_qps
-                        )
-                    ) from e
-
 
 qps_rate_limiter = QPSRateLimiter()
 

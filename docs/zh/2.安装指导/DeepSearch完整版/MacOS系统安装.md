@@ -42,9 +42,9 @@
 
 * 单击版本下载链接，下载对应版本包至本地。
 
-  x86_64 架构下载链接：<a href="https://openjiuwen-ci.obs.cn-north-4.myhuaweicloud.com/deepsearch/deployTool_0.1.3_amd64.zip" target="_blank" rel="nofollow noopener noreferrer">DeepSearch v0.1.3</a>
+  x86_64 架构下载链接：<a href="https://openjiuwen-ci.obs.cn-north-4.myhuaweicloud.com/deepsearch/deployTool_0.1.4_amd64.zip" target="_blank" rel="nofollow noopener noreferrer">DeepSearch v0.1.4</a>
 
-  arm 架构下载链接：<a href="https://openjiuwen-ci.obs.cn-north-4.myhuaweicloud.com/deepsearch/deployTool_0.1.3_arm64.zip" target="_blank" rel="nofollow noopener noreferrer">DeepSearch v0.1.3</a>
+  arm 架构下载链接：<a href="https://openjiuwen-ci.obs.cn-north-4.myhuaweicloud.com/deepsearch/deployTool_0.1.4_arm64.zip" target="_blank" rel="nofollow noopener noreferrer">DeepSearch v0.1.4</a>
 
 ### 2. 启动 DeepSearch
 
@@ -59,6 +59,12 @@
   ```
 
 * 如需修改前端页面服务的端口号，请参考[这里](https://gitcode.com/openJiuwen/agent-studio/blob/main/scripts/README.md#如何修改前端页面服务的端口号)。
+
+* 在部署工具所在目录中，找到并编辑 .env.custom 配置文件，根据实际运行环境添加以下配置项：
+
+```
+IP=<运行部署工具的本机 IP 地址>
+```
 
 * 进入 *service.sh* 所在目录，打开**终端**，输入以下命令启动 DeepSearch：
 

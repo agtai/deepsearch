@@ -25,6 +25,7 @@
     - [base_node](./4.Developer%20Guide/API%20Reference/base_node.md)
     - [config](./4.Developer%20Guide/API%20Reference/config.md)
     - [main_nodes](./4.Developer%20Guide/API%20Reference/main_nodes.md)
+    - [report_convert](./4.Developer%20Guide/API%20Reference/report_convert.md)
     - [search_context](./4.Developer%20Guide/API%20Reference/search_context.md)
     - [workflow](./4.Developer%20Guide/API%20Reference/workflow.md)
 - [5. FAQ](./5.FAQ/README.md)

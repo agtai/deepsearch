@@ -4,8 +4,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from openjiuwen_deepsearch.algorithm.user_feedback_processor.action_definitions import (
+    ResolvedUserAction,
+    SupplementarySearchActionSubcategory,
     UserFeedbackActionCategory,
-    UserInputActionMapping,
     SynonymRewriteActionSubcategory,
     UserFeedbackRewriteStreamResult,
 )
@@ -35,21 +36,65 @@ class TestParseFeedback:
                 "expand",
                 "原文",
             ),
+            (
+                json.dumps(
+                    {
+                        "action": "expand",
+                        "selected_text": "原文",
+                        "start_offset": 10,
+                        "end_offset": 12,
+                        "user_instruction": "扩写",
+                        "rewrite_scope": "",
+                    }
+                ),
+                "expand",
+                "原文",
+            ),
             (json.dumps({"action": "finish"}), "finish", None),
         ],
     )
     def test_parse_valid_requests(self, raw_input, expected_action, expected_selected_text):
         data = UserFeedbackProcessor.parse_feedback(raw_input)
         assert data["action"] == expected_action
+        assert data["rewrite_scope"] == "selected_only"
         if expected_selected_text is not None:
             assert data["selected_text"] == expected_selected_text
+
+    def test_parse_valid_sync_request(self):
+        data = UserFeedbackProcessor.parse_feedback(
+            json.dumps({"action": "sync", "selected_text": "前端完整报告"}, ensure_ascii=False)
+        )
+
+        assert data["action"] == "sync"
+        assert data["selected_text"] == "前端完整报告"
+        assert data["rewrite_scope"] == "selected_only"
+
+    @pytest.mark.parametrize(
+        "action_value",
+        [
+            pytest.param(None, id="missing"),
+            pytest.param("", id="empty_string"),
+        ],
+    )
+    def test_parse_feedback_rejects_invalid_action(self, action_value):
+        payload = {
+            "selected_text": "原文",
+            "start_offset": 10,
+            "end_offset": 12,
+            "user_instruction": "补充这一段的信息",
+        }
+        if action_value is not None:
+            payload["action"] = action_value
+        with pytest.raises(CustomValueException) as exc_info:
+            UserFeedbackProcessor.parse_feedback(json.dumps(payload))
+
+        assert exc_info.value.error_code == StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_ACTION.code
 
     @pytest.mark.parametrize(
         ("raw_input", "expected_error_code", "message_fragment"),
         [
             ("not json", StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_JSON.code, "Expecting value"),
             ("1", StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_JSON.code, "expected JSON object"),
-            (json.dumps({"selected_text": "text"}), StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_ACTION.code, "action"),
         ],
     )
     def test_parse_invalid_requests(self, raw_input, expected_error_code, message_fragment):
@@ -70,22 +115,11 @@ class TestValidate:
             "end_offset": 12,
         }
 
-        assert UserFeedbackProcessor.validate(feedback, report_content, max_text_length=2000) is None
+        assert UserFeedbackProcessor.validate(feedback, report_content) is None
 
     @pytest.mark.parametrize(
-        ("feedback", "report_content", "max_text_length", "expected_error_code"),
+        ("feedback", "report_content", "expected_error_code"),
         [
-            (
-                {
-                    "action": "expand",
-                    "selected_text": "a" * 100,
-                    "start_offset": 0,
-                    "end_offset": 100,
-                },
-                "a" * 100,
-                50,
-                StatusCode.USER_FEEDBACK_PROCESSOR_TEXT_TOO_LONG.code,
-            ),
             (
                 {
                     "action": "expand",
@@ -94,7 +128,6 @@ class TestValidate:
                     "end_offset": 6,
                 },
                 "实际的报告内容",
-                2000,
                 StatusCode.USER_FEEDBACK_PROCESSOR_OFFSET_MISMATCH.code,
             ),
             (
@@ -105,7 +138,6 @@ class TestValidate:
                     "end_offset": 4,
                 },
                 "text",
-                2000,
                 StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_ACTION.code,
             ),
             (
@@ -116,19 +148,132 @@ class TestValidate:
                     "end_offset": 4,
                 },
                 "text",
-                2000,
+                StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_PARAM_TYPE.code,
+            ),
+            (
+                {
+                    "action": "expand",
+                    "selected_text": "text",
+                    "start_offset": 0,
+                    "end_offset": 4,
+                    "user_instruction": ["not", "a", "string"],
+                },
+                "text",
+                StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_PARAM_TYPE.code,
+            ),
+            (
+                {
+                    "action": "expand",
+                    "selected_text": "text",
+                    "start_offset": 0,
+                    "end_offset": 4,
+                    "rewrite_scope": 123,
+                },
+                "text",
+                StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_PARAM_TYPE.code,
+            ),
+            (
+                {
+                    "action": "supplementary_search",
+                    "selected_text": "text",
+                    "start_offset": 0,
+                    "end_offset": 4,
+                    "rewrite_scope": 123,
+                },
+                "text",
                 StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_PARAM_TYPE.code,
             ),
         ],
     )
-    def test_invalid_input(self, feedback, report_content, max_text_length, expected_error_code):
+    def test_invalid_input(self, feedback, report_content, expected_error_code):
         with pytest.raises(CustomValueException) as exc_info:
-            UserFeedbackProcessor.validate(feedback, report_content, max_text_length=max_text_length)
+            UserFeedbackProcessor.validate(feedback, report_content)
 
         assert exc_info.value.error_code == expected_error_code
 
     def test_finish_action_skips_offset_validation(self):
-        assert UserFeedbackProcessor.validate({"action": "finish"}, "any report content", max_text_length=2000) is None
+        assert UserFeedbackProcessor.validate({"action": "finish"}, "any report content") is None
+
+    def test_validate_sync_skips_offset_validation(self):
+        feedback = {"action": "sync", "selected_text": "前端完整报告"}
+        assert UserFeedbackProcessor.validate(feedback, "旧报告") is None
+
+    def test_validate_sync_requires_selected_text(self):
+        with pytest.raises(CustomValueException) as exc_info:
+            UserFeedbackProcessor.validate({"action": "sync"}, "旧报告")
+
+        assert exc_info.value.error_code == StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_PARAM_TYPE.code
+        assert "selected_text" in exc_info.value.message
+
+    def test_validate_sync_rejects_empty_selected_text(self):
+        with pytest.raises(CustomValueException) as exc_info:
+            UserFeedbackProcessor.validate({"action": "sync", "selected_text": ""}, "旧报告")
+
+        assert exc_info.value.error_code == StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_PARAM_TYPE.code
+        assert "selected_text" in exc_info.value.message
+
+    def test_validate_expand_no_longer_rejects_long_selection(self):
+        report_content = "a" * 5000
+        feedback = {
+            "action": "expand",
+            "selected_text": report_content,
+            "start_offset": 0,
+            "end_offset": len(report_content),
+        }
+        assert UserFeedbackProcessor.validate(feedback, report_content) is None
+
+    @pytest.mark.parametrize(
+        "extra_fields",
+        [
+            {"user_instruction": 123},
+            {"rewrite_scope": 123},
+        ],
+    )
+    def test_finish_action_rejects_non_string_optional_fields(self, extra_fields):
+        with pytest.raises(CustomValueException) as exc_info:
+            UserFeedbackProcessor.validate(
+                {"action": "finish", **extra_fields},
+                "any report content",
+            )
+        assert exc_info.value.error_code == StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_PARAM_TYPE.code
+
+    def test_validate_rejects_supplementary_search_with_invalid_rewrite_scope(self):
+        report_content = "原文"
+        feedback = {
+            "action": "supplementary_search",
+            "selected_text": "原文",
+            "start_offset": 0,
+            "end_offset": 2,
+            "rewrite_scope": "invalid_scope",
+        }
+        with pytest.raises(CustomValueException) as exc_info:
+            UserFeedbackProcessor.validate(feedback, report_content)
+
+        assert exc_info.value.error_code == StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_REWRITE_SCOPE.code
+
+    def test_validate_accepts_expand_with_non_enum_rewrite_scope(self):
+        report_content = "0123456789原文0123456789"
+        feedback = {
+            "action": "expand",
+            "selected_text": "原文",
+            "start_offset": 10,
+            "end_offset": 12,
+            "rewrite_scope": "ignored_for_non_supplementary",
+        }
+        assert UserFeedbackProcessor.validate(feedback, report_content) is None
+
+    def test_validate_rejects_scope_encoded_supplementary_action(self):
+        report_content = "原文"
+        feedback = {
+            "action": "supplementary_search_selected_and_related",
+            "selected_text": "原文",
+            "start_offset": 0,
+            "end_offset": 2,
+        }
+        with pytest.raises(CustomValueException) as exc_info:
+            UserFeedbackProcessor.validate(feedback, report_content)
+
+        assert exc_info.value.error_code == StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_ACTION.code
 
 
 class TestUserFeedbackProcessorDispatch:
@@ -149,11 +294,13 @@ class TestUserFeedbackProcessorDispatch:
         with patch.object(processor._synonym_rewriter, "synonym_rewrite", new_callable=AsyncMock) as mock_synonym_rewrite:
             mock_synonym_rewrite.return_value = {
                 "new_report": "改写后的文本后续内容",
+                "original_text": "原文",
+                "original_start_offset": 0,
+                "original_end_offset": 2,
+                "original_text_clean": "原文",
                 "rewritten_text": "改写后的文本",
-                "start_offset": 0,
-                "new_end_offset": 6,
-                "updated_messages": {"code": 0, "msg": "success", "data": []},
-                "updated_infer_messages": [],
+                "rewritten_start_offset": 0,
+                "rewritten_end_offset": 6,
             }
 
             result = await processor.execute(
@@ -168,19 +315,18 @@ class TestUserFeedbackProcessorDispatch:
 
         assert result == {
             "new_report": "改写后的文本后续内容",
+            "original_text": "原文",
+            "original_start_offset": 0,
+            "original_end_offset": 2,
             "original_text_clean": "原文",
             "rewritten_text": "改写后的文本",
-            "start_offset": 0,
-            "new_end_offset": 6,
-            "updated_citation_messages": {"code": 0, "msg": "success", "data": []},
-            "updated_infer_messages": [],
+            "rewritten_start_offset": 0,
+            "rewritten_end_offset": 6,
         }
         mock_synonym_rewrite.assert_awaited_once_with(
             feedback=feedback,
             report_content="原文后续内容",
-            citation_messages={},
             language="zh-CN",
-            infer_messages=[],
         )
 
     @pytest.mark.asyncio
@@ -193,6 +339,77 @@ class TestUserFeedbackProcessorDispatch:
             )
 
         assert exc_info.value.error_code == StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_ACTION.code
+
+    @pytest.mark.asyncio
+    async def test_execute_dispatches_supplementary_search_to_service(self, processor):
+        feedback = {
+            "action": "supplementary_search",
+            "rewrite_scope": "selected_only",
+            "selected_text": "原文",
+            "start_offset": 0,
+            "end_offset": 2,
+            "user_instruction": "补充这一段的信息",
+        }
+        final_result = {
+            "response_content": "原文后续内容",
+            "citation_messages": {},
+            "infer_messages": [],
+        }
+
+        with patch.object(
+            processor._supplementary_searcher,
+            "supplementary_search",
+            new_callable=AsyncMock,
+        ) as mock_supplementary_search:
+            mock_supplementary_search.return_value = {
+                "new_report": "原文后续内容",
+                "original_text": "原文",
+                "original_start_offset": 0,
+                "original_end_offset": 2,
+                "original_text_clean": "原文",
+                "rewritten_text": "## 第二章\n新章节内容",
+                "rewritten_start_offset": 0,
+                "rewritten_end_offset": 10,
+            }
+
+            result = await processor.execute(
+                feedback=feedback,
+                final_result=final_result,
+                language="zh-CN",
+            )
+
+        mock_supplementary_search.assert_awaited_once_with(
+            feedback=feedback,
+            final_result=final_result,
+            language="zh-CN",
+        )
+
+        assert result["rewritten_text"] == "## 第二章\n新章节内容"
+
+    @pytest.mark.asyncio
+    async def test_execute_sync_returns_updated_report_without_touching_metadata(self, processor):
+        citation_messages = {"code": 0, "msg": "success", "data": [{"id": 0}]}
+        infer_messages = [{"id": 9, "content": "保留"}]
+        result = await processor.execute(
+            feedback={"action": "sync", "selected_text": "用户改后的完整报告"},
+            final_result={
+                "response_content": "旧报告",
+                "citation_messages": citation_messages,
+                "infer_messages": infer_messages,
+            },
+            language="zh-CN",
+        )
+
+        assert result == {
+            "sync_only": True,
+            "new_report": "用户改后的完整报告",
+            "original_text": "旧报告",
+            "original_start_offset": 0,
+            "original_end_offset": 3,
+            "rewritten_text": "用户改后的完整报告",
+            "rewritten_start_offset": 0,
+            "rewritten_end_offset": 9,
+        }
 
     def test_build_stream_result_returns_none_for_non_rewrite_action(self):
         feedback = {
@@ -209,6 +426,71 @@ class TestUserFeedbackProcessorDispatch:
 
         assert UserFeedbackProcessor.build_stream_result(feedback, action_result) is None
 
+    def test_build_stream_result_returns_none_for_sync_action(self):
+        assert UserFeedbackProcessor.build_stream_result(
+            {"action": "sync", "selected_text": "完整报告"},
+            {"sync_only": True, "new_report": "完整报告"},
+        ) is None
+
+    def test_build_stream_result_builds_synonym_payload_from_action_result(self):
+        feedback = {
+            "action": "expand",
+            "selected_text": "前端原文",
+            "start_offset": 100,
+            "end_offset": 104,
+        }
+        action_result = {
+            "original_text": "执行结果原文",
+            "original_start_offset": 3,
+            "original_end_offset": 7,
+            "rewritten_text": "执行结果改写",
+            "rewritten_start_offset": 3,
+            "rewritten_end_offset": 9,
+        }
+
+        result = UserFeedbackProcessor.build_stream_result(feedback, action_result)
+
+        assert result == UserFeedbackRewriteStreamResult(
+            original_text="执行结果原文",
+            original_start_offset=3,
+            original_end_offset=7,
+            rewritten_text="执行结果改写",
+            rewritten_start_offset=3,
+            rewritten_end_offset=9,
+            action_category=UserFeedbackActionCategory.SYNONYM_REWRITE,
+            action_subcategory=SynonymRewriteActionSubcategory.EXPAND,
+        )
+
+    def test_build_stream_result_builds_local_edit_payload_for_supplementary_search(self):
+        feedback = {
+            "action": "supplementary_search",
+            "rewrite_scope": "selected_only",
+            "selected_text": "原文",
+            "start_offset": 3,
+            "end_offset": 5,
+        }
+        action_result = {
+            "original_text": "## 第二章\n旧章节内容",
+            "original_start_offset": 0,
+            "original_end_offset": 11,
+            "rewritten_text": "## 第二章\n新章节内容",
+            "rewritten_start_offset": 0,
+            "rewritten_end_offset": 11,
+        }
+
+        result = UserFeedbackProcessor.build_stream_result(feedback, action_result)
+
+        assert result == UserFeedbackRewriteStreamResult(
+            original_text="## 第二章\n旧章节内容",
+            original_start_offset=0,
+            original_end_offset=11,
+            rewritten_text="## 第二章\n新章节内容",
+            rewritten_start_offset=0,
+            rewritten_end_offset=11,
+            action_category=UserFeedbackActionCategory.SUPPLEMENTARY_SEARCH,
+            action_subcategory=SupplementarySearchActionSubcategory.SUPPLEMENTARY_SEARCH,
+        )
+
     def test_build_stream_result_uses_rewrite_error_errmsg_for_invalid_rewrite_mapping(self):
         feedback = {
             "action": "expand",
@@ -217,16 +499,19 @@ class TestUserFeedbackProcessorDispatch:
             "end_offset": 2,
         }
         action_result = {
+            "original_text": "原文",
+            "original_start_offset": 0,
+            "original_end_offset": 2,
             "rewritten_text": "改写",
-            "start_offset": 0,
-            "new_end_offset": 2,
+            "rewritten_start_offset": 0,
+            "rewritten_end_offset": 2,
         }
 
         with patch(
-            "openjiuwen_deepsearch.algorithm.user_feedback_processor.user_feedback_processor.resolve_user_input_action",
-            return_value=UserInputActionMapping(
+            "openjiuwen_deepsearch.algorithm.user_feedback_processor.user_feedback_processor.resolve_feedback_action",
+            return_value=ResolvedUserAction(
                 action_category=UserFeedbackActionCategory.SYNONYM_REWRITE,
-                action_subcategory=None,
+                action_subcategory=SupplementarySearchActionSubcategory.SUPPLEMENTARY_SEARCH,
             ),
         ):
             with pytest.raises(CustomRuntimeException) as exc_info:
@@ -234,7 +519,7 @@ class TestUserFeedbackProcessorDispatch:
 
         assert exc_info.value.error_code == StatusCode.USER_FEEDBACK_PROCESSOR_REWRITE_ERROR.code
         assert exc_info.value.message == StatusCode.USER_FEEDBACK_PROCESSOR_REWRITE_ERROR.errmsg.format(
-            e="Rewrite stream result requires synonym_rewrite subcategory, got action: expand"
+            e="Rewrite stream result requires synonym_rewrite subcategory, got supplementary_search"
         )
 
 
@@ -285,10 +570,13 @@ class TestSendResult:
             "rewritten_end_offset": 16,
             "action_category": "synonym_rewrite",
             "action_subcategory": "expand",
+            "feedback_interaction_count": 0,
             "final_result": {
                 "response_content": "完整改写后的报告",
                 "citation_messages": {"code": 0, "msg": "success", "data": []},
                 "infer_messages": [{"id": 0, "content": "保留推理"}],
+                "exception_info": "[212405] stale error",
+                "warning_info": "ignored",
             },
         }
 
@@ -305,6 +593,57 @@ class TestSendResult:
         )
 
         session.write_custom_stream.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_send_result_outputs_supplementary_search_metadata(self):
+        session = MagicMock()
+        session.write_custom_stream = AsyncMock()
+
+        feedback = {"action": "supplementary_search"}
+        result = UserFeedbackRewriteStreamResult(
+            original_text="原始文本",
+            original_start_offset=0,
+            original_end_offset=4,
+            rewritten_text="## 第二章\n新章节内容",
+            rewritten_start_offset=0,
+            rewritten_end_offset=11,
+            action_category=UserFeedbackActionCategory.SUPPLEMENTARY_SEARCH,
+            action_subcategory=SupplementarySearchActionSubcategory.SUPPLEMENTARY_SEARCH,
+        )
+
+        await UserFeedbackProcessor.send_result(
+            session=session,
+            feedback=feedback,
+            result=result,
+            final_result={
+                "response_content": "新报告",
+                "citation_messages": {"data": []},
+                "infer_messages": [],
+            },
+        )
+
+        payload = session.write_custom_stream.await_args.args[0]
+        content = json.loads(payload["content"])
+        assert content["action_category"] == "supplementary_search"
+        assert content["action_subcategory"] == "supplementary_search"
+        assert content["final_result"]["response_content"] == "新报告"
+
+    @pytest.mark.asyncio
+    async def test_send_result_outputs_lightweight_sync_ack(self):
+        session = MagicMock()
+        session.write_custom_stream = AsyncMock()
+
+        await UserFeedbackProcessor.send_result(
+            session=session,
+            feedback={"action": "sync", "selected_text": "完整报告"},
+            result=None,
+        )
+
+        payload = session.write_custom_stream.await_args.args[0]
+        assert json.loads(payload["content"]) == {
+            "action_category": "sync",
+            "synced": True,
+        }
 
 
 class TestSendError:

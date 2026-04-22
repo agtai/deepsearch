@@ -260,6 +260,7 @@ class TemplateUtils:
 
     @classmethod
     def postprocess_structure(cls, headings_output: str) -> str:
+        """对模型输出的大纲结构做标准化后处理。"""
         lines = headings_output.strip().splitlines()
         h1_count = sum(1 for line in lines if line.startswith("# "))
 
@@ -302,6 +303,7 @@ class TemplateUtils:
 
     @classmethod
     def postprocess_structure_keep_content(cls, headings_output: str) -> str:
+        """在保留正文内容的前提下修复并标准化结构。"""
         lines = headings_output.strip().splitlines()
         h1_count, skip = TemplateUtils.get_h1_count_skip(lines)
 
@@ -464,13 +466,13 @@ class TemplateUtils:
             try:
                 level = int(style_name.split()[-1])
                 return f"{'#' * level} {text}"
-            except(ValueError, IndexError):
+            except (ValueError, IndexError):
                 return text  # Fallback to normal text if parsing fails
         elif paragraph.style.name.lower().startswith("hh"):
             try:
                 level = int(style_name[2:])
                 return f"{'#' * level} {text}"
-            except(ValueError, IndexError):
+            except (ValueError, IndexError):
                 return text  # Fallback to normal text if parsing fails
         elif paragraph.style.name.lower().startswith("list"):
             return f"- {text}"

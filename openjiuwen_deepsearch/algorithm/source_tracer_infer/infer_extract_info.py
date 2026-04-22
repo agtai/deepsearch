@@ -110,7 +110,6 @@ class ResearchInferPreprocess():
 
         # 处理各个章节
         for i, match in enumerate(h1_matches):
-            title = match.group(1).strip()
             content_start = match.end()
 
             if i < len(h1_matches) - 1:
@@ -133,9 +132,9 @@ class ResearchInferPreprocess():
         logger.info(f"[INFERENCE INFO EXTRACT] extract_conclusions starting...")
 
         detection_func_and_args = {"detection_func": type_check, "args": list}
-        tasks = [call_model(self.llm_model, "infer_extract_conclusion_prompt", {"input": section.get("content", "")}, 
-                            detection_func_and_args=detection_func_and_args, 
-                            agent_name=NodeId.SOURCE_TRACER_INFER.value + 
+        tasks = [call_model(self.llm_model, "infer_extract_conclusion_prompt", {"input": section.get("content", "")},
+                            detection_func_and_args=detection_func_and_args,
+                            agent_name=NodeId.SOURCE_TRACER_INFER.value +
                             "_extract_conclusion") for section in sections]
         results = await asyncio.gather(*tasks)
         if LogManager.is_sensitive():
@@ -176,14 +175,12 @@ class ResearchInferPreprocess():
                 'content_without_citation': self._clean_citation(content),
                 'found': True
             }
-        else:
-
-            return {
-                'sentence_section_index': -1,
-                'start_pos': -1,
-                'end_pos': -1,
-                'found': False
-            }
+        return {
+            'sentence_section_index': -1,
+            'start_pos': -1,
+            'end_pos': -1,
+            'found': False
+        }
 
     def _clean_citation(self, content: str) -> str:
         """

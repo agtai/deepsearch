@@ -3,6 +3,7 @@
 import base64
 import re
 from abc import ABC, abstractmethod
+from tempfile import TemporaryDirectory
 from io import BytesIO
 from pathlib import Path
 
@@ -10,34 +11,112 @@ import docx
 import markdown2
 from docx.document import Document
 
+from server.deepsearch.core.manager.report_manager.docx_offline import convert_md_to_docx
+from server.deepsearch.core.manager.report_manager.html_offline import convert_md_to_html
+from server.deepsearch.core.manager.report_manager.report_bundle import build_report_bundle, pack_bundle_to_base64
 from server.deepsearch.core.manager.report_manager.word_utils import set_global_styles, html_to_doc
 
 
 class DefaultReportFormatProcessor(ABC):
+    """Define the common interface for report export processors."""
+
     @staticmethod
     def _base64_to_raw(base64_content: str) -> str:
+        """Decode a base64 UTF-8 string into raw text.
+
+        Args:
+            base64_content: base64 编码后的 UTF-8 文本。
+
+        Returns:
+            str: 解码后的原始文本内容。
+        """
         return base64.b64decode(base64_content.encode("utf-8")).decode("utf-8")
 
     @staticmethod
     @abstractmethod
     def _raw_to_base64(raw_report) -> str:
-        pass
+        """Encode a raw export artifact into base64 content.
+
+        Args:
+            raw_report: 原始导出产物。
+
+        Returns:
+            str: base64 编码后的导出内容。
+        """
+        raise NotImplementedError
 
     @classmethod
     def base64_convert_from_markdown(cls, b64_md_report_content: str):
+        """Convert base64 Markdown content into a base64 export artifact.
+
+        Args:
+            b64_md_report_content: base64 编码后的 Markdown 内容。
+
+        Returns:
+            str: base64 编码后的转换结果。
+        """
         raw_md_report_content = cls._base64_to_raw(b64_md_report_content)
         raw_converted_report = cls.convert_from_markdown(raw_md_report_content)
         return cls._raw_to_base64(raw_converted_report)
 
+    def convert_from_final_result_to_bundle_base64(self, final_result: dict) -> str:
+        """Convert final_result content into a base64 ZIP bundle.
+
+        Args:
+            final_result: 工作流最终结果字典。
+
+        Returns:
+            str: base64 编码后的 ZIP 压缩包内容。
+
+        Raises:
+            NotImplementedError: 当前处理器尚未实现该能力。
+        """
+        with TemporaryDirectory(prefix="report_convert_") as tmpdir:
+            workspace = Path(tmpdir)
+            self.convert_from_final_result(final_result, workspace)
+            return pack_bundle_to_base64(workspace / "report_bundle")
+
     @classmethod
     @abstractmethod
     def convert_from_markdown(cls, md_report_content: str):
-        pass
+        """Convert raw Markdown text into a target artifact.
+
+        Args:
+            md_report_content: 原始 Markdown 文本。
+
+        Returns:
+            Any: 目标导出产物。
+        """
+        raise NotImplementedError
+
+    @classmethod
+    @abstractmethod
+    def convert_from_final_result(cls, final_result: dict, workspace: Path):
+        """Convert final_result into an on-disk export artifact.
+
+        Args:
+            final_result: 工作流最终结果字典。
+            workspace: 当前导出任务的工作目录。
+
+        Returns:
+            Any: 转换后的主产物内容或路径。
+        """
+        raise NotImplementedError
 
 
 class ReportHtml(DefaultReportFormatProcessor):
+    """Provide HTML export support for report conversion."""
+
     @staticmethod
     def _raw_to_base64(raw_report: str) -> str:
+        """Encode HTML text into base64.
+
+        Args:
+            raw_report: 原始 HTML 文本。
+
+        Returns:
+            str: base64 编码后的 HTML。
+        """
         return base64.b64encode(raw_report.encode("utf-8")).decode("utf-8")
 
     @staticmethod
@@ -111,10 +190,36 @@ class ReportHtml(DefaultReportFormatProcessor):
 
         return html_report_content
 
+    @classmethod
+    def convert_from_final_result(cls, final_result: dict, workspace: Path) -> str:
+        """Convert final_result into HTML text through the bundle workspace.
+
+        Args:
+            final_result: 工作流最终结果字典。
+            workspace: 当前导出任务的工作目录。
+
+        Returns:
+            str: 最终导出的 HTML 文本。
+        """
+        bundle = build_report_bundle(final_result, workspace)
+        output_html = bundle.root_dir / "report.html"
+        convert_md_to_html(bundle.markdown_path, output_html)
+        return output_html.read_text(encoding="utf-8")
+
 
 class ReportWord(DefaultReportFormatProcessor):
+    """Provide DOCX export support for report conversion."""
+
     @staticmethod
     def _raw_to_base64(raw_report: Document) -> str:
+        """Encode a DOCX document into base64.
+
+        Args:
+            raw_report: python-docx Document 对象。
+
+        Returns:
+            str: base64 编码后的 DOCX 二进制。
+        """
         buffer = BytesIO()
         raw_report.save(buffer)
         return base64.b64encode(buffer.getvalue()).decode("utf-8")
@@ -147,3 +252,19 @@ class ReportWord(DefaultReportFormatProcessor):
         # convert to word
         doc = cls._html_to_word(html_report_content)
         return doc
+
+    @classmethod
+    def convert_from_final_result(cls, final_result: dict, workspace: Path) -> Path:
+        """Convert final_result into a DOCX file through the pandoc pipeline.
+
+        Args:
+            final_result: 工作流最终结果字典。
+            workspace: 当前导出任务的工作目录。
+
+        Returns:
+            Path: 导出的 DOCX 文件路径。
+        """
+        bundle = build_report_bundle(final_result, workspace)
+        output_docx = bundle.root_dir / "report.docx"
+        convert_md_to_docx(bundle.markdown_path, output_docx)
+        return output_docx

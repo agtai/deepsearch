@@ -240,7 +240,7 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 - **outline_interaction_max_rounds**(int, 可选)：大纲交互最大轮次，取值范围：[1, 100]。默认值：`3`。
 - **source_tracer_research_trace_source_switch**(bool, 可选)：溯源功能开关。默认值：`True`。
 - **source_tracer_infer_switch**(bool, 可选)：溯源推理功能开关。默认值：`True`。
-- **llm_config**(Dict[Literal["general", "plan_understanding", "info_collecting", "writing_checking"], LLMConfig], 可选)：LLM模型配置。默认值：`dict()`。
+- **llm_config**(Dict[Literal["general", "plan_understanding", "info_collecting", "writing_checking", "vlm_chart_generating"], LLMConfig], 可选)：LLM模型配置。默认值：`dict()`。
 - **info_collector_search_method**(Literal["web", "local", "all"], 可选)：搜索方式，`web`：联网增强搜索，`local`：本地搜索工具搜索，`all`：联网增强+本地融合搜索。默认值：`"web"`。
 - **web_search_engine_config**(WebSearchEngineConfig, 可选)：联网增强引擎配置。默认值：`WebSearchEngineConfig()`。
 - **local_search_engine_config**(LocalSearchEngineConfig, 可选)：本地搜索引擎配置。默认值：`LocalSearchEngineConfig()`。
@@ -248,7 +248,11 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 - **custom_local_search_config**(CustomLocalSearchConfig, 可选)：自定义本地搜索配置。默认值：`CustomLocalSearchConfig()`。
 - **web_search_max_qps**(float, 可选)：联网增强引擎最大 QPS，0 表示不限流，支持浮点数如 0.5 表示每 2 秒 1 个请求。默认值：`0`。
 - **user_feedback_processor_enable**(bool, 可选)：是否启用报告生成后的局部优化能力。默认值：`False`。
-- **user_feedback_processor_max_interactions**(int, 可选)：局部优化最大交互次数。默认值：`3`,可设置范围为1~5。
+- **user_feedback_processor_max_interactions**(int, 可选)：局部优化最大交互次数。默认值：`100`,可设置范围为1~100。
+- **stats_info_llm**(bool, 可选)：LLM调用统计开关。默认值：`False`。
+- **api_tools_config**(ApiToolsConfig，可选)：运行时 HTTP API 工具配置，用于在默认工具之外注入可调用工具。默认值：`ApiToolsConfig`。
+- **vlm_chart_generator_enable**(bool, 可选)：vlm迭代生成图功能开关，与`visualization_enable`功能互斥。
+- **vlm_chart_generator_max_iterations**(int, 可选)：vlm生成图迭代优化最大次数。默认值：`1`，可设置范围为0~3，0表示生成的图表不进行迭代优化，数值越大，耗时越长。
 
 **样例**：
 
@@ -278,6 +282,34 @@ general parallel
 >>> print(agent_config.execute_mode, agent_config.workflow_human_in_the_loop)
 commercial True
 ```
+
+## class openjiuwen_deepsearch.config.runtime_api_models.ApiToolsConfig
+```python
+class openjiuwen_deepsearch.config.runtime_api_models.ApiToolsConfig()
+```
+**ApiToolsConfig** 描述注入到工作流中的两类运行时 HTTP 工具列表，对应 **`AgentConfig.api_tools_config`**。
+
+**字段**：
+
+- **query_understanding_tools**(List[RuntimeApiToolConfig], 可选)：用于 **planner、outliner** 等与 query understanding 相关的阶段（实现上经 `build_runtime_api_tools(..., response_model=Plan|Outline)` 合并）。默认值：`[]`。
+- **collector_tools**(List[RuntimeApiToolConfig], 可选)：用于 **信息收集（collector）** 阶段。默认值：`[]`。
+
+**说明**：HTTP 服务若使用 **`DeepSearchRequest.tools`** 传入工具列表，服务端会将同一组规范化后的工具**同时**填入上述两个列表。
+
+## class openjiuwen_deepsearch.config.runtime_api_models.RuntimeApiToolConfig
+```python
+class openjiuwen_deepsearch.config.runtime_api_models.RuntimeApiToolConfig()
+```
+**RuntimeApiToolConfig** 描述单个 HTTP API 工具的调用方式与参数，由 **`build_runtime_api_tools`** 转为 `LocalFunction`。
+
+**字段**（节选，完整定义见源码 `runtime_api_models.py`）：
+
+- **tool_id**、**name**、**description**：工具标识与展示信息。
+- **path**、**base_url**、**http_method**：请求 URL 与动词；`path` 可为完整 URL。
+- **headers**：默认请求头列表。
+- **request_params**：请求参数（含 `send_method`：`none` / `header` / `query` / `body` 等）。
+- **response_wrapper**：响应包装类型（如 collector 侧 `search_result`）；与 planner/outliner 上传入的 **`response_model`** 路径不同，详见 `runtime_api.py` 实现。
+- **response_params**：保留字段，不参与当前返回映射逻辑。
 
 ## class openjiuwen_deepsearch.config.config.ServiceConfig
 ```python
@@ -324,12 +356,8 @@ class openjiuwen_deepsearch.config.config.ServiceConfig()
 - **source_tracer_citation_verify_max_concurrency_num**(int, 可选)：溯源校验最大并发数量。默认值：`30`。
 - **source_tracer_citation_verify_batch_size**(int, 可选)：溯源校验批次大小。默认值：`1`。
 
-### 用户反馈优化节点参数
-- **user_feedback_processor_max_text_length**(int, 可选)：单次选中文本最大长度。默认值：`2000`。
-
 ### 统计信息参数
 - **stats_info_node_duration**(bool, 可选)：节点持续时间统计。默认值：`False`。
-- **stats_info_llm**(bool, 可选)：LLM调用统计。默认值：`False`。
 - **stats_info_search**(bool, 可选)：搜索工具调用统计。默认值：`False`。
 
 ### 大模型超时参数

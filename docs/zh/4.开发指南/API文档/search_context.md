@@ -179,7 +179,8 @@ class openjiuwen_deepsearch.framework.openjiuwen.agent.search_context.FinalResul
 **字段**：
 - **response_content**(str)：响应内容。
 - **citation_messages**(dict)：引用信息。
-- **infer_messages**(dict): 溯源推理信息。
+- **infer_messages**(list): 溯源推理信息。报告导出时会读取其中的 `html_base64`，并写出为独立 HTML 资源。
+- **chart_messages**(list): vlm迭代生成图信息。报告导出时会读取其中的 `base64`，并写出为图片资源。
 - **exception_info**(str)：异常信息。
 - **warning_info**(str)：告警信息。
 
@@ -210,4 +211,5 @@ class openjiuwen_deepsearch.framework.openjiuwen.agent.search_context.SearchCont
 - **final_result**(FinalResult)：最终结果。
 - **debug_pre_step**(str)：上一步调试日志。
 - **feedback_interaction_count**(int)：报告生成后局部优化的交互次数。默认值：`0`。
+- **feedback_snapshot_sent**(bool)：是否已经向前端推送过初始反馈快照。默认值：`False`。
 - **rewrite_history**(List[Dict])：局部改写历史记录。

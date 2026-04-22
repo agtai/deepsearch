@@ -38,11 +38,10 @@ def handler_response(func):
             return data
         except Exception as e:
             if WebSearchEngineBasicException.CODE in str(e) or isinstance(e, ValidationError):
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-            elif isinstance(e, HTTPException):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+            if isinstance(e, HTTPException):
                 raise e
-            else:
-                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
 
     return wrapper
 
@@ -51,6 +50,7 @@ def handler_response(func):
 @handler_response
 def create_web_search_engine(request: WebSearchEngineCreateRequestDTO,
                              service: WebSearchEngineService = Depends(get_web_search_engine_service)):
+    """创建 Web 搜索引擎配置。"""
     return service.create_web_search_engine(request)
 
 
@@ -58,6 +58,7 @@ def create_web_search_engine(request: WebSearchEngineCreateRequestDTO,
 @handler_response
 def get_web_search_engine(space_id: str, web_search_engine_id: int,
                           service: WebSearchEngineService = Depends(get_web_search_engine_service)):
+    """按 id 查询 Web 搜索引擎配置。"""
     request = WebSearchEngineGetRequestDTO(space_id=space_id, web_search_engine_id=web_search_engine_id)
     return service.get_web_search_engine_by_id(request)
 
@@ -66,6 +67,7 @@ def get_web_search_engine(space_id: str, web_search_engine_id: int,
 @handler_response
 def get_web_search_engine_list(space_id: str,
                                service: WebSearchEngineService = Depends(get_web_search_engine_service)):
+    """查询指定空间下的 Web 搜索引擎列表。"""
     request = WebSearchEngineListRequestDTO(space_id=space_id)
     return service.get_web_search_engine_list(request=request)
 
@@ -74,6 +76,7 @@ def get_web_search_engine_list(space_id: str,
 @handler_response
 def update_web_search_engine(request: WebSearchEngineUpdateRequestDTO,
                              service: WebSearchEngineService = Depends(get_web_search_engine_service)):
+    """更新 Web 搜索引擎配置。"""
     return service.update_web_search_engine(request)
 
 
@@ -82,6 +85,7 @@ def update_web_search_engine(request: WebSearchEngineUpdateRequestDTO,
 @handler_response
 def delete_web_search_engine(space_id: str, web_search_engine_id: int,
                              service: WebSearchEngineService = Depends(get_web_search_engine_service)):
+    """删除指定的 Web 搜索引擎配置。"""
     request = WebSearchEngineDeleteRequestDTO(space_id=space_id, web_search_engine_id=web_search_engine_id)
     return service.delete_web_search_engine_by_id(request)
 
@@ -92,6 +96,7 @@ def delete_web_search_engine(space_id: str, web_search_engine_id: int,
 def post_web_search_engine(space_id: str, web_search_engine_id: int,
                            query: str = Body(default=DEFAULT_QUERY, embed=True),
                            service: WebSearchEngineService = Depends(get_web_search_engine_service)):
+    """使用指定引擎执行一次查询请求。"""
     request = WebSearchEnginePostRequestDTO(space_id=space_id, web_search_engine_id=web_search_engine_id,
                                             query=query)
     return service.post_web_search_engine(request)

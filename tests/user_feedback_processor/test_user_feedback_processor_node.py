@@ -2,6 +2,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from openjiuwen_deepsearch.algorithm.user_feedback_processor.action_definitions import (
     UserFeedbackActionCategory,
@@ -10,6 +11,7 @@ from openjiuwen_deepsearch.algorithm.user_feedback_processor.action_definitions 
 )
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
+from openjiuwen_deepsearch.config.config import AgentConfig
 from openjiuwen_deepsearch.framework.openjiuwen.agent.main_graph_nodes import UserFeedbackProcessorNode
 from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import Report
 from openjiuwen_deepsearch.utils.common_utils.stream_utils import StreamEvent
@@ -21,14 +23,22 @@ NODE_MODULE_PATH = "openjiuwen_deepsearch.framework.openjiuwen.agent.main_graph_
 
 
 def make_mock_session(config_overrides=None, search_context_overrides=None):
+    """构造用户反馈节点测试使用的 mock session。
+
+    Args:
+        config_overrides: 配置项覆盖内容。
+        search_context_overrides: 搜索上下文覆盖内容。
+
+    Returns:
+        带有全局状态读写桩函数的会话对象。
+    """
     session = MagicMock()
     session.write_custom_stream = AsyncMock()
     session.interact = AsyncMock()
 
     config = {
         "user_feedback_processor_enable": True,
-        "user_feedback_processor_max_interactions": 3,
-        "user_feedback_processor_max_text_length": 2000,
+        "user_feedback_processor_max_interactions": 100,
         "workflow_feedback_mode": "web",
         "workflow_human_in_the_loop": True,
     }
@@ -53,6 +63,7 @@ def make_mock_session(config_overrides=None, search_context_overrides=None):
         "language": "zh-CN",
         "current_report": report,
         "feedback_interaction_count": 0,
+        "feedback_snapshot_sent": False,
         "rewrite_history": [],
         "final_result": {
             "response_content": report.checked_trace_source_report_content,
@@ -95,6 +106,12 @@ def make_mock_session(config_overrides=None, search_context_overrides=None):
     return session
 
 
+def test_agent_config_rejects_feedback_max_interactions_above_100():
+    """校验反馈交互上限超过配置约束时会触发 Pydantic 校验失败。"""
+    with pytest.raises(ValidationError):
+        AgentConfig(user_feedback_processor_max_interactions=101)
+
+
 class TestUserFeedbackProcessorNode:
     @pytest.fixture
     def node(self):
@@ -109,8 +126,9 @@ class TestUserFeedbackProcessorNode:
         session = make_mock_session()
         result = node._pre_handle(None, session, None)
         assert result["disabled"] is False
-        assert result["max_interactions"] == 3
-        assert result["max_text_length"] == 2000
+        assert result["max_interactions"] == 100
+        assert result["feedback_snapshot_sent"] is False
+        assert "max_text_length" not in result
 
     @pytest.mark.asyncio
     async def test_do_invoke_disabled_goes_to_end(self, node):
@@ -136,6 +154,7 @@ class TestUserFeedbackProcessorNode:
         assert len(end_events) == 1
         assert end_events[0]["agent"] == NodeId.USER_FEEDBACK_PROCESSOR.value
         assert end_events[0]["content"] == "User feedback finished."
+        session.update_global_state.assert_any_call({"search_context.feedback_snapshot_sent": True})
 
     @pytest.mark.asyncio
     async def test_do_invoke_parse_error_loops_back(self, node):
@@ -176,6 +195,15 @@ class TestUserFeedbackProcessorNode:
             config_overrides={"user_feedback_processor_max_interactions": 1},
             search_context_overrides={"feedback_interaction_count": 1},
         )
+        session.interact.return_value = json.dumps(
+            {
+                "action": "expand",
+                "selected_text": "这是一段",
+                "start_offset": 0,
+                "end_offset": 4,
+                "user_instruction": "",
+            }
+        )
         result = await node._do_invoke(None, session, None)
         assert result["next_node"] == NodeId.END.value
         end_events = [
@@ -186,6 +214,50 @@ class TestUserFeedbackProcessorNode:
         assert len(end_events) == 1
         assert end_events[0]["agent"] == NodeId.USER_FEEDBACK_PROCESSOR.value
         assert end_events[0]["content"] == "Maximum interaction rounds reached."
+
+    @pytest.mark.asyncio
+    async def test_do_invoke_max_interactions_reached_bypasses_invalid_non_sync_validation(self, node):
+        session = make_mock_session(
+            config_overrides={"user_feedback_processor_max_interactions": 1},
+            search_context_overrides={"feedback_interaction_count": 1, "feedback_snapshot_sent": True},
+        )
+        session.interact.return_value = json.dumps(
+            {
+                "action": "expand",
+                "selected_text": "不匹配的内容",
+                "start_offset": 0,
+                "end_offset": 6,
+                "user_instruction": "",
+            }
+        )
+
+        with patch(f"{ALGO_CLASS_PATH}.send_error", new_callable=AsyncMock) as mock_send_error:
+            result = await node._do_invoke(None, session, None)
+
+        assert result["next_node"] == NodeId.END.value
+        mock_send_error.assert_not_awaited()
+        assert not any(
+            call.args[0] == {"search_context.feedback_interaction_count": 2}
+            for call in session.update_global_state.call_args_list
+        )
+
+    @pytest.mark.asyncio
+    async def test_do_invoke_max_interactions_reached_bypasses_invalid_json(self, node):
+        session = make_mock_session(
+            config_overrides={"user_feedback_processor_max_interactions": 1},
+            search_context_overrides={"feedback_interaction_count": 1, "feedback_snapshot_sent": True},
+        )
+        session.interact.return_value = "not valid json"
+
+        with patch(f"{ALGO_CLASS_PATH}.send_error", new_callable=AsyncMock) as mock_send_error:
+            result = await node._do_invoke(None, session, None)
+
+        assert result["next_node"] == NodeId.END.value
+        mock_send_error.assert_not_awaited()
+        assert not any(
+            call.args[0] == {"search_context.feedback_interaction_count": 2}
+            for call in session.update_global_state.call_args_list
+        )
 
     @pytest.mark.asyncio
     async def test_do_invoke_first_interaction_streams_full_report(self, node):
@@ -200,6 +272,30 @@ class TestUserFeedbackProcessorNode:
         _, _, streamed_content, streamed_node_id = mock_stream_output.await_args.args
         assert json.loads(streamed_content) == session.get_global_state("search_context.final_result")
         assert streamed_node_id == NodeId.USER_FEEDBACK_PROCESSOR.value
+
+    @pytest.mark.asyncio
+    async def test_do_invoke_does_not_resend_snapshot_after_flag_is_set(self, node):
+        session = make_mock_session(search_context_overrides={"feedback_snapshot_sent": True})
+        session.interact.return_value = json.dumps({"action": "finish"})
+
+        with patch(f"{NODE_MODULE_PATH}.custom_stream_output", new_callable=AsyncMock) as mock_stream_output:
+            result = await node._do_invoke(None, session, None)
+
+        assert result["next_node"] == NodeId.END.value
+        mock_stream_output.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_build_algorithm_output_persists_snapshot_flag_before_waiting_feedback(self, node):
+        session = make_mock_session()
+        current_inputs = node._pre_handle(None, session, None)
+
+        with patch(f"{NODE_MODULE_PATH}.custom_stream_output", new_callable=AsyncMock) as mock_stream_output:
+            with patch.object(node, "_get_user_feedback", new_callable=AsyncMock, side_effect=RuntimeError("interrupt")):
+                with pytest.raises(RuntimeError, match="interrupt"):
+                    await node._build_algorithm_output(current_inputs, session, None)
+
+        mock_stream_output.assert_awaited_once()
+        session.update_global_state.assert_any_call({"search_context.feedback_snapshot_sent": True})
 
     @pytest.mark.asyncio
     async def test_do_invoke_execute_exception_loops_back(self, node):
@@ -257,12 +353,13 @@ class TestUserFeedbackProcessorNode:
 
         execute_return = {
             "new_report": "扩写后的测试报告内容",
+            "original_text": "这是一段",
+            "original_start_offset": 0,
+            "original_end_offset": 4,
             "original_text_clean": "这是一段",
             "rewritten_text": "扩写后的测试报告内容",
-            "start_offset": 0,
-            "new_end_offset": 10,
-            "updated_citation_messages": {},
-            "updated_infer_messages": [{"id": 0, "content": "保留推理"}],
+            "rewritten_start_offset": 0,
+            "rewritten_end_offset": 10,
         }
 
         with patch(f"{ALGO_CLASS_PATH}.execute", new_callable=AsyncMock, return_value=execute_return):
@@ -274,29 +371,34 @@ class TestUserFeedbackProcessorNode:
         mock_send_result.assert_awaited_once()
         kwargs = mock_send_result.await_args.kwargs
         assert kwargs["session"] is session
-        assert kwargs["feedback"] == feedback
+        assert kwargs["feedback"] == {**feedback, "rewrite_scope": "selected_only"}
         assert kwargs["result"] == UserFeedbackRewriteStreamResult(
-            original_text=feedback["selected_text"],
-            original_start_offset=feedback["start_offset"],
-            original_end_offset=feedback["end_offset"],
+            original_text=execute_return["original_text"],
+            original_start_offset=execute_return["original_start_offset"],
+            original_end_offset=execute_return["original_end_offset"],
             rewritten_text=execute_return["rewritten_text"],
-            rewritten_start_offset=execute_return["start_offset"],
-            rewritten_end_offset=execute_return["new_end_offset"],
+            rewritten_start_offset=execute_return["rewritten_start_offset"],
+            rewritten_end_offset=execute_return["rewritten_end_offset"],
             action_category=UserFeedbackActionCategory.SYNONYM_REWRITE,
             action_subcategory=SynonymRewriteActionSubcategory.EXPAND,
         )
         assert kwargs["final_result"]["response_content"] == execute_return["new_report"]
-        assert kwargs["final_result"]["citation_messages"] == execute_return["updated_citation_messages"]
-        assert kwargs["final_result"]["infer_messages"] == execute_return["updated_infer_messages"]
+        assert kwargs["final_result"]["citation_messages"] == {
+            "code": 0,
+            "msg": "success",
+            "data": [
+                {
+                    "id": 0,
+                    "reference_index": 1,
+                    "citation_start_offset": 8,
+                    "citation_end_offset": 28,
+                }
+            ],
+        }
+        assert kwargs["final_result"]["infer_messages"] == []
 
         session.update_global_state.assert_any_call(
             {"search_context.final_result.response_content": execute_return["new_report"]}
-        )
-        session.update_global_state.assert_any_call(
-            {"search_context.final_result.citation_messages": execute_return["updated_citation_messages"]}
-        )
-        session.update_global_state.assert_any_call(
-            {"search_context.final_result.infer_messages": execute_return["updated_infer_messages"]}
         )
         session.update_global_state.assert_any_call({"search_context.feedback_interaction_count": 1})
 
@@ -309,13 +411,375 @@ class TestUserFeedbackProcessorNode:
         assert rewrite_history_updates[-1]["search_context.rewrite_history"] == [
             {
                 "action": "expand",
+                "rewrite_scope": "selected_only",
                 "selected_text": "这是一段",
                 "selected_text_clean": "这是一段",
                 "original_start_offset": 0,
                 "original_end_offset": 4,
                 "rewritten_text": execute_return["rewritten_text"],
                 "rewritten_start_offset": 0,
-                "rewritten_end_offset": execute_return["new_end_offset"],
+                "rewritten_end_offset": execute_return["rewritten_end_offset"],
                 "user_instruction": "",
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_do_invoke_supplementary_search_success_updates_final_result_and_history(self, node):
+        session = make_mock_session(search_context_overrides={
+            "final_result": {
+                "response_content": "这是一段测试报告[[1]](https://a.com)内容结束",
+                "citation_messages": {
+                    "code": 0,
+                    "msg": "success",
+                    "data": [
+                        {
+                            "id": 0,
+                            "reference_index": 1,
+                            "citation_start_offset": 8,
+                            "citation_end_offset": 28,
+                        }
+                    ],
+                },
+                "infer_messages": [],
+                "exception_info": "[212405] Rewrite failed: stale error",
+            }
+        })
+        feedback_payload = {
+            "action": "supplementary_search",
+            "rewrite_scope": "selected_only",
+            "selected_text": "这是一段",
+            "start_offset": 0,
+            "end_offset": 4,
+            "user_instruction": "补充行业背景",
+        }
+        session.interact.return_value = json.dumps(feedback_payload)
+
+        execute_return = {
+            "new_report": "新报告",
+            "original_text": "这是一段",
+            "original_start_offset": 0,
+            "original_end_offset": 4,
+            "original_text_clean": "这是一段",
+            "rewritten_text": "## 第一章\n新报告",
+            "rewritten_start_offset": 0,
+            "rewritten_end_offset": 8,
+            "section_start_offset": 0,
+            "section_end_offset": 4,
+            "collector_summary": "补充摘要",
+        }
+
+        with patch(f"{ALGO_CLASS_PATH}.execute", new_callable=AsyncMock, return_value=execute_return):
+            with patch(f"{ALGO_CLASS_PATH}.send_result", new_callable=AsyncMock) as mock_send_result:
+                with patch(f"{NODE_MODULE_PATH}.add_debug_log_wrapper"):
+                    result = await node._do_invoke(None, session, None)
+
+        assert result["next_node"] == NodeId.USER_FEEDBACK_PROCESSOR.value
+        mock_send_result.assert_awaited_once()
+        session.update_global_state.assert_any_call({"search_context.final_result.response_content": "新报告"})
+
+        rewrite_history_updates = [
+            call.args[0]
+            for call in session.update_global_state.call_args_list
+            if "search_context.rewrite_history" in call.args[0]
+        ]
+        assert rewrite_history_updates
+        assert rewrite_history_updates[-1]["search_context.rewrite_history"] == [
+            {
+                "action": "supplementary_search",
+                "rewrite_scope": "selected_only",
+                "selected_text": "这是一段",
+                "selected_text_clean": "这是一段",
+                "original_start_offset": 0,
+                "original_end_offset": 4,
+                "rewritten_text": "## 第一章\n新报告",
+                "rewritten_start_offset": 0,
+                "rewritten_end_offset": 8,
+                "section_start_offset": 0,
+                "section_end_offset": 4,
+                "collector_summary": "补充摘要",
+                "user_instruction": "补充行业背景",
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_do_invoke_sync_updates_report_without_consuming_interaction(self, node):
+        session = make_mock_session(search_context_overrides={"feedback_snapshot_sent": True})
+        feedback_payload = {
+            "action": "sync",
+            "selected_text": "完整编辑后报告",
+        }
+        session.interact.return_value = json.dumps(feedback_payload)
+
+        execute_return = {
+            "sync_only": True,
+            "new_report": "完整编辑后报告",
+            "original_text": "测试报告内容",
+            "original_start_offset": 0,
+            "original_end_offset": 6,
+            "rewritten_text": "完整编辑后报告",
+            "rewritten_start_offset": 0,
+            "rewritten_end_offset": 8,
+        }
+
+        with patch(f"{ALGO_CLASS_PATH}.execute", new_callable=AsyncMock, return_value=execute_return):
+            with patch(f"{ALGO_CLASS_PATH}.send_result", new_callable=AsyncMock) as mock_send_result:
+                with patch(f"{NODE_MODULE_PATH}.add_debug_log_wrapper"):
+                    result = await node._do_invoke(None, session, None)
+
+        assert result["next_node"] == NodeId.USER_FEEDBACK_PROCESSOR.value
+        send_result_kwargs = mock_send_result.await_args.kwargs
+        assert send_result_kwargs["feedback_interaction_count"] == 0
+        session.update_global_state.assert_any_call({"search_context.final_result.response_content": "完整编辑后报告"})
+        assert not any(
+            call.args[0] == {"search_context.feedback_interaction_count": 1}
+            for call in session.update_global_state.call_args_list
+        )
+        rewrite_history_updates = [
+            call.args[0]
+            for call in session.update_global_state.call_args_list
+            if "search_context.rewrite_history" in call.args[0]
+        ]
+        assert rewrite_history_updates
+        assert rewrite_history_updates[-1]["search_context.rewrite_history"] == [
+            {
+                "action": "sync",
+                "rewrite_scope": "selected_only",
+                "selected_text": "完整编辑后报告",
+                "selected_text_clean": "完整编辑后报告",
+                "original_start_offset": 0,
+                "original_end_offset": 6,
+                "rewritten_text": "完整编辑后报告",
+                "rewritten_start_offset": 0,
+                "rewritten_end_offset": 8,
+                "user_instruction": "",
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_do_invoke_sync_skips_history_when_report_is_unchanged(self, node):
+        session = make_mock_session(search_context_overrides={
+            "feedback_snapshot_sent": True,
+            "final_result": {
+                "response_content": "完整编辑后报告",
+                "citation_messages": {"data": []},
+                "infer_messages": [],
+            },
+        })
+        feedback_payload = {
+            "action": "sync",
+            "selected_text": "完整编辑后报告",
+        }
+        session.interact.return_value = json.dumps(feedback_payload)
+
+        execute_return = {
+            "sync_only": True,
+            "new_report": "完整编辑后报告",
+            "original_text": "完整编辑后报告",
+            "original_start_offset": 0,
+            "original_end_offset": 8,
+            "rewritten_text": "完整编辑后报告",
+            "rewritten_start_offset": 0,
+            "rewritten_end_offset": 8,
+        }
+
+        with patch(f"{ALGO_CLASS_PATH}.execute", new_callable=AsyncMock, return_value=execute_return):
+            with patch(f"{ALGO_CLASS_PATH}.send_result", new_callable=AsyncMock):
+                with patch(f"{NODE_MODULE_PATH}.add_debug_log_wrapper"):
+                    result = await node._do_invoke(None, session, None)
+
+        assert result["next_node"] == NodeId.USER_FEEDBACK_PROCESSOR.value
+        rewrite_history_updates = [
+            call.args[0]
+            for call in session.update_global_state.call_args_list
+            if "search_context.rewrite_history" in call.args[0]
+        ]
+        assert not rewrite_history_updates
+
+    @pytest.mark.asyncio
+    async def test_do_invoke_sync_keeps_only_latest_ten_sync_history_records(self, node):
+        existing_history = [
+            {
+                "action": "expand",
+                "rewrite_scope": "selected_only",
+                "selected_text": "旧局部改写",
+                "selected_text_clean": "旧局部改写",
+                "original_start_offset": 0,
+                "original_end_offset": 5,
+                "rewritten_text": "旧局部改写结果",
+                "rewritten_start_offset": 0,
+                "rewritten_end_offset": 7,
+                "user_instruction": "",
+            }
+        ] + [
+            {
+                "action": "sync",
+                "rewrite_scope": "selected_only",
+                "selected_text": f"旧同步{i}",
+                "selected_text_clean": f"旧同步{i}",
+                "original_start_offset": 0,
+                "original_end_offset": len(f"旧同步{i}"),
+                "rewritten_text": f"旧同步{i}",
+                "rewritten_start_offset": 0,
+                "rewritten_end_offset": len(f"旧同步{i}"),
+                "user_instruction": "",
+            }
+            for i in range(10)
+        ]
+        session = make_mock_session(search_context_overrides={
+            "feedback_snapshot_sent": True,
+            "rewrite_history": existing_history,
+            "final_result": {
+                "response_content": "旧完整报告",
+                "citation_messages": {"data": []},
+                "infer_messages": [],
+            },
+        })
+        feedback_payload = {
+            "action": "sync",
+            "selected_text": "新的完整编辑后报告",
+        }
+        session.interact.return_value = json.dumps(feedback_payload)
+
+        execute_return = {
+            "sync_only": True,
+            "new_report": "新的完整编辑后报告",
+            "original_text": "旧完整报告",
+            "original_start_offset": 0,
+            "original_end_offset": 5,
+            "rewritten_text": "新的完整编辑后报告",
+            "rewritten_start_offset": 0,
+            "rewritten_end_offset": 10,
+        }
+
+        with patch(f"{ALGO_CLASS_PATH}.execute", new_callable=AsyncMock, return_value=execute_return):
+            with patch(f"{ALGO_CLASS_PATH}.send_result", new_callable=AsyncMock):
+                with patch(f"{NODE_MODULE_PATH}.add_debug_log_wrapper"):
+                    result = await node._do_invoke(None, session, None)
+
+        assert result["next_node"] == NodeId.USER_FEEDBACK_PROCESSOR.value
+        rewrite_history_updates = [
+            call.args[0]
+            for call in session.update_global_state.call_args_list
+            if "search_context.rewrite_history" in call.args[0]
+        ]
+        assert rewrite_history_updates
+        updated_history = rewrite_history_updates[-1]["search_context.rewrite_history"]
+        assert len(updated_history) == 11
+        assert updated_history[0]["action"] == "expand"
+        sync_entries = [item for item in updated_history if item["action"] == "sync"]
+        assert len(sync_entries) == 10
+        assert sync_entries[0]["selected_text"] == "旧同步1"
+        assert sync_entries[-1]["selected_text"] == "新的完整编辑后报告"
+
+    @pytest.mark.asyncio
+    async def test_do_invoke_sync_validation_error_does_not_consume_interaction(self, node):
+        session = make_mock_session(search_context_overrides={"feedback_snapshot_sent": True})
+        session.interact.return_value = json.dumps({"action": "sync"})
+
+        with patch(f"{ALGO_CLASS_PATH}.send_error", new_callable=AsyncMock) as mock_send_error:
+            result = await node._do_invoke(None, session, None)
+
+        assert result["next_node"] == NodeId.USER_FEEDBACK_PROCESSOR.value
+        mock_send_error.assert_awaited_once()
+        assert not any(
+            call.args[0] == {"search_context.feedback_interaction_count": 1}
+            for call in session.update_global_state.call_args_list
+        )
+
+    @pytest.mark.asyncio
+    async def test_do_invoke_sync_bypasses_max_interactions_limit(self, node):
+        session = make_mock_session(
+            config_overrides={"user_feedback_processor_max_interactions": 1},
+            search_context_overrides={
+                "feedback_interaction_count": 1,
+                "feedback_snapshot_sent": True,
+            },
+        )
+        feedback_payload = {
+            "action": "sync",
+            "selected_text": "完整编辑后报告",
+        }
+        session.interact.return_value = json.dumps(feedback_payload)
+
+        execute_return = {
+            "sync_only": True,
+            "new_report": "完整编辑后报告",
+            "original_text": "测试报告内容",
+            "original_start_offset": 0,
+            "original_end_offset": 6,
+            "rewritten_text": "完整编辑后报告",
+            "rewritten_start_offset": 0,
+            "rewritten_end_offset": 8,
+        }
+
+        with patch(f"{ALGO_CLASS_PATH}.execute", new_callable=AsyncMock, return_value=execute_return) as mock_execute:
+            with patch(f"{ALGO_CLASS_PATH}.send_result", new_callable=AsyncMock):
+                with patch(f"{NODE_MODULE_PATH}.add_debug_log_wrapper"):
+                    result = await node._do_invoke(None, session, None)
+
+        assert result["next_node"] == NodeId.USER_FEEDBACK_PROCESSOR.value
+        mock_execute.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_do_invoke_selected_and_related_history_uses_actual_replaced_range(self, node):
+        session = make_mock_session(search_context_overrides={
+            "final_result": {
+                "response_content": "## 第一章\n这是一段测试报告内容结束",
+                "citation_messages": {"data": []},
+                "infer_messages": [],
+            }
+        })
+        feedback_payload = {
+            "action": "supplementary_search",
+            "rewrite_scope": "selected_and_related",
+            "selected_text": "这是一段",
+            "start_offset": 7,
+            "end_offset": 11,
+            "user_instruction": "补充行业背景",
+        }
+        session.interact.return_value = json.dumps(feedback_payload)
+
+        execute_return = {
+            "new_report": "## 第一章\n新报告",
+            "original_text": "## 第一章\n这是一段",
+            "original_start_offset": 0,
+            "original_end_offset": 11,
+            "original_text_clean": "这是一段",
+            "rewritten_text": "## 第一章\n新报告",
+            "rewritten_start_offset": 0,
+            "rewritten_end_offset": 8,
+            "section_start_offset": 0,
+            "section_end_offset": 11,
+            "collector_summary": "补充摘要",
+        }
+
+        with patch(f"{ALGO_CLASS_PATH}.execute", new_callable=AsyncMock, return_value=execute_return):
+            with patch(f"{ALGO_CLASS_PATH}.send_result", new_callable=AsyncMock):
+                with patch(f"{NODE_MODULE_PATH}.add_debug_log_wrapper"):
+                    result = await node._do_invoke(None, session, None)
+
+        assert result["next_node"] == NodeId.USER_FEEDBACK_PROCESSOR.value
+
+        rewrite_history_updates = [
+            call.args[0]
+            for call in session.update_global_state.call_args_list
+            if "search_context.rewrite_history" in call.args[0]
+        ]
+        assert rewrite_history_updates
+        assert rewrite_history_updates[-1]["search_context.rewrite_history"] == [
+            {
+                "action": "supplementary_search",
+                "rewrite_scope": "selected_and_related",
+                "selected_text": "这是一段",
+                "selected_text_clean": "这是一段",
+                "original_start_offset": 0,
+                "original_end_offset": 11,
+                "rewritten_text": "## 第一章\n新报告",
+                "rewritten_start_offset": 0,
+                "rewritten_end_offset": 8,
+                "section_start_offset": 0,
+                "section_end_offset": 11,
+                "collector_summary": "补充摘要",
+                "user_instruction": "补充行业背景",
             }
         ]

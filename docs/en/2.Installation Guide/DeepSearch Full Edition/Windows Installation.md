@@ -52,9 +52,9 @@ Older Windows may need extra steps; see [Install Linux on Windows with WSL](http
 
 * Download the matching architecture:
 
-  x86_64: [DeepSearch v0.1.3](https://openjiuwen-ci.obs.cn-north-4.myhuaweicloud.com/deepsearch/deployTool_0.1.3_amd64.zip)
+  x86_64: [DeepSearch v0.1.4](https://openjiuwen-ci.obs.cn-north-4.myhuaweicloud.com/deepsearch/deployTool_0.1.4_amd64.zip)
 
-  ARM64: [DeepSearch v0.1.3](https://openjiuwen-ci.obs.cn-north-4.myhuaweicloud.com/deepsearch/deployTool_0.1.3_arm64.zip)
+  ARM64: [DeepSearch v0.1.4](https://openjiuwen-ci.obs.cn-north-4.myhuaweicloud.com/deepsearch/deployTool_0.1.4_arm64.zip)
 
 ### 2. Docker Desktop: Virtual file shares
 
@@ -74,6 +74,11 @@ Older Windows may need extra steps; see [Install Linux on Windows with WSL](http
   > If not running, see [Docker Desktop on Windows](https://docs.docker.com/desktop/setup/install/windows-install/).
 
 * To change the web UI port, see [this guide](https://gitcode.com/openJiuwen/agent-studio/blob/main/scripts/README.md#如何修改前端页面服务的端口号).
+
+- Locate and edit the .env.custom file in the deployment tool directory, then add the following configuration item according to your actual runtime environment:
+```
+IP=<local IP address of the machine running the deployment tool>
+```
 
 * Start:
 

@@ -4,11 +4,11 @@ from contextlib import asynccontextmanager
 import io
 import os
 import sys
+import logging
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from openjiuwen.core.common.logging import logger
 import uvicorn
 
 from server.core.cancel_bus import start_cancel_listener, stop_cancel_listener
@@ -21,10 +21,11 @@ from server.local_retrieval.models.knowledge_base import KnowledgeBaseDB
 from server.local_retrieval.models.knowledge_base_document import KnowledgeBaseDocumentDB
 from server.routers import register
 
+logger = logging.getLogger(__name__)
 # 添加项目根目录到 Python 路径，以便直接运行时能找到所有模块
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if backend_dir not in sys.path:
-    sys.path.insert(0, backend_dir)
+    sys.path.append(backend_dir)
 
 # Load environment variables from project root (上级目录)
 project_root = backend_dir
@@ -36,6 +37,7 @@ sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 @asynccontextmanager
 async def lifespan_func(input_app: FastAPI):
+    """管理应用启动与关闭阶段的初始化和资源清理。"""
     # Startup
     logger.info("🚀 Starting openJiuwen-DeepSearch Server...")
     await init_runner()
@@ -116,6 +118,7 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
+    """返回服务欢迎信息与基础入口地址。"""
     return {
         "message": "Welcome to openJiuwen-DeepSearch Server",
         "docs": "/api/docs",
@@ -127,6 +130,7 @@ register.router_register(app)
 
 
 def main():
+    """读取运行配置并启动后端服务。"""
     # Development configuration
     config = {
         "host": os.getenv("HOST", "0.0.0.0"),

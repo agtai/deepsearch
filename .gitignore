@@ -1,9 +1,27 @@
+# Python cache
 __pycache__/
+.pytest_cache/
+.venv/
+.coverage
+htmlcov/
+
+# OS and editor files
 .DS_Store
-.idea
-.vscode
+.idea/
+.vscode/
+
+# Local environment and service config
 .env
 service.yaml
 uv.lock
-*.log
+
+# Runtime artifacts
 *.db
+*.log
+.worktrees/
+output/
+
+# Packaging artifacts
+*.egg-info/
+build/
+dist/

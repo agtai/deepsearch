@@ -22,6 +22,7 @@ class NodeId(enum.Enum):
     SOURCE_TRACER_INFER = "source_tracer_infer"
     USER_FEEDBACK_PROCESSOR = "user_feedback_processor"
     DEPENDENCY_EDITOR_TEAM = "dependency_editor_team"
+    VLM_CHART_GENERATOR = "vlm_chart_generator"
 
     # 子图
     INFO_COLLECTOR = "info_collector"

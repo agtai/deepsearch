@@ -52,10 +52,8 @@ class CitationCheckerResearch:
                 "publish_time": data.get("publish_time", "unknown date"),
                 "score": data.get("score", 0),
                 "from": "web" if data.get("url", "").startswith("http") else "local",
-                "id": idx,
+                "id": data.get("id", idx),
                 "reference_index": data.get("reference_index", -1),
-                "citation_start_offset": data.get("citation_start_offset", -1),
-                "citation_end_offset": data.get("citation_end_offset", -1),
             }
 
         frontend_citations_data = {}
@@ -112,31 +110,33 @@ class CitationCheckerResearch:
         return ''.join(new_parts)
 
     @staticmethod
-    def format_text_citation(url, title, references, ref_counter):
-        """
-        处理文本类型的引用，识别并提取引用信息
+    def format_text_citation(url, title, references, ref_counter, citation_id):
+        """格式化文本型引用并分配稳定 citation id。
+
+        当正文中的多个引用实例指向同一个 URL 时，参考文献序号需要复用；
+        但前端用于渲染和交互的 ``checked_citation`` 实例 id 仍需保持逐次递增，
+        这样每个正文中的引用锚点都能拥有稳定且唯一的实例标识。
 
         Args:
-            url (str): 引用的URL地址
-            title (str): 引用的标题
-            references (dict): 已处理的引用集合，键为URL，值为包含标题和序号的元组
-            ref_counter (int): 当前引用计数器，用于生成新的引用序号
+            url: 引用的 URL 地址。
+            title: 引用标题。
+            references: 已处理的引用集合，键为 URL，值为 ``(title, ref_index)``。
+            ref_counter: 当前引用序号计数器。
+            citation_id: 当前文本引用实例对应的稳定 id。
 
         Returns:
-            tuple: 返回处理后的引用文本和更新后的引用计数器
-                - 处理后的引用文本 (str): 格式化的引用字符串，如 `[[1]](https://example.com)`
-                - 更新后的引用计数器 (int): 递增后的引用计数器值
+            tuple[str, int, int]: 格式化后的引用文本、更新后的引用计数器和引用序号。
         """
         # 如果这个引用已经存在，使用已有的序号
         if url in references:
             title, idx = references[url]
-            return f"[[{idx}]]({url})", ref_counter, idx
+            return f"[checked_citation:{citation_id}][[{idx}]]({url})", ref_counter, idx
 
         # 否则添加新引用并递增计数器
         references[url] = (title, ref_counter)
         current_idx = ref_counter
         ref_counter += 1
-        return f"[[{current_idx}]]({url})", ref_counter, current_idx
+        return f"[checked_citation:{citation_id}][[{current_idx}]]({url})", ref_counter, current_idx
 
     @staticmethod
     def build_reference_section(references):
@@ -468,27 +468,28 @@ class CitationCheckerResearch:
         return markdown_text, datas
 
     def replace_inline_citations(self, markdown_text, datas, inline_ref_pattern):
-        """
-        替换行内引用格式，将[source_tracer_result][title](url)或[source_tracer_result][title]<url>格式的引用转换为标准Markdown引用格式
+        """将行内溯源标记替换为带稳定 id 的 checked citation。
+
+        该步骤会把 ``[source_tracer_result]`` 形式的内联引用转换为前端可识别的
+        ``[checked_citation:<id>][[n]](url)`` 结构，并同步回填 ``datas`` 中的
+        稳定实例 id 与参考文献序号。图片引用沿用原有图片渲染格式，不进入参考
+        文献编号体系。
 
         Args:
-            markdown_text (str): 包含行内引用的Markdown文本
-            datas (list): 引用数据列表，每个元素是包含引用信息的字典
-            inline_ref_pattern (re.Pattern): 用于匹配行内引用的正则表达式对象
+            markdown_text: 包含行内引用的 Markdown 文本。
+            datas: 引用数据列表，每项都是引用信息字典。
+            inline_ref_pattern: 用于匹配行内引用的正则对象。
 
         Returns:
-            tuple: 返回处理后的结果
-                - transformed_text (str): 处理后的Markdown文本，包含标准格式的引用
-                - references (OrderedDict): 按出现顺序排序的参考文献字典，键为URL，值为引用信息
-                - datas (list): 更新后的引用数据列表，有效文本引用会新增 citation_start_offset / citation_end_offset 字段
+            tuple[str, OrderedDict, list]: 转换后的正文、参考文献映射和更新后的引用数据。
         """
         references = OrderedDict()
         ref_counter = 1
         cur_citation_index = -1
+        next_citation_id = 0
 
         new_parts = []
         last_pos = 0
-        current_new_offset = 0
 
         for match in inline_ref_pattern.finditer(markdown_text):
             is_image = match.group(1) is not None
@@ -499,7 +500,6 @@ class CitationCheckerResearch:
                 # 无法识别 URL，原样保留该匹配段
                 before_text = markdown_text[last_pos:match.end()]
                 new_parts.append(before_text)
-                current_new_offset += len(before_text)
                 last_pos = match.end()
                 continue
 
@@ -509,7 +509,6 @@ class CitationCheckerResearch:
             # 追加匹配之前的非引用文本
             before_text = markdown_text[last_pos:match.start()]
             new_parts.append(before_text)
-            current_new_offset += len(before_text)
 
             url, is_valid = self.validate_url_match(url, datas, cur_citation_index)
             if not is_valid:
@@ -520,21 +519,13 @@ class CitationCheckerResearch:
             if is_image:
                 replacement = f'![[{title}]]({url})'
                 new_parts.append(replacement)
-                current_new_offset += len(replacement)
             else:
                 text_citation, ref_counter, current_idx = self.format_text_citation(
-                    url, title, references, ref_counter)
+                    url, title, references, ref_counter, citation_id=next_citation_id)
                 datas[cur_citation_index]["reference_index"] = current_idx
-
-                # 这里记录的是“替换完成后的新文本坐标”，
-                # 后续用户做局部改写时会基于这个 offset 精确删除/平移引用实例。
-                citation_start = current_new_offset
                 new_parts.append(text_citation)
-                current_new_offset += len(text_citation)
-                citation_end = current_new_offset
-
-                datas[cur_citation_index]["citation_start_offset"] = citation_start
-                datas[cur_citation_index]["citation_end_offset"] = citation_end
+                datas[cur_citation_index]["id"] = next_citation_id
+                next_citation_id += 1
 
             last_pos = match.end()
 

@@ -1,7 +1,7 @@
 # -*- coding: UTF-8 -*-
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
 from enum import Enum
-from typing import List, Optional, Dict, Union
+from typing import List, Optional, Dict, Union, Any
 
 from pydantic import BaseModel, Field
 
@@ -134,7 +134,12 @@ class FinalResult(BaseModel):
     """
     response_content: str = Field(default="", description="响应内容")
     citation_messages: dict = Field(default={}, description="引用信息")
-    infer_messages: dict = Field(default={}, description="溯源推理信息")
+    infer_messages: List[Dict] = Field(default_factory=list, description="溯源推理信息")
+    chart_messages: List[Dict] = Field(default_factory=list, description="vlm图表生成信息")
+    workflow_llm_token_usage: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="本次 workflow 的 LLM token 消耗汇总，包含总量与 agent_name 维度统计",
+    )
     warning_info: str = Field(default="", description="主图WorkFlow执行过程中的告警信息")
     exception_info: str = Field(default="", description="主图WorkFlow异常退出时的异常信息")
 
@@ -175,6 +180,7 @@ class SearchContext(BaseModel):
 
     # 4、用户反馈优化相关参数
     feedback_interaction_count: int = Field(default=0, description="用户反馈优化交互次数")
+    feedback_snapshot_sent: bool = Field(default=False, description="是否已向前端推送初始反馈快照")
     rewrite_history: List[Dict] = Field(default_factory=list, description="用户反馈优化历史记录")
 
     # 5、其他参数

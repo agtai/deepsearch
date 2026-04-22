@@ -1,0 +1,81 @@
+from types import SimpleNamespace
+
+from server.schemas.deepsearch_run import DeepSearchRequest
+
+
+def _build_request() -> DeepSearchRequest:
+    """构造 DeepSearch 路由测试所需的最小请求对象。
+
+    Returns:
+        DeepSearchRequest: 可用于 `_prepare_stream_context` 的请求对象。
+    """
+    return DeepSearchRequest(
+        space_id="space-1",
+        conversation_id="conversation-1",
+        message="hello",
+        llm_config={
+            "general": {
+                "model_name": "mock-model",
+                "model_type": "openai",
+                "base_url": "https://example.com/v1",
+                "api_key": "secret",
+            }
+        },
+        web_search_config={
+            "web_search_config_id": 1,
+            "max_web_search_results": 5,
+        },
+        info_collector_search_method="web",
+        search_mode="research",
+        execution_method="parallel",
+    )
+
+
+def test_prepare_stream_context_builds_agent_config_once(monkeypatch):
+    """验证流式上下文准备阶段只构建一次 agent 配置。
+
+    Args:
+        monkeypatch: pytest 提供的运行时打桩工具。
+
+    Returns:
+        None.
+    """
+    from server.routers import deepsearch_run
+
+    fake_agent = SimpleNamespace(research_name="demo")
+    fake_config = {
+        "search_mode": "research",
+        "execution_method": "parallel",
+    }
+    build_call_count = 0
+
+    deepsearch_run.agent_manager._agent_cache.clear()
+
+    def _fake_build_agent_config(request: DeepSearchRequest, db):
+        """记录配置构建次数并返回伪配置。
+
+        Args:
+            request: DeepSearch 请求对象。
+            db: 数据库会话对象。
+
+        Returns:
+            dict: 供测试使用的最小 agent 配置。
+        """
+        del request, db
+        nonlocal build_call_count
+        build_call_count += 1
+        return fake_config
+
+    monkeypatch.setattr(deepsearch_run.agent_manager, "build_agent_config", _fake_build_agent_config)
+    monkeypatch.setattr(
+        deepsearch_run.agent_manager._agent_factory,
+        "create_agent",
+        lambda config: fake_agent,
+    )
+
+    request, agent, run_kwargs = deepsearch_run._prepare_stream_context(_build_request(), object())
+
+    assert request.conversation_id == "conversation-1"
+    assert agent is fake_agent
+    assert run_kwargs["agent_config"] == fake_config
+    assert build_call_count == 1

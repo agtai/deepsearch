@@ -82,3 +82,39 @@ class ReportTemplateNotFoundException(Exception):
 class SearchEngineConfigException(Exception):
     """引擎配置异常"""
     CODE = "SEARCH_ENGINE_CONFIG_ERR"
+
+
+class ReportConvertBasicException(Exception):
+    """报告导出异常基类。"""
+
+    CODE = "REPORT_CONVERT_EX"
+    STATUS_CODE = 400
+
+    def __init__(self, msg: str):
+        """初始化报告导出异常。
+
+        Args:
+            msg: 需要暴露给上层的异常说明。
+        """
+        super().__init__(f"[{self.CODE}] {msg}")
+
+
+class ReportConvertValidationException(ReportConvertBasicException):
+    """报告导出请求或资源内容校验失败异常。"""
+
+    CODE = "REPORT_CONVERT_VALIDATION_ERR"
+    STATUS_CODE = 400
+
+
+class ReportConvertDependencyException(ReportConvertBasicException):
+    """报告导出依赖缺失或外部工具不可用异常。"""
+
+    CODE = "REPORT_CONVERT_DEPENDENCY_ERR"
+    STATUS_CODE = 500
+
+
+class ReportConvertExecutionException(ReportConvertBasicException):
+    """报告导出执行失败异常。"""
+
+    CODE = "REPORT_CONVERT_EXECUTION_ERR"
+    STATUS_CODE = 500

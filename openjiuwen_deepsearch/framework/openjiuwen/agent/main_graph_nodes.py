@@ -16,6 +16,7 @@ from openjiuwen_deepsearch.algorithm.query_understanding.outliner import Outline
 from openjiuwen_deepsearch.algorithm.query_understanding.router import classify_query
 from openjiuwen_deepsearch.algorithm.report.config import ReportStyle, ReportFormat
 from openjiuwen_deepsearch.algorithm.report.report import Reporter
+from openjiuwen_deepsearch.algorithm.chart_generation.vlm_chart_generator import VLMChartGenerator
 from openjiuwen_deepsearch.algorithm.source_trace.checker import postprocess_by_citation_checker, preprocess_info
 from openjiuwen_deepsearch.algorithm.source_tracer_infer.infer import SourceTracerInfer
 from openjiuwen_deepsearch.algorithm.user_feedback_processor.user_feedback_processor import (
@@ -28,15 +29,20 @@ from openjiuwen_deepsearch.common.status_code import StatusCode
 from openjiuwen_deepsearch.config.config import Config, WebSearchEngineConfig, LocalSearchEngineConfig
 from openjiuwen_deepsearch.framework.openjiuwen.agent.base_node import BaseNode
 from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import SearchContext, Message, Outline, \
-    OutlineInteraction, Report
+    OutlineInteraction
 from openjiuwen_deepsearch.framework.openjiuwen.llm.llm_adapter import adapt_llm_model_name
 from openjiuwen_deepsearch.utils.common_utils.stream_utils import get_current_time, MessageType, StreamEvent, \
     custom_stream_output
 from openjiuwen_deepsearch.utils.common_utils.text_utils import truncate_string
+from openjiuwen_deepsearch.utils.common_utils.llm_utils import (
+    get_effective_workflow_llm_usage,
+    save_workflow_llm_usage_to_session,
+)
 from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
-from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import session_context
+from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import model_context, session_context
 from openjiuwen_deepsearch.utils.debug_utils.node_debug import add_debug_log_wrapper, NodeType, NodeDebugData
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
+
 
 logger = logging.getLogger(__name__)
 
@@ -90,11 +96,20 @@ class StartNode(Start):
             agent_config["user_feedback_processor_enable"] = origin_agent_config.get(
                 "user_feedback_processor_enable", False)
             agent_config["user_feedback_processor_max_interactions"] = origin_agent_config.get(
-                "user_feedback_processor_max_interactions", 3)
+                "user_feedback_processor_max_interactions", 100)
+            agent_config["stats_info_llm"] = origin_agent_config.get("stats_info_llm", False)
+            agent_config["api_tools_config"] = origin_agent_config.get("api_tools_config", {})
+            agent_config["vlm_chart_generator_enable"] = origin_agent_config.get(
+                "vlm_chart_generator_enable", False)
+            agent_config["vlm_chart_generator_max_iterations"] = origin_agent_config.get(
+                "vlm_chart_generator_max_iterations", 1)
 
         service_config = Config().service_config.model_dump()
         service_config["thread_id"] = inputs.get("thread_id", "")
         service_config["interrupt_feedback"] = inputs.get("interrupt_feedback", "")
+        # vlm迭代生成图与mermaid图文并茂功能互斥
+        if agent_config.get("vlm_chart_generator_enable", False):
+            service_config["visualization_enable"] = False
         merge_config = agent_config | service_config
         session.update_global_state({
             "config": merge_config
@@ -178,12 +193,25 @@ class FeedbackHandlerNode(BaseNode):
         return result
 
     async def _get_user_feedback(self, feedback_mode: str, session: Session) -> str:
-        """获取用户反馈"""
+        """按交互模式获取用户反馈内容。
+
+        Args:
+            feedback_mode: 反馈交互模式，当前支持 ``cmd`` 和 ``web``。
+            session: 当前会话对象。
+
+        Returns:
+            str: 规范化后的反馈文本；当交互模式非法时返回 ``Invalid feedback_mode``。
+        """
         prompt = "\nEnter your feedback: "
 
         if feedback_mode == "cmd":
             return input(prompt)
         if feedback_mode == "web":
+            if bool(session.get_global_state("config.stats_info_llm")):
+                save_workflow_llm_usage_to_session(
+                    session=session,
+                    session_id=session.get_global_state("config.thread_id"),
+                )
             # session.interact本质上是raise Exception的方式，FeedbackHandlerNode内不能使用try except
             user_input = await session.interact(prompt)
             session.update_state({INTERACTIVE_INPUT: None})
@@ -245,6 +273,8 @@ class ReporterNode(BaseNode):
                 else []
             )
         llm_model_name = adapt_llm_model_name(session, NodeId.REPORTER.value)
+
+        visualization_enable = session.get_global_state("config.visualization_enable")
         return dict(
             thread_id=session.get_global_state("config.thread_id") or "",
             report_style=session.get_global_state("config.report_style") or ReportStyle.SCHOLARLY.value,
@@ -255,7 +285,8 @@ class ReporterNode(BaseNode):
             language=session.get_global_state("search_context.language") or CHINESE,
             report_task=report_task,
             user_query=session.get_global_state("search_context.query"),
-            llm_model_name=llm_model_name
+            llm_model_name=llm_model_name,
+            visualization_enable=visualization_enable,
         )
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext):
@@ -295,7 +326,7 @@ class ReporterNode(BaseNode):
         }
         add_debug_log_wrapper(session, NodeDebugData(NodeId.REPORTER.value, 0, NodeType.MAIN.value,
                               output_content=str(debug_content).replace("\\n", "\n")))
-        return dict(next_node=NodeId.SOURCE_TRACER.value)
+        return dict(next_node=NodeId.VLM_CHART_GENERATOR.value)
 
 
 class EndNode(End):
@@ -304,9 +335,29 @@ class EndNode(End):
     """
 
     async def invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
-        """ invoke 方法"""
+        """执行结束节点并输出最终结果。
+
+        Args:
+            inputs (Input): 节点输入（当前节点不依赖该字段）。
+            session (Session): 工作流会话对象。
+            context (ModelContext): 模型上下文对象。
+
+        Returns:
+            Output: 包含序列化后的 `final_result` 字段。
+        """
         logger.info(f"[EndNode] Start EndNode.")
-        final_result = session.get_global_state("search_context.final_result")
+        final_result = session.get_global_state("search_context.final_result") or {}
+        stats_info_llm = bool(session.get_global_state("config.stats_info_llm"))
+        if stats_info_llm:
+            session_id = session.get_global_state("config.thread_id")
+            workflow_usage = get_effective_workflow_llm_usage(session_id=session_id, session=session)
+            final_result = dict(final_result)
+            final_result["workflow_llm_token_usage"] = workflow_usage
+            session.update_global_state({"search_context.final_result.workflow_llm_token_usage": workflow_usage})
+            logger.info(
+                f"[EndNode] workflow_llm_token_usage: "
+                f"{json.dumps(workflow_usage, ensure_ascii=False, indent=2)}"
+            )
         logger.info(
             f"[EndNode] Get final result: {'***' if LogManager.is_sensitive() else final_result}",
         )
@@ -442,13 +493,14 @@ class OutlineNode(BaseNode):
             )
         else:
             previous_feedback = "No previous feedback."
-        
+
         # 如果是大纲交互场景，使用交互记录中的 feedback；否则使用 user_feedback
         if outline_interaction_mode:
             user_feedback = current_interaction_feedback
-        
+
         current_outline = session.get_global_state("search_context.current_outline")
         outline_interaction_enabled = session.get_global_state("config.outline_interaction_enabled")
+        api_tools_config = session.get_global_state("config.api_tools_config") or {}
 
         return dict(
             messages=messages,
@@ -463,6 +515,7 @@ class OutlineNode(BaseNode):
             current_outline=current_outline,
             outline_interaction_enabled=outline_interaction_enabled,
             previous_feedback=previous_feedback,
+            api_tools_config=api_tools_config,
         )
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
@@ -552,7 +605,7 @@ class OutlineNode(BaseNode):
 
             add_debug_log_wrapper(session, NodeDebugData(NodeId.OUTLINE.value, 0, NodeType.MAIN.value,
                                   output_content=str(outline).replace("\\n", "\n")))
-            
+
             outline_interaction_enabled = session.get_global_state("config.outline_interaction_enabled")
             if outline_interaction_enabled:
                 next_node = NodeId.OUTLINE_INTERACTION.value
@@ -694,11 +747,10 @@ class SourceTracerNode(BaseNode):
 
     def _post_handle(self, inputs: Input, algorithm_output: dict, session: Session, context: ModelContext) -> dict:
         origin_report = algorithm_output.get("origin_report", "")
-        need_exit = algorithm_output.get("need_exit", False)
         check_result_dict = algorithm_output.get("check_result_dict", {})
         citation_checker_result_str = check_result_dict.get("citation_checker_result_str", "")
         check_result = check_result_dict.get("check_result", False)
-        if need_exit:
+        if algorithm_output.get("need_exit", False):
             source_tracer_result = json.dumps(
                 {"checked_trace_source_report_content": origin_report, "citation_messages": {}}, ensure_ascii=False)
         else:
@@ -814,10 +866,24 @@ class OutlineInteractionNode(BaseNode):
         })
 
     async def _get_user_input(self, feedback_mode: str, message: str, session: Session) -> dict:
-        """获取用户输入"""
+        """获取大纲交互阶段的用户输入。
+
+        Args:
+            feedback_mode: 反馈交互模式，当前支持 ``cmd`` 和 ``web``。
+            message: 当前轮次展示文案中的轮次标识。
+            session: 当前会话对象。
+
+        Returns:
+            dict: 解析后的输入字典；当输入不是合法 JSON 时返回空字典。
+        """
         prompt = f"Round {message}: waiting for user feedback."
 
         if feedback_mode == "web":
+            if bool(session.get_global_state("config.stats_info_llm")):
+                save_workflow_llm_usage_to_session(
+                    session=session,
+                    session_id=session.get_global_state("config.thread_id"),
+                )
             user_input = await session.interact(prompt)
             # Clear the consumed resume input so the same feedback is not replayed
             # when outline_interaction is reached again in the current workflow run.
@@ -872,12 +938,24 @@ class DependencyOutlineInteractionNode(OutlineInteractionNode):
         if result.get("next_node") == NodeId.EDITOR_TEAM.value:
             result["next_node"] = NodeId.DEPENDENCY_EDITOR_TEAM.value
         return result
-    
+
 
 class SourceTracerInferNode(BaseNode):
     def __init__(self) -> None:
         super().__init__()
         self.log_prefix = '[SourceTracerInferNode]'
+
+    @staticmethod
+    async def build_source_tracer_infer_result(infer_infos):
+        """调用溯源推理模块生成溯源推理图
+        Returns:
+            dict = (response, infer_messages, check_infos)
+        """
+        infer = SourceTracerInfer(infer_infos)
+        response, infer_messages, check_infos, error_message = await infer.run()
+        if error_message:
+            raise Exception(error_message)
+        return dict(response=response, infer_messages=infer_messages, check_infos=check_infos)
 
     def _pre_handle(self, inputs: Input, session: Session, context: ModelContext) -> dict:
         logger.info(f"{self.log_prefix} Start SourceTracerInferNode.")
@@ -935,24 +1013,11 @@ class SourceTracerInferNode(BaseNode):
 
         return dict(next_node=NodeId.END.value)
 
-    @staticmethod
-    async def build_source_tracer_infer_result(infer_infos):
-        """调用溯源推理模块生成溯源推理图
-        Returns:
-            dict = (response, infer_messages, check_infos)
-        """
-        infer = SourceTracerInfer(infer_infos)
-        response, infer_messages, check_infos, error_message = await infer.run()
-        if error_message:
-            raise Exception(error_message)
-        return dict(response=response, infer_messages=infer_messages, check_infos=check_infos)
-
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext):
 
         scores = [(0, 0)]
+        current_inputs = self._pre_handle(inputs, session, context)
         try:
-            current_inputs = self._pre_handle(inputs, session, context)
-
             source_tracer_infer_switch = current_inputs.get("source_tracer_infer_switch", False)
             if not source_tracer_infer_switch:
                 algorithm_output = dict(source_tracer_infer_switch=source_tracer_infer_switch,
@@ -967,11 +1032,6 @@ class SourceTracerInferNode(BaseNode):
             check_infos["llm_model_name"] = current_inputs.get("llm_model_name", "")
             check_infos["language"] = current_inputs.get("language", "zh")
 
-            # 这里添加溯源推理校验模块
-            infer_result_dict["scores"] = scores
-            infer_result_dict["source_tracer_infer_switch"] = current_inputs.get("source_tracer_infer_switch", False)
-            infer_result_dict["infer_success"] = True
-
         except Exception as e:
             error_msg = f"source_tracer_infer failed."
             if LogManager.is_sensitive():
@@ -981,9 +1041,14 @@ class SourceTracerInferNode(BaseNode):
             errcode = StatusCode.SOURCE_TRACER_INFER_ERROR.code
             errmsg = StatusCode.SOURCE_TRACER_INFER_ERROR.errmsg.format(e=e)
             infer_result_dict = dict(infer_success=False, response=current_inputs.get("source_tracer_response", ""),
-                                     infer_messages=[], scores=[(0, 0)], error_msg=f"[{errcode}] {errmsg}", 
+                                     infer_messages=[], scores=[(0, 0)], error_msg=f"[{errcode}] {errmsg}",
                                      source_tracer_infer_switch=current_inputs.get("source_tracer_infer_switch", False)
                                      )
+        else:
+            # 这里添加溯源推理校验模块
+            infer_result_dict["scores"] = scores
+            infer_result_dict["source_tracer_infer_switch"] = current_inputs.get("source_tracer_infer_switch", False)
+            infer_result_dict["infer_success"] = True
 
         algorithm_output = infer_result_dict
         result = self._post_handle(inputs, algorithm_output, session, context)
@@ -997,6 +1062,16 @@ class UserFeedbackProcessorNode(BaseNode):
         super().__init__()
 
     def _pre_handle(self, inputs: Input, session: Session, context: ModelContext) -> dict:
+        """收集用户反馈节点执行所需的会话状态。
+
+        Args:
+            inputs: 节点输入。
+            session: 当前会话。
+            context: 模型上下文。
+
+        Returns:
+            包含开关、交互计数、快照标记和最终结果等信息的字典。
+        """
         logger.info("[UserFeedbackProcessorNode] Start UserFeedbackProcessorNode.")
         enable = session.get_global_state("config.user_feedback_processor_enable")
         if not enable:
@@ -1005,43 +1080,67 @@ class UserFeedbackProcessorNode(BaseNode):
         return dict(
             disabled=False,
             max_interactions=session.get_global_state("config.user_feedback_processor_max_interactions"),
-            max_text_length=session.get_global_state("config.user_feedback_processor_max_text_length"),
             feedback_mode=session.get_global_state("config.workflow_feedback_mode"),
             interaction_count=session.get_global_state("search_context.feedback_interaction_count") or 0,
+            feedback_snapshot_sent=session.get_global_state("search_context.feedback_snapshot_sent") or False,
             language=session.get_global_state("search_context.language"),
             final_result=session.get_global_state("search_context.final_result"),
             llm_model_name=adapt_llm_model_name(session, NodeId.USER_FEEDBACK_PROCESSOR.value),
         )
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
+        """执行用户反馈节点主流程并注入上下文变量。
+
+        该方法会先把 ``session`` 与 ``context`` 注入到 contextvar，便于补充搜索
+        子链路复用信息采集能力；随后依次执行预处理、动作构建和状态回写。
+
+        Args:
+            inputs: 节点输入。
+            session: 当前会话。
+            context: 模型上下文。
+
+        Returns:
+            Output: 节点执行后的路由结果。
+        """
+        session_context.set(session)
+        model_context.set(context)
         current_inputs = self._pre_handle(inputs, session, context)
 
         # 确定 algorithm_output，包含 next_node 以供 _post_handle 路由
-        algorithm_output = await self._build_algorithm_output(current_inputs, session)
+        algorithm_output = await self._build_algorithm_output(current_inputs, session, context)
 
         return self._post_handle(inputs, algorithm_output, session, context)
 
-    async def _build_algorithm_output(self, current_inputs: dict, session: Session) -> dict:
-        """执行业务逻辑，并返回包含路由信息的节点输出。"""
+    async def _build_algorithm_output(self, current_inputs: dict, session: Session, context: ModelContext) -> dict:
+        """解析反馈并构造节点输出。
+
+        Args:
+            current_inputs: `_pre_handle` 产出的节点输入快照。
+            session: 当前会话。
+            context: 模型上下文；供补充搜索等子链路复用。
+
+        Returns:
+            包含路由信息、报告更新结果以及交互消耗标记的字典。
+        """
         if current_inputs.get("disabled"):
             logger.info("[UserFeedbackProcessorNode] Feature disabled, routing to EndNode.")
             return dict(next_node=NodeId.END.value)
 
         interaction_count = current_inputs["interaction_count"]
         max_interactions = current_inputs["max_interactions"]
-        if interaction_count >= max_interactions:
-            logger.info(f"[UserFeedbackProcessorNode] Max interactions reached: {max_interactions}")
-            await self._notify_user(session, "Maximum interaction rounds reached.", StreamEvent.USER_INPUT_ENDED)
-            return dict(next_node=NodeId.END.value)
-
         final_result = current_inputs["final_result"]
+        mark_feedback_snapshot_sent = False
 
-        # 首次进入用户反馈阶段时，先把当前完整报告推给前端。
-        if interaction_count == 0:
+        # 首次进入用户反馈阶段时，先把当前完整报告推给前端；后续由 session 标记避免重复推送。
+        if not current_inputs["feedback_snapshot_sent"]:
             if final_result:
                 final_result_json = json.dumps(final_result, ensure_ascii=False)
                 await custom_stream_output(session, str(uuid.uuid4()), final_result_json,
                 NodeId.USER_FEEDBACK_PROCESSOR.value)
+                # 注意：session.interact 可能触发中断并提前结束当前轮执行，
+                # 这里需要立即持久化快照标记，避免下一轮重复发送首帧快照。
+                session.update_global_state({"search_context.feedback_snapshot_sent": True})
+                mark_feedback_snapshot_sent = True
             else:
                 logger.error("[UserFeedbackProcessorNode] Final result not found")
                 return dict(next_node=NodeId.END.value)
@@ -1049,31 +1148,61 @@ class UserFeedbackProcessorNode(BaseNode):
         report_content = final_result.get("response_content", "") or ""
 
         raw_feedback = await self._get_user_feedback(current_inputs["feedback_mode"], session)
+        consume_interaction = True
         try:
             feedback = UserFeedbackProcessor.parse_feedback(raw_feedback)
-            UserFeedbackProcessor.validate(feedback, report_content, current_inputs["max_text_length"])
-
             action = feedback.get("action", "")
+            consume_interaction = action != "sync"
+            processor = UserFeedbackProcessor(current_inputs["llm_model_name"])
+
             if action == "finish":
                 logger.info("[UserFeedbackProcessorNode] User finished feedback, routing to EndNode.")
                 await self._notify_user(session, "User feedback finished.", StreamEvent.USER_INPUT_ENDED)
-                return dict(next_node=NodeId.END.value)
+                return dict(
+                    next_node=NodeId.END.value,
+                    mark_feedback_snapshot_sent=mark_feedback_snapshot_sent,
+                )
 
-            processor = UserFeedbackProcessor(current_inputs["llm_model_name"])
+            if consume_interaction and interaction_count >= max_interactions:
+                logger.info(f"[UserFeedbackProcessorNode] Max interactions reached: {max_interactions}")
+                await self._notify_user(session, "Maximum interaction rounds reached.", StreamEvent.USER_INPUT_ENDED)
+                return dict(
+                    next_node=NodeId.END.value,
+                    mark_feedback_snapshot_sent=mark_feedback_snapshot_sent,
+                )
+
+            UserFeedbackProcessor.validate(feedback, report_content)
+
             action_result = await processor.execute(
                 feedback=feedback,
                 final_result=final_result,
                 language=current_inputs["language"],
             )
         except CustomException as e:
-            logger.warning(f"[UserFeedbackProcessorNode] User feedback failed: {e}")
+            if interaction_count >= max_interactions and consume_interaction:
+                logger.info(f"[UserFeedbackProcessorNode] Max interactions reached: {max_interactions}")
+                await self._notify_user(session, "Maximum interaction rounds reached.", StreamEvent.USER_INPUT_ENDED)
+                return dict(
+                    next_node=NodeId.END.value,
+                    mark_feedback_snapshot_sent=mark_feedback_snapshot_sent,
+                )
+            logger.error(f"[UserFeedbackProcessorNode] User feedback failed: {e}")
             await UserFeedbackProcessor.send_error(session, e)
             return dict(
                 next_node=NodeId.USER_FEEDBACK_PROCESSOR.value,
                 interaction_count=interaction_count,
+                consume_interaction=consume_interaction,
+                mark_feedback_snapshot_sent=mark_feedback_snapshot_sent,
                 exception_info=str(e),
             )
         except Exception as e:
+            if interaction_count >= max_interactions and consume_interaction:
+                logger.info(f"[UserFeedbackProcessorNode] Max interactions reached: {max_interactions}")
+                await self._notify_user(session, "Maximum interaction rounds reached.", StreamEvent.USER_INPUT_ENDED)
+                return dict(
+                    next_node=NodeId.END.value,
+                    mark_feedback_snapshot_sent=mark_feedback_snapshot_sent,
+                )
             logger.error(f"[UserFeedbackProcessorNode] Action failed: {e}")
             wrapped_error = CustomValueException(
                 StatusCode.USER_FEEDBACK_PROCESSOR_REWRITE_ERROR.code,
@@ -1083,6 +1212,8 @@ class UserFeedbackProcessorNode(BaseNode):
             return dict(
                 next_node=NodeId.USER_FEEDBACK_PROCESSOR.value,
                 interaction_count=interaction_count,
+                consume_interaction=consume_interaction,
+                mark_feedback_snapshot_sent=mark_feedback_snapshot_sent,
                 exception_info=str(wrapped_error),
             )
 
@@ -1090,30 +1221,44 @@ class UserFeedbackProcessorNode(BaseNode):
         updated_final_result = dict(final_result or {})
         updated_final_result.update({
             "response_content": action_result["new_report"],
-            "citation_messages": action_result["updated_citation_messages"],
-            "infer_messages": action_result["updated_infer_messages"],
         })
         await UserFeedbackProcessor.send_result(
             session=session,
             feedback=feedback,
             result=stream_result,
             final_result=updated_final_result,
+            feedback_interaction_count=interaction_count if not consume_interaction else interaction_count + 1,
         )
 
         return dict(
             next_node=NodeId.USER_FEEDBACK_PROCESSOR.value,
             interaction_count=interaction_count,
+            consume_interaction=consume_interaction,
+            mark_feedback_snapshot_sent=mark_feedback_snapshot_sent,
             feedback=feedback,
             **action_result,
         )
 
     async def _get_user_feedback(self, feedback_mode: str, session: Session) -> str:
-        """按交互模式获取原始用户反馈。"""
+        """按交互模式获取原始用户反馈。
+
+        Args:
+            feedback_mode: 反馈交互模式，当前支持 ``cmd`` 和 ``web``。
+            session: 当前会话。
+
+        Returns:
+            str: 原始用户输入；当交互模式非法时返回空字符串。
+        """
         prompt = "\nProvide your feedback: "
         user_input = ""
         if feedback_mode == "cmd":
             user_input = input(prompt)
         elif feedback_mode == "web":
+            if bool(session.get_global_state("config.stats_info_llm")):
+                save_workflow_llm_usage_to_session(
+                    session=session,
+                    session_id=session.get_global_state("config.thread_id"),
+                )
             user_input = await session.interact(prompt)
             session.update_state({INTERACTIVE_INPUT: None})
         else:
@@ -1121,6 +1266,16 @@ class UserFeedbackProcessorNode(BaseNode):
         return user_input
 
     async def _notify_user(self, session: Session, message: str, event: StreamEvent):
+        """向前端发送一条用户反馈节点的提示消息。
+
+        Args:
+            session: 当前会话。
+            message: 要发送的消息文本。
+            event: 对应的流式事件类型。
+
+        Returns:
+            None
+        """
         await session.write_custom_stream({
             "message_id": str(uuid.uuid4()),
             "agent": NodeId.USER_FEEDBACK_PROCESSOR.value,
@@ -1132,52 +1287,246 @@ class UserFeedbackProcessorNode(BaseNode):
 
     def _post_handle(self, inputs: Input, algorithm_output: dict, session: Session,
                      context: ModelContext) -> dict:
+        """回写用户反馈节点产生的 session 状态。
+
+        Args:
+            inputs: 节点输入。
+            algorithm_output: `_build_algorithm_output` 返回结果。
+            session: 当前会话。
+            context: 模型上下文。
+
+        Returns:
+            仅包含下一跳节点的路由结果。
+        """
         next_node = algorithm_output["next_node"]
         interaction_count = algorithm_output.get("interaction_count")
-        if next_node == NodeId.USER_FEEDBACK_PROCESSOR.value and interaction_count is not None:
+        consume_interaction = algorithm_output.get("consume_interaction", True)
+        if algorithm_output.get("mark_feedback_snapshot_sent"):
+            session.update_global_state({"search_context.feedback_snapshot_sent": True})
+        if next_node == NodeId.USER_FEEDBACK_PROCESSOR.value and interaction_count is not None and consume_interaction:
             session.update_global_state({"search_context.feedback_interaction_count": interaction_count + 1})
 
         exception_info = algorithm_output.get("exception_info")
         if exception_info is not None:
             session.update_global_state({"search_context.final_result.exception_info": exception_info})
 
-        # 非改写成功路径（disabled / finish / error）不需要更新报告状态，直接按 next_node 路由。
+        # 非成功更新报告路径（disabled / finish / error）不需要更新报告状态，直接按 next_node 路由。
         if "new_report" not in algorithm_output:
             return dict(next_node=next_node)
 
         new_report = algorithm_output["new_report"]
+        session.update_global_state({"search_context.final_result.response_content": new_report})
         rewritten_text = algorithm_output["rewritten_text"]
-        rewritten_start_offset = algorithm_output["start_offset"]
-        rewritten_end_offset = algorithm_output["new_end_offset"]
-        updated_citation_messages = algorithm_output["updated_citation_messages"]
-        updated_infer_messages = algorithm_output.get("updated_infer_messages")
+        rewritten_start_offset = algorithm_output["rewritten_start_offset"]
+        rewritten_end_offset = algorithm_output["rewritten_end_offset"]
         feedback = algorithm_output["feedback"]
         selected_text_clean = algorithm_output.get("original_text_clean", feedback.get("selected_text"))
 
-        session.update_global_state({"search_context.final_result.response_content": new_report})
-        session.update_global_state({"search_context.final_result.citation_messages": updated_citation_messages})
-        session.update_global_state({"search_context.final_result.infer_messages": updated_infer_messages})
-
         # 记录每次局部改写的关键信息，便于问题排查和后续审计。
         history = session.get_global_state("search_context.rewrite_history") or []
-        history.append({
+        is_sync = algorithm_output.get("sync_only", False)
+        current_final_result = session.get_global_state("search_context.final_result") or {}
+        current_report_content = current_final_result.get("response_content", "") or ""
+        if is_sync and new_report == current_report_content:
+            logger.info("[UserFeedbackProcessorNode] Rewrite completed, loop back for next interaction.")
+            return dict(next_node=next_node)
+
+        history_item = {
             "action": feedback.get("action"),
+            "rewrite_scope": feedback.get("rewrite_scope"),
             "selected_text": feedback.get("selected_text"),
             "selected_text_clean": selected_text_clean,
-            "original_start_offset": feedback.get("start_offset"),
-            "original_end_offset": feedback.get("end_offset"),
+            "original_start_offset": algorithm_output["original_start_offset"],
+            "original_end_offset": algorithm_output["original_end_offset"],
             "rewritten_text": rewritten_text,
             "rewritten_start_offset": rewritten_start_offset,
             "rewritten_end_offset": rewritten_end_offset,
             "user_instruction": feedback.get("user_instruction", ""),
-        })
+        }
+        if "section_start_offset" in algorithm_output:
+            history_item["section_start_offset"] = algorithm_output.get("section_start_offset")
+        if "section_end_offset" in algorithm_output:
+            history_item["section_end_offset"] = algorithm_output.get("section_end_offset")
+        if "collector_summary" in algorithm_output:
+            history_item["collector_summary"] = algorithm_output.get("collector_summary", "")
+        history.append(history_item)
+        if is_sync:
+            non_sync_history = [item for item in history if item.get("action") != "sync"]
+            sync_history = [item for item in history if item.get("action") == "sync"]
+            history = non_sync_history + sync_history[-10:]
         session.update_global_state({"search_context.rewrite_history": history})
 
-        add_debug_log_wrapper(session, NodeDebugData(
-            NodeId.USER_FEEDBACK_PROCESSOR.value, 0, NodeType.MAIN.value,
-            output_content=json.dumps({"start_offset": rewritten_start_offset, "end_offset": rewritten_end_offset},
-                                      ensure_ascii=False)
-        ))
+        if not is_sync:
+            add_debug_log_wrapper(session, NodeDebugData(
+                NodeId.USER_FEEDBACK_PROCESSOR.value, 0, NodeType.MAIN.value,
+                output_content=json.dumps(
+                    {
+                        "selected_text": feedback.get("selected_text"),
+                        "rewritten_text": rewritten_text,
+                        "rewritten_start_offset": rewritten_start_offset,
+                        "rewritten_end_offset": rewritten_end_offset,
+                    },
+                    ensure_ascii=False,
+                )
+            ))
 
         logger.info("[UserFeedbackProcessorNode] Rewrite completed, loop back for next interaction.")
         return dict(next_node=next_node)
+
+
+class VLMChartGeneratorNode(BaseNode):
+    def __init__(self) -> None:
+        super().__init__()
+
+    def _pre_handle(self, inputs: Input, session: Session, context: ModelContext) -> dict:
+        logger.info("[VLMChartGeneratorNode] Start VLMChartGeneratorNode.")
+
+        # 获取vlm迭代生成图参数
+        # 使用子报告生成模型处理文本类数据
+        vlm_chart_generator_enable = session.get_global_state("config.vlm_chart_generator_enable")
+        if not vlm_chart_generator_enable:
+            return dict(vlm_chart_generator_enable=vlm_chart_generator_enable)
+
+        llm_model_name = adapt_llm_model_name(session, NodeId.SUB_REPORTER.value)
+        vlm_chart_generator_max_iterations = session.get_global_state("config.vlm_chart_generator_max_iterations")
+        # 使用多模态模型处理图表类数据
+        if vlm_chart_generator_max_iterations > 0:
+            vlm_model_name = adapt_llm_model_name(session, NodeId.VLM_CHART_GENERATOR.value)
+        else:
+            # 不会进行vlm迭代
+            vlm_model_name = llm_model_name
+
+        # 获取vlm输入数据
+        current_report = session.get_global_state("search_context.current_report")
+        report_content = getattr(current_report, "report_content", "") if current_report else ""
+        all_classified_contents = getattr(current_report, "all_classified_contents", []) if current_report else []
+        merged_trace_source_datas = getattr(current_report, "merged_trace_source_datas", []) if current_report else []
+
+        visualization_enable = session.get_global_state("config.visualization_enable")
+        return dict(
+            llm_model_name=llm_model_name,
+            vlm_chart_generator_enable=vlm_chart_generator_enable,
+            vlm_model_name=vlm_model_name,
+            vlm_chart_generator_max_iterations=vlm_chart_generator_max_iterations,
+            report_content=report_content,
+            all_classified_contents=all_classified_contents,
+            trace_source_datas=merged_trace_source_datas,
+            visualization_enable=visualization_enable,
+        )
+
+    async def _run_vlm_chart_generator_handle(
+        self,
+        current_inputs: dict
+    ) -> dict:
+        logger.info("[VLMChartGeneratorNode] Run VLMChartGeneratorNode.")
+
+        report_content = current_inputs.get("report_content", "")
+        all_classified_contents = current_inputs.get("all_classified_contents", [])
+        trace_source_datas = current_inputs.get("trace_source_datas", [])
+
+        vlm_chart_generator = VLMChartGenerator(
+                                    llm_model_name=current_inputs.get("llm_model_name", ""),
+                                    vlm_model_name=current_inputs.get("vlm_model_name", ""),
+                                    vlm_max_iterations=current_inputs.get("vlm_chart_generator_max_iterations", 1),
+                                    )
+        (chart_messages,
+        modified_report,
+        new_source_trace_datas) = await vlm_chart_generator.run(
+                                                            report_content=report_content,
+                                                            all_classified_contents=all_classified_contents,
+                                                            source_trace_datas=trace_source_datas
+                                                            )
+
+        return dict(chart_messages=chart_messages,
+                    modified_report=modified_report,
+                    new_source_trace_datas=new_source_trace_datas)
+
+    async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
+
+        try:
+            current_inputs = self._pre_handle(inputs, session, context)
+
+            if not current_inputs.get("vlm_chart_generator_enable", False):
+                vlm_chart_generator_output = {"skip_node": True}
+                algorithm_output = {
+                    "vlm_chart_generator_output": vlm_chart_generator_output,
+                    "current_inputs": current_inputs,
+                }
+                result = self._post_handle(inputs, algorithm_output, session, context)
+                return result
+
+            if current_inputs.get("visualization_enable", True):
+                error_msg = "vlm迭代生成图功能与图文并茂功能互斥，使用vlm迭代生成图需要关闭图文并茂功能，\
+                    具体做法是将 `visualization_enable` 设为 `False`。"
+                # fallback: 添加mermaid内容删除逻辑
+                logger.error(f"[VLMChartGeneratorNode] {error_msg}")
+                raise ValueError(error_msg)
+
+
+            vlm_chart_generator_output = await self._run_vlm_chart_generator_handle(current_inputs)
+
+        except CustomException as e:
+            if LogManager.is_sensitive():
+                logger.error(f"[VLMChartGeneratorNode] vlm_chart_generator failed.")
+            else:
+                logger.error(f"[VLMChartGeneratorNode] vlm_chart_generator failed: {str(e)}")
+            vlm_chart_generator_output = {
+                "error_msg": f"[{StatusCode.CHART_GENERATION_ERROR.code}] \
+                    {StatusCode.CHART_GENERATION_ERROR.errmsg.format(e=e)}",
+            }
+        except Exception as e:
+            if LogManager.is_sensitive():
+                logger.error(f"[VLMChartGeneratorNode] vlm_chart_generator failed.")
+            else:
+                logger.error(f"[VLMChartGeneratorNode] vlm_chart_generator failed: {str(e)}")
+            vlm_chart_generator_output = {
+                "error_msg": f"[{StatusCode.CHART_GENERATION_ERROR.code}] \
+                    {StatusCode.CHART_GENERATION_ERROR.errmsg.format(e=e)}",
+            }
+
+        algorithm_output = {
+            "vlm_chart_generator_output": vlm_chart_generator_output,
+            "current_inputs": current_inputs,
+        }
+
+        result = self._post_handle(inputs, algorithm_output, session, context)
+        logger.info("[VLMChartGeneratorNode] VLMChartGeneratorNode completed.")
+        return result
+
+    def _post_handle(self, inputs: Input, algorithm_output: dict, session: Session, context: ModelContext) -> dict:
+
+        vlm_chart_generator_output = algorithm_output.get("vlm_chart_generator_output", {})
+        chart_messages = []
+        modified_report = algorithm_output.get("current_inputs", {}).get("report_content", "")
+        new_source_trace_datas = algorithm_output.get("current_inputs", {}).get("trace_source_datas", [])
+
+        if vlm_chart_generator_output.get("skip_node", False):
+            logger.info("[VLMChartGeneratorNode] vlm_chart_generator_enable is False, skip VLMChartGeneratorNode.")
+        elif vlm_chart_generator_output.get("error_msg", ""):
+            logger.warning("[VLMChartGeneratorNode] vlm_chart_generator failed: %s",
+                           vlm_chart_generator_output.get("error_msg", ""))
+            session.update_global_state({"search_context.final_result.warning_info":
+                vlm_chart_generator_output.get("error_msg", "")})
+        else:
+            # 排除开关和错误信息后，更新报告内容
+            chart_messages = vlm_chart_generator_output.get("chart_messages", [])
+            modified_report = vlm_chart_generator_output.get("modified_report", "")
+            new_source_trace_datas = vlm_chart_generator_output.get("new_source_trace_datas", [])
+
+            current_report = session.get_global_state("search_context.current_report")
+            current_report.report_content = modified_report
+            current_report.merged_trace_source_datas = new_source_trace_datas
+            session.update_global_state({"search_context.current_report": current_report})
+            session.update_global_state({"search_context.final_result.chart_messages": chart_messages})
+
+        add_debug_log_wrapper(session, NodeDebugData(
+            NodeId.VLM_CHART_GENERATOR.value, 0, NodeType.MAIN.value,
+            output_content=json.dumps({"chart_messages": chart_messages,
+                                       "modified_report": modified_report,
+                                       "new_source_trace_datas": new_source_trace_datas},
+                                      ensure_ascii=False)
+        ))
+
+        output_str = '*' if LogManager.is_sensitive() else vlm_chart_generator_output
+        logger.debug("[VLMChartGeneratorNode] vlm_chart_generator_node result: \n%s", output_str)
+        return dict(next_node=NodeId.SOURCE_TRACER.value)

@@ -28,6 +28,9 @@ dependencies = [
     'pyvis==0.3.2',
     'networkx==3.4.2',
     'aiolimiter==1.1.0',
+    'matplotlib',
+    'seaborn',
+    'numpy>=2.4.2',
 ]
 
 # 1. 告诉 setuptools 把 openjiuwen_deepsearch 当成一个「命名空间包」
@@ -78,9 +81,11 @@ backend = [
     "requests==2.32.3",
     "pycryptodome==3.23.0",
     "markdown2==2.5.4",
+    "markdown>=3.7",
     "beautifulsoup4==4.14.3",
     "latex2mathml==3.78.1",
     "mathml2omml-as==0.1.0",
+    "pypandoc>=1.13",
     "aiomysql==0.2.0",
     "aiosqlite==0.21.0",
     "redis==7.1.1",

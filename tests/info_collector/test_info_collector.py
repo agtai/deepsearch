@@ -2,9 +2,23 @@ from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
 import pytest
 
+from openjiuwen_deepsearch.framework.openjiuwen.agent.collector_graph.collector_execution_service import (
+    CollectorExecutionResult,
+    run_info_collector_sub_graph,
+)
 from openjiuwen_deepsearch.framework.openjiuwen.agent.collector_graph.info_collector import InfoRetrievalNode, \
     llm_context
-from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import RetrievalQuery
+from openjiuwen_deepsearch.framework.openjiuwen.agent.reasoning_writing_graph.editor_team_nodes import (
+    InfoCollectorNode,
+)
+from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import (
+    Message,
+    Plan,
+    RetrievalQuery,
+    Step,
+    StepType,
+)
+from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
 from openjiuwen_deepsearch.utils.constants_utils.search_engine_constants import SearchEngine, LocalSearch
 
 module_prefix = "openjiuwen_deepsearch.framework.openjiuwen.agent.collector_graph.info_collector"
@@ -131,7 +145,8 @@ class TestInfoCollectorNode:
             "step_title": "测试步骤",
             "search_method": "web",
             "web_search_engine_name": SearchEngine.PETAL.value,
-            "local_search_engine_name": LocalSearch.OPENAPI.value
+            "local_search_engine_name": LocalSearch.OPENAPI.value,
+            "api_tools_config": {},
         }
         assert result == expected_state
 
@@ -533,6 +548,52 @@ class TestInfoCollectorNode:
             assert "web_search_tool" in tool_dict
             assert "local_search_tool" in tool_dict
 
+    def test_prepare_collector_tool_with_api_tools_config(self, info_collector_node):
+        """测试 _prepare_collector_tool 方法 - 动态 API 工具"""
+        state = {
+            "search_method": "web",
+            "api_tools_config": {
+                "collector_tools": [
+                    {
+                        "tool_id": "tool-1",
+                        "name": "runtime_collector_tool",
+                        "description": "Runtime collector tool",
+                        "path": "https://example.com/collect",
+                        "http_method": "get",
+                        "request_params": [
+                            {
+                                "name": "query",
+                                "description": "query",
+                                "send_method": "query",
+                                "required": True,
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+
+        with patch(f'{self.MODULE_PATH}.create_web_search_tool') as mock_web, \
+                patch(f'{self.MODULE_PATH}.create_local_search_tool') as mock_local:
+            mock_web_tool = Mock()
+            mock_web_tool.card.tool_info.return_value = "web_tool_info"
+            mock_web.return_value = mock_web_tool
+
+            mock_local_tool = Mock()
+            mock_local_tool.card.tool_info.return_value = "local_tool_info"
+            mock_local.return_value = mock_local_tool
+
+            tool_list, tool_dict = info_collector_node.prepare_collector_tool(state)
+
+        tool_names = [
+            tool.get("name") if isinstance(tool, dict) else getattr(tool, "name", tool)
+            for tool in tool_list
+        ]
+        assert "web_tool_info" in tool_list
+        assert "runtime_collector_tool" in tool_names
+        assert "web_search_tool" in tool_dict
+        assert "runtime_collector_tool" in tool_dict
+
     @pytest.mark.asyncio
     async def test_invoke_llm_with_retry_success(self, info_collector_node):
         """测试 _invoke_llm_with_retry 方法成功"""
@@ -628,3 +689,121 @@ class TestInfoCollectorNode:
 
         # 验证返回原始输入
         assert result == agent_input
+
+
+class TestEditorTeamInfoCollectorNode:
+    MODULE_PATH = "openjiuwen_deepsearch.framework.openjiuwen.agent.reasoning_writing_graph.editor_team_nodes"
+
+    @pytest.fixture
+    def editor_info_collector_node(self):
+        return InfoCollectorNode()
+
+    @staticmethod
+    def _make_session(plan):
+        session = MagicMock()
+        state_map = {
+            "section_context.section_idx": 1,
+            "section_context.language": "zh-CN",
+            "section_context.messages": [],
+            "section_context.current_plan": plan,
+            "section_context.history_plans": [],
+            "section_context.collected_doc_num": 0,
+            "section_context.warning_infos": [],
+            "config.info_collector_initial_search_query_count": 2,
+            "config.info_collector_max_research_loops": 2,
+            "config.info_collector_max_react_recursion_limit": 8,
+            "config": {"mock": True},
+        }
+        session.get_global_state = MagicMock(side_effect=state_map.get)
+        session.update_global_state = MagicMock()
+        return session
+
+    @pytest.mark.asyncio
+    async def test_do_invoke_uses_collector_execution_service(self, editor_info_collector_node):
+        plan = Plan(
+            id="1",
+            title="主题",
+            thought="思路",
+            is_research_completed=False,
+            steps=[
+                Step(
+                    type=StepType.INFO_COLLECTING,
+                    title="步骤1",
+                    description="收集资料",
+                )
+            ],
+        )
+        session = self._make_session(plan)
+        collect_step = Step(
+            type=StepType.INFO_COLLECTING,
+            title="步骤1",
+            description="收集资料",
+            id="1",
+            step_result="摘要",
+            evaluation="足够",
+            retrieval_queries=[RetrievalQuery(query="q1")],
+        )
+        service_result = CollectorExecutionResult(
+            collect_steps=[collect_step],
+            collected_doc_num=1,
+            info_summary="摘要",
+            evaluation="足够",
+            messages=[Message(role="assistant", content="摘要")],
+        )
+
+        with patch(f"{self.MODULE_PATH}.CollectorExecutionService", create=True) as mock_service_cls, \
+                patch(f"{self.MODULE_PATH}.add_debug_log_wrapper"):
+            mock_service = mock_service_cls.return_value
+            mock_service.run_plan = AsyncMock(return_value=service_result)
+
+            result = await editor_info_collector_node._do_invoke({}, session, Mock())
+
+        assert result == {"next_node": NodeId.PLAN_REASONING.value}
+        mock_service.run_plan.assert_awaited_once()
+        session.update_global_state.assert_any_call(
+            {"section_context.messages": [Message(role="assistant", content="摘要")]}
+        )
+        session.update_global_state.assert_any_call({"section_context.history_plans": [plan]})
+        session.update_global_state.assert_any_call({"section_context.collected_doc_num": 1})
+        session.update_global_state.assert_any_call({"section_context.warning_infos": []})
+
+    @pytest.mark.asyncio
+    async def test_run_info_collector_sub_graph_passes_agent_input_directly(self):
+        session = MagicMock()
+        session._inner = None
+        state_map = {
+            "section_context.section_idx": 1,
+            "section_context.language": "zh-CN",
+            "section_context.messages": [],
+            "section_context.current_plan": None,
+            "section_context.history_plans": [],
+            "section_context.collected_doc_num": 0,
+            "section_context.warning_infos": [],
+            "config.info_collector_initial_search_query_count": 2,
+            "config.info_collector_max_research_loops": 2,
+            "config.info_collector_max_react_recursion_limit": 8,
+            "config": {"mock": True},
+            "collector_context": {},
+        }
+        session.get_global_state = MagicMock(side_effect=state_map.get)
+        session.update_global_state = MagicMock()
+        collector_graph = AsyncMock()
+        collector_graph.invoke = AsyncMock()
+        agent_input = {"messages": [{"role": "user", "content": "task"}]}
+        context = Mock()
+        runner_path = (
+            "openjiuwen_deepsearch.framework.openjiuwen.agent.collector_graph."
+            "collector_execution_service.build_info_collector_sub_graph"
+        )
+
+        with patch(runner_path, return_value=collector_graph):
+            result = await run_info_collector_sub_graph(agent_input, session, context)
+
+        collector_graph.invoke.assert_awaited_once_with(
+            agent_input,
+            session,
+            context,
+            is_sub=True,
+        )
+        session.get_global_state.assert_any_call("collector_context")
+        assert result == {}

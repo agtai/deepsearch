@@ -1,7 +1,7 @@
-import pytest
-
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
+
+import pytest
 
 from openjiuwen.core.controller.schema.dataframe import JsonDataFrame, TextDataFrame
 from openjiuwen.core.controller.schema.event import EventType
@@ -17,6 +17,7 @@ from openjiuwen_deepsearch.framework.openjiuwen.core.workflow_agent.config impor
     WorkflowControllerConfig,
 )
 from openjiuwen_deepsearch.framework.openjiuwen.core.workflow_agent.config import DefaultResponse
+import openjiuwen_deepsearch.framework.openjiuwen.core.workflow_agent.workflow_agent as workflow_agent_module
 from openjiuwen_deepsearch.framework.openjiuwen.core.workflow_agent.workflow_agent import (
     WorkflowAgent,
     WorkflowControllerAdapter,
@@ -401,6 +402,69 @@ def test_workflow_agent_add_workflows_registers_and_handles_already_exists(monke
     assert first_call["card"].id == expected_key
 
     agent._controller.setup_from_agent.assert_called_once_with(agent)
+
+
+def test_workflow_agent_add_workflows_warns_on_existing_topology_mismatch(monkeypatch, caplog):
+    agent = WorkflowAgent.__new__(WorkflowAgent)
+
+    agent.card = SimpleNamespace(id="agent-card-id")
+    agent._config = WorkflowControllerConfig(id="tag-1", description="d", workflows=[])
+    agent._controller = WorkflowControllerAdapter()
+
+    workflow_card = SimpleNamespace(id="wf-1", version="1.0")
+    workflow_instance = SimpleNamespace(card=workflow_card)
+
+    class _AddResult:
+        def __init__(self, *, err: bool, msg: str = ""):
+            self._err = err
+            self._msg = msg
+
+        def is_err(self):
+            return self._err
+
+        def msg(self):
+            return self._msg
+
+    dummy_rm = Mock()
+    dummy_rm.add_workflow = Mock(return_value=_AddResult(err=True, msg="already exist"))
+    _patch_runner_resource_mgr(monkeypatch, dummy_rm)
+
+    monkeypatch.setattr(
+        workflow_agent_module,
+        "_resolve_workflow_instance",
+        lambda item, provider, workflow_key: object(),
+    )
+    monkeypatch.setattr(
+        workflow_agent_module,
+        "_build_workflow_signature",
+        lambda workflow: {
+            "node_ids": ("outline", "editor_team"),
+            "outline_node": "OutlineNode",
+            "outline_interaction_node": "OutlineInteractionNode",
+            "editor_node_id": "editor_team",
+            "editor_node": "EditorTeamNode",
+        },
+    )
+    monkeypatch.setattr(
+        workflow_agent_module,
+        "_get_registered_workflow_metadata",
+        lambda resource_mgr, workflow_key: {
+            "tags": ("tag-1",),
+            "signature": {
+                "node_ids": ("outline", "dependency_editor_team"),
+                "outline_node": "DependencyOutlineNode",
+                "outline_interaction_node": "DependencyOutlineInteractionNode",
+                "editor_node_id": "dependency_editor_team",
+                "editor_node": "DependencyEditorTeamNode",
+            },
+        },
+    )
+
+    import logging
+    with caplog.at_level(logging.WARNING):
+        agent.add_workflows([workflow_instance])
+
+    assert any("different topology" in r.message for r in caplog.records)
 
 
 def test_workflow_agent_add_workflows_invalid_workflow_param_raises():

@@ -17,7 +17,8 @@ from openjiuwen_deepsearch.algorithm.research_collector.doc_evaluation import ru
 from openjiuwen_deepsearch.config.config import Config
 from openjiuwen_deepsearch.framework.openjiuwen.agent.base_node import BaseNode
 from openjiuwen_deepsearch.framework.openjiuwen.llm.llm_adapter import adapt_llm_model_name
-from openjiuwen_deepsearch.framework.openjiuwen.tools import create_web_search_tool, create_local_search_tool
+from openjiuwen_deepsearch.framework.openjiuwen.tools import create_web_search_tool, create_local_search_tool, \
+    build_runtime_api_tools
 from openjiuwen_deepsearch.utils.common_utils.llm_utils import ainvoke_llm_with_stats, record_llm_retry_log
 from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
 from openjiuwen_deepsearch.utils.constants_utils.search_engine_constants import LocalSearch, SearchEngine
@@ -59,7 +60,8 @@ class InfoRetrievalNode(BaseNode):
             step_title=step_title,
             search_method=session.get_global_state("config.info_collector_search_method"),
             web_search_engine_name=web_search_engine_name,
-            local_search_engine_name=local_search_engine_name
+            local_search_engine_name=local_search_engine_name,
+            api_tools_config=session.get_global_state("config.api_tools_config") or {},
         )
         return state
 
@@ -77,6 +79,7 @@ class InfoRetrievalNode(BaseNode):
                 "search_method": state.get("search_method", "web"),
                 "web_search_engine_name": state.get("web_search_engine_name", None),
                 "local_search_engine_name": state.get("local_search_engine_name", None),
+                "api_tools_config": state.get("api_tools_config", {}),
             }
             sub_task = self._collector_main(sub_state)
             tasks.append(sub_task)
@@ -316,6 +319,9 @@ class InfoRetrievalNode(BaseNode):
         search_method = state.get("search_method", "web")
         web_search_tool = create_web_search_tool()
         local_search_tool = create_local_search_tool()
+        api_tools = build_runtime_api_tools(
+            state.get("api_tools_config", {}).get("collector_tools", []),
+        )
 
         tool_dict = {}
         tool_list = []
@@ -334,5 +340,9 @@ class InfoRetrievalNode(BaseNode):
                 "web_search_tool": web_search_tool,
                 "local_search_tool": local_search_tool
             })
+
+        for api_tool in api_tools:
+            tool_list.append(api_tool.card.tool_info())
+            tool_dict[api_tool.card.name] = api_tool
 
         return tool_list, tool_dict

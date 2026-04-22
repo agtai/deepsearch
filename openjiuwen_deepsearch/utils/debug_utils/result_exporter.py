@@ -27,6 +27,7 @@ class ResultExporter:
 
     @classmethod
     def init(cls, results_dir: Optional[str] = None) -> None:
+        """初始化导出器运行目录和基础状态。"""
 
         if cls._initialized:
             return

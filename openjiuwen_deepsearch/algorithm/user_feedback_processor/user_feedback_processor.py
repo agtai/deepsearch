@@ -6,13 +6,21 @@ import logging
 import uuid
 
 from openjiuwen_deepsearch.algorithm.user_feedback_processor.action_definitions import (
+    ResolvedUserAction,
+    SupplementarySearchActionSubcategory,
+    SyncActionSubcategory,
     SynonymRewriteActionSubcategory,
     SYNONYM_REWRITE_ACTIONS,
+    USER_INPUT_ACTION_MAP,
     UserFeedbackActionCategory,
     UserFeedbackRewriteStreamResult,
-    resolve_user_input_action,
+    resolve_feedback_action,
+)
+from openjiuwen_deepsearch.algorithm.user_feedback_processor.supplementary_search import (
+    SupplementarySearcher,
 )
 from openjiuwen_deepsearch.algorithm.user_feedback_processor.synonym_rewrite import SynonymRewriter
+from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
 from openjiuwen_deepsearch.common.exception import (
     CustomException,
     CustomRuntimeException,
@@ -25,7 +33,8 @@ from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
 
 logger = logging.getLogger(__name__)
 
-_ALL_VALID_ACTIONS = SYNONYM_REWRITE_ACTIONS | {"finish"}
+_ALL_VALID_ACTIONS = frozenset(USER_INPUT_ACTION_MAP.keys())
+_SUPPLEMENTARY_SEARCH_REWRITE_SCOPES = frozenset({"selected_only", "selected_and_related"})
 
 
 class UserFeedbackProcessor:
@@ -39,18 +48,41 @@ class UserFeedbackProcessor:
 
     def __init__(self, llm_model_name: str):
         self.llm_model_name = llm_model_name
-        # 同义改写处理器，目前只支持同义改写
+        # 同义改写处理器
         self._synonym_rewriter = SynonymRewriter(llm_model_name)
+        # 补充搜索处理器
+        self._supplementary_searcher = SupplementarySearcher(llm_model_name)
 
     # ------------------------------------------------------------------
     # 解析 & 校验
     # ------------------------------------------------------------------
+    # parse_feedback：wire 格式（字符串 → dict）及与报告无关的最浅约束。
+    # validate：在报告正文上下文中做类型、选区一致性、动作白名单等语义校验。
 
     @staticmethod
     def parse_feedback(raw_input: str) -> dict:
-        """解析前端 JSON 输入。"""
+        """解析前端传入的 JSON 反馈字符串。
+
+        该阶段只负责把json字符串转换为字典，并补齐协议中的默认字段；
+        更完整的动作白名单校验、选区偏移校验和语义校验由 ``validate`` 负责。
+
+        Args:
+            raw_input: 前端传入的原始 JSON 字符串。
+
+        Returns:
+            dict: 解析后的反馈字典；当 ``rewrite_scope`` 缺失或为空时，会补为
+                ``selected_only``。
+
+        Raises:
+            CustomValueException: 当输入不是合法 JSON 对象，或 ``action`` 缺失、
+                为空、类型不合法时抛出。
+        """
         try:
             data = json.loads(raw_input)
+            logger.info(
+                f"[UserFeedbackProcessor] parse_feedback: data="
+                f"{'*' if LogManager.is_sensitive() else json.dumps(data, ensure_ascii=False, indent=4)}"
+            )
         except (json.JSONDecodeError, TypeError) as error:
             msg = StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_JSON.errmsg.format(e=str(error))
             logger.error(f"[UserFeedbackProcessor] {msg}")
@@ -69,7 +101,16 @@ class UserFeedbackProcessor:
                 msg,
             )
 
-        action = data.get("action")
+        if "action" not in data or data.get("action") is None:
+            action = data.get("action")
+            msg = StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_ACTION.errmsg.format(action=action)
+            logger.error(f"[UserFeedbackProcessor] {msg}")
+            raise CustomValueException(
+                StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_ACTION.code,
+                msg,
+            )
+
+        action = data["action"]
         if not isinstance(action, str) or not action:
             msg = StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_ACTION.errmsg.format(action=action)
             logger.error(f"[UserFeedbackProcessor] {msg}")
@@ -78,24 +119,69 @@ class UserFeedbackProcessor:
                 msg,
             )
 
+        rewrite_scope = data.get("rewrite_scope")
+        if rewrite_scope is None or rewrite_scope == "":
+            data["rewrite_scope"] = "selected_only"
+
         return data
 
     @staticmethod
-    def validate(feedback: dict, report_content: str, max_text_length: int) -> None:
-        """校验反馈输入。"""
+    def validate_basic(
+        feedback: dict,
+        report_content: str,
+    ) -> None:
+        """执行基础字段校验，并按动作决定是否校验选区偏移。
+
+        Args:
+            feedback: 用户反馈字典。
+            report_content: 当前报告正文。
+
+        Returns:
+            None
+
+        Raises:
+            CustomValueException: 当字段类型、偏移范围或选区内容不合法时抛出。
+        """
         action = feedback.get("action", "")
-        if not isinstance(action, str) or action not in _ALL_VALID_ACTIONS:
+        selected_text = feedback.get("selected_text", "")
+        start_offset = feedback.get("start_offset", 0)
+        end_offset = feedback.get("end_offset", 0)
+
+        logger.info(f"[UserFeedbackProcessor] validate_basic: action={action}")
+        logger.info(f"[UserFeedbackProcessor] validate_basic: "
+        f"selected_text={'*' if LogManager.is_sensitive() else selected_text}"
+        f"start_offset={'*' if LogManager.is_sensitive() else start_offset}"
+        f"end_offset={'*' if LogManager.is_sensitive() else end_offset}")
+
+        if "user_instruction" in feedback and not isinstance(feedback.get("user_instruction"), str):
             raise CustomValueException(
-                StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_ACTION.code,
-                StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_ACTION.errmsg.format(action=action),
+                StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_PARAM_TYPE.code,
+                StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_PARAM_TYPE.errmsg.format(
+                    param="user_instruction",
+                    expected_type="str",
+                ),
+            )
+        if "rewrite_scope" in feedback and not isinstance(feedback.get("rewrite_scope"), str):
+            raise CustomValueException(
+                StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_PARAM_TYPE.code,
+                StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_PARAM_TYPE.errmsg.format(
+                    param="rewrite_scope",
+                    expected_type="str",
+                ),
             )
 
         if action == "finish":
             return None
 
-        selected_text = feedback.get("selected_text", "")
-        start_offset = feedback.get("start_offset", 0)
-        end_offset = feedback.get("end_offset", 0)
+        # sync 依赖 selected_text 承载整篇报告内容，缺字段时必须在校验阶段拦截。
+        if action == "sync" and "selected_text" not in feedback:
+            raise CustomValueException(
+                StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_PARAM_TYPE.code,
+                StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_PARAM_TYPE.errmsg.format(
+                    param="selected_text",
+                    expected_type="str",
+                ),
+            )
 
         if not isinstance(selected_text, str):
             raise CustomValueException(
@@ -105,6 +191,18 @@ class UserFeedbackProcessor:
                     expected_type="str",
                 ),
             )
+        if action == "sync" and selected_text == "":
+            raise CustomValueException(
+                StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_PARAM_TYPE.code,
+                StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_PARAM_TYPE.errmsg.format(
+                    param="selected_text",
+                    expected_type="non-empty str",
+                ),
+            )
+        # sync 表示前端已给出整篇新报告，此时不再要求局部 offset 与正文逐字对齐。
+        if action == "sync":
+            return None
+
         if not isinstance(start_offset, int):
             raise CustomValueException(
                 StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_PARAM_TYPE.code,
@@ -120,12 +218,6 @@ class UserFeedbackProcessor:
                     param="end_offset",
                     expected_type="int",
                 ),
-            )
-
-        if len(selected_text) > max_text_length:
-            raise CustomValueException(
-                StatusCode.USER_FEEDBACK_PROCESSOR_TEXT_TOO_LONG.code,
-                StatusCode.USER_FEEDBACK_PROCESSOR_TEXT_TOO_LONG.errmsg.format(max_length=max_text_length),
             )
 
         if start_offset < 0 or end_offset > len(report_content) or start_offset >= end_offset:
@@ -148,56 +240,64 @@ class UserFeedbackProcessor:
 
         return None
 
-    # ------------------------------------------------------------------
-    # 执行反馈动作
-    # ------------------------------------------------------------------
+    @staticmethod
+    def validate_by_action(feedback: dict) -> None:
+        """按动作类型执行白名单与动作专属字段校验。
 
-    async def execute(
-        self,
-        feedback: dict,
-        final_result,
-        language: str,
-    ) -> dict:
-        """统一入口：根据 action 类型路由到具体处理逻辑。
+        当前动作级校验主要包括两部分：一是 ``action`` 必须属于协议白名单；
+        二是补充搜索动作的 ``rewrite_scope`` 必须落在支持范围内。更基础的字段
+        类型和 offset 校验由 ``validate_basic`` 负责。
+
+        Args:
+            feedback: 已解析的用户反馈字典。
 
         Returns:
-            dict: 改写后的结果快照，包含：
-                - new_report: 更新后的完整报告
-                - rewritten_text: LLM 返回的改写文本
-                - start_offset / new_end_offset: 改写后文本在新报告中的区间
-                - updated_citation_messages: 同步更新后的引用信息
-                - updated_infer_messages: 过滤后的推理消息列表
+            None
+
+        Raises:
+            CustomValueException: 当动作不在白名单内，或动作专属字段不合法时抛出。
         """
-        action = feedback["action"]
-
-        report_content = final_result.get("response_content", "") or ""
-        citation_messages = dict(final_result.get("citation_messages", {}) or {})
-        infer_messages = list(final_result.get("infer_messages", []) or [])
-
-        if action in SYNONYM_REWRITE_ACTIONS:
-            rewrite_result = await self._synonym_rewriter.synonym_rewrite(
-                feedback=feedback,
-                report_content=report_content,
-                citation_messages=citation_messages,
-                language=language,
-                infer_messages=infer_messages,
+        action = feedback.get("action", "")
+        if not isinstance(action, str):
+            raise CustomValueException(
+                StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_PARAM_TYPE.code,
+                StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_PARAM_TYPE.errmsg.format(
+                    param="action",
+                    expected_type="str",
+                ),
             )
-            return dict(
-                new_report=rewrite_result["new_report"],
-                original_text_clean=rewrite_result.get("original_text_clean", feedback.get("selected_text", "")),
-                rewritten_text=rewrite_result["rewritten_text"],
-                start_offset=rewrite_result["start_offset"],
-                new_end_offset=rewrite_result["new_end_offset"],
-                updated_citation_messages=rewrite_result["updated_messages"],
-                updated_infer_messages=rewrite_result["updated_infer_messages"],
+        if action not in _ALL_VALID_ACTIONS:
+            raise CustomValueException(
+                StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_ACTION.code,
+                StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_ACTION.errmsg.format(action=action),
             )
+        if action == "supplementary_search":
+            # rewrite_scope 缺省由 parse_feedback 填充；非 str 由 validate_basic 拦截。
+            rewrite_scope = feedback.get("rewrite_scope")
+            if rewrite_scope not in _SUPPLEMENTARY_SEARCH_REWRITE_SCOPES:
+                raise CustomValueException(
+                    StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_REWRITE_SCOPE.code,
+                    StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_REWRITE_SCOPE.errmsg.format(
+                        rewrite_scope=rewrite_scope,
+                    ),
+                )
 
-        # 后续根据不同的action，调用不同的处理逻辑
+    @staticmethod
+    def validate(
+        feedback: dict,
+        report_content: str,
+    ) -> None:
+        """对反馈字典做语义校验。
 
-        raise CustomValueException(
-            StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_ACTION.code,
-            StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_ACTION.errmsg.format(action=action),
-        )
+        Args:
+            feedback: 用户反馈字典。
+            report_content: 当前报告正文。
+
+        Raises:
+            CustomValueException: 当校验失败时抛出。
+        """
+        UserFeedbackProcessor.validate_basic(feedback, report_content)
+        UserFeedbackProcessor.validate_by_action(feedback)
 
     # ------------------------------------------------------------------
     # 流式输出
@@ -205,63 +305,289 @@ class UserFeedbackProcessor:
 
     @staticmethod
     def build_stream_result(feedback: dict, action_result: dict) -> object | None:
-        mapping = resolve_user_input_action(feedback["action"])
-        builders = {
-            UserFeedbackActionCategory.SYNONYM_REWRITE:
-                UserFeedbackProcessor._build_synonym_rewrite_stream_result,
-            UserFeedbackActionCategory.SUPPLEMENTARY_SEARCH:
-                UserFeedbackProcessor._build_supplementary_search_stream_result,
-            UserFeedbackActionCategory.NEW_TASK:
-                UserFeedbackProcessor._build_new_task_stream_result,
-            UserFeedbackActionCategory.SECTION_CHANGE:
-                UserFeedbackProcessor._build_section_change_stream_result,
-            UserFeedbackActionCategory.FINISH:
-                UserFeedbackProcessor._build_finish_stream_result,
-        }
-        builder = builders.get(mapping.action_category)
-        if builder is None:
-            UserFeedbackProcessor._raise_stream_result_error(
-                f"Unsupported action_category for stream result: {mapping.action_category}"
-            )
-        return builder(feedback, action_result, mapping)
+        """将执行结果转换为前端流式输出所需的结构。
+
+        Args:
+            feedback: 已解析的用户反馈字典。
+            action_result: ``execute`` 返回的原始结果。
+
+        Returns:
+            object | None: 改写动作返回 ``UserFeedbackRewriteStreamResult``，
+                非改写动作返回 ``None``。
+        """
+        resolved_action = resolve_feedback_action(feedback)
+        builder, _ = UserFeedbackProcessor._resolve_action_runtime_hooks(
+            resolved_action.action_category,
+            usage="stream result",
+        )
+        return builder(action_result, resolved_action)
 
     @staticmethod
     def _build_synonym_rewrite_stream_result(
-        feedback: dict,
         action_result: dict,
-        mapping,
+        resolved_action: ResolvedUserAction,
     ) -> UserFeedbackRewriteStreamResult:
-        subcategory = mapping.action_subcategory
+        """校验小类为同义改写后，委托 ``_build_rewrite_stream_result``。
+
+        Args:
+            action_result: execute 方法返回的原始结果字典。
+            resolved_action: 解析后的动作对象。
+
+        Returns:
+            UserFeedbackRewriteStreamResult: 流式改写结果对象。
+
+        Raises:
+            CustomRuntimeException: 当动作小类不是同义改写时抛出。
+        """
+        subcategory = resolved_action.action_subcategory
         if not isinstance(subcategory, SynonymRewriteActionSubcategory):
             UserFeedbackProcessor._raise_stream_result_error(
-                f"Rewrite stream result requires synonym_rewrite subcategory, got action: {feedback['action']}"
+                f"Rewrite stream result requires synonym_rewrite subcategory, got {subcategory.value}"
             )
-        return UserFeedbackRewriteStreamResult(
-            original_text=feedback["selected_text"],
-            original_start_offset=feedback["start_offset"],
-            original_end_offset=feedback["end_offset"],
-            rewritten_text=action_result["rewritten_text"],
-            rewritten_start_offset=action_result["start_offset"],
-            rewritten_end_offset=action_result["new_end_offset"],
-            action_category=mapping.action_category,
-            action_subcategory=subcategory,
+        return UserFeedbackProcessor._build_rewrite_stream_result(action_result, resolved_action)
+
+    @staticmethod
+    async def send_result(
+        session,
+        feedback: dict,
+        result: object | None,
+        final_result: dict | None = None,
+        feedback_interaction_count: int = 0,
+    ):
+        """按动作大类将结果分发到对应的流式发送函数。
+
+        Args:
+            session: 当前会话对象。
+            feedback: 已解析的用户反馈字典。
+            result: 由 ``build_stream_result`` 生成的结构化结果。
+            final_result: 可选的完整结果快照。
+            feedback_interaction_count: 当前反馈交互计数。
+
+        Returns:
+            None
+        """
+        resolved_action = resolve_feedback_action(feedback)
+        _, sender = UserFeedbackProcessor._resolve_action_runtime_hooks(
+            resolved_action.action_category,
+            usage="send_result",
+        )
+        await sender(session, result, final_result, feedback_interaction_count)
+
+    @staticmethod
+    async def send_error(session, error_msg: str | Exception):
+        """向前端发送统一格式的错误消息。
+
+        Args:
+            session: 当前会话对象。
+            error_msg: 字符串错误信息或异常对象。
+
+        Returns:
+            None
+        """
+        content = json.dumps({"error": UserFeedbackProcessor._stringify_error(error_msg)}, ensure_ascii=False)
+        await session.write_custom_stream({
+            "message_id": str(uuid.uuid4()),
+            "agent": NodeId.USER_FEEDBACK_PROCESSOR.value,
+            "content": content,
+            "message_type": MessageType.MESSAGE_CHUNK.value,
+            "event": StreamEvent.ERROR.value,
+            "created_time": get_current_time(),
+        })
+
+    @staticmethod
+    def _build_sync_stream_result(
+        action_result: dict,
+        resolved_action: ResolvedUserAction,
+    ) -> None:
+        """构建 sync 流式结果。
+
+        Args:
+            action_result: execute 方法返回的原始结果字典。
+            resolved_action: 解析后的动作对象。
+
+        Returns:
+            None: sync 只发送轻量确认消息，不下发局部替换结构。
+
+        Raises:
+            CustomRuntimeException: 当动作小类不是 sync 时抛出。
+        """
+        subcategory = resolved_action.action_subcategory
+        if not isinstance(subcategory, SyncActionSubcategory):
+            UserFeedbackProcessor._raise_stream_result_error(
+                f"Sync stream result requires sync subcategory, got {subcategory.value}"
+            )
+
+    @staticmethod
+    def _build_finish_stream_result(action_result: dict, resolved_action: ResolvedUserAction) -> None:
+        return None
+
+    @staticmethod
+    def _build_supplementary_search_stream_result(
+        action_result: dict,
+        resolved_action: ResolvedUserAction,
+    ) -> UserFeedbackRewriteStreamResult:
+        """构建补充搜索动作的流式改写结果。
+
+        Args:
+            action_result: execute 方法返回的原始结果字典。
+            resolved_action: 解析后的动作对象。
+
+        Returns:
+            UserFeedbackRewriteStreamResult: 流式改写结果对象。
+
+        Raises:
+            CustomRuntimeException: 当动作小类不是补充搜索时抛出。
+        """
+        subcategory = resolved_action.action_subcategory
+        if not isinstance(subcategory, SupplementarySearchActionSubcategory):
+            UserFeedbackProcessor._raise_stream_result_error(
+                f"Rewrite stream result requires supplementary_search subcategory, got {subcategory.value}"
+            )
+        return UserFeedbackProcessor._build_rewrite_stream_result(action_result, resolved_action)
+
+    @staticmethod
+    def _resolve_action_runtime_hooks(
+        action_category: UserFeedbackActionCategory,
+        usage: str,
+    ) -> tuple:
+        """根据动作大类解析流式构建与发送函数。
+
+        Args:
+            action_category: 反馈动作大类。
+            usage: 当前用途描述，仅用于拼装异常信息。
+
+        Returns:
+            tuple: ``(stream_result_builder, send_result_fn)`` 二元组。
+
+        Raises:
+            CustomRuntimeException: 当动作大类没有注册对应运行时钩子时抛出。
+        """
+        hooks = {
+            UserFeedbackActionCategory.SYNONYM_REWRITE: (
+                UserFeedbackProcessor._build_synonym_rewrite_stream_result,
+                UserFeedbackProcessor._send_synonym_rewrite_result,
+            ),
+            UserFeedbackActionCategory.SUPPLEMENTARY_SEARCH: (
+                UserFeedbackProcessor._build_supplementary_search_stream_result,
+                UserFeedbackProcessor._send_supplementary_search_result,
+            ),
+            UserFeedbackActionCategory.NEW_TASK: (
+                UserFeedbackProcessor._build_new_task_stream_result,
+                UserFeedbackProcessor._send_new_task_result,
+            ),
+            UserFeedbackActionCategory.SECTION_CHANGE: (
+                UserFeedbackProcessor._build_section_change_stream_result,
+                UserFeedbackProcessor._send_section_change_result,
+            ),
+            UserFeedbackActionCategory.SYNC: (
+                UserFeedbackProcessor._build_sync_stream_result,
+                UserFeedbackProcessor._send_sync_result,
+            ),
+            UserFeedbackActionCategory.FINISH: (
+                UserFeedbackProcessor._build_finish_stream_result,
+                UserFeedbackProcessor._send_finish_result,
+            ),
+        }
+        runtime_hooks = hooks.get(action_category)
+        if runtime_hooks is None:
+            UserFeedbackProcessor._raise_stream_result_error(
+                f"Unsupported action_category for {usage}: {action_category}"
+            )
+        return runtime_hooks
+
+    @staticmethod
+    def _build_section_change_stream_result(
+        action_result: dict,
+        resolved_action: ResolvedUserAction,
+    ) -> None:
+        return None
+
+    @staticmethod
+    async def _send_sync_result(
+        session,
+        result: object | None,
+        final_result: dict | None = None,
+        feedback_interaction_count: int = 0,
+    ):
+        """向前端发送整篇同步成功的轻量确认消息。
+
+        Args:
+            session: 当前会话对象。
+            result: sync 流程不使用该字段，保留以兼容统一 sender 签名。
+            final_result: sync 流程不使用该字段，保留以兼容统一 sender 签名。
+            feedback_interaction_count: sync 流程不使用该字段，保留以兼容统一 sender 签名。
+
+        Returns:
+            None
+        """
+        content = json.dumps(
+            {"action_category": UserFeedbackActionCategory.SYNC.value, "synced": True},
+            ensure_ascii=False,
+        )
+        await session.write_custom_stream({
+            "message_id": str(uuid.uuid4()),
+            "agent": NodeId.USER_FEEDBACK_PROCESSOR.value,
+            "content": content,
+            "message_type": MessageType.MESSAGE_CHUNK.value,
+            "event": StreamEvent.SUMMARY_RESPONSE.value,
+            "created_time": get_current_time(),
+        })
+
+    @staticmethod
+    async def _send_section_change_result(
+        session,
+        result: object | None,
+        final_result: dict | None = None,
+        feedback_interaction_count: int = 0,
+    ):
+        return None
+
+    @staticmethod
+    async def _send_synonym_rewrite_result(
+        session,
+        result: object | None,
+        final_result: dict | None = None,
+        feedback_interaction_count: int = 0,
+    ):
+        """发送同义改写动作的流式结果。
+
+        Args:
+            session: 当前会话对象。
+            result: 流式改写结果对象。
+            final_result: 可选的完整结果快照。
+            feedback_interaction_count: 当前反馈交互计数。
+
+        Returns:
+            None
+        """
+        await UserFeedbackProcessor._send_rewrite_stream_result(
+            session, result, final_result, feedback_interaction_count
         )
 
     @staticmethod
-    def _build_supplementary_search_stream_result(feedback: dict, action_result: dict, mapping) -> None:
-        return None
+    def _build_rewrite_stream_result(
+        action_result: dict,
+        resolved_action: ResolvedUserAction,
+    ) -> UserFeedbackRewriteStreamResult:
+        """从 ``action_result`` 抽取偏移与文本，组装 ``UserFeedbackRewriteStreamResult``。
 
-    @staticmethod
-    def _build_new_task_stream_result(feedback: dict, action_result: dict, mapping) -> None:
-        return None
+        Args:
+            action_result: execute 方法返回的原始结果字典。
+            resolved_action: 解析后的动作对象。
 
-    @staticmethod
-    def _build_section_change_stream_result(feedback: dict, action_result: dict, mapping) -> None:
-        return None
-
-    @staticmethod
-    def _build_finish_stream_result(feedback: dict, action_result: dict, mapping) -> None:
-        return None
+        Returns:
+            UserFeedbackRewriteStreamResult: 流式改写结果对象。
+        """
+        return UserFeedbackRewriteStreamResult(
+            original_text=action_result["original_text"],
+            original_start_offset=action_result["original_start_offset"],
+            original_end_offset=action_result["original_end_offset"],
+            rewritten_text=action_result["rewritten_text"],
+            rewritten_start_offset=action_result["rewritten_start_offset"],
+            rewritten_end_offset=action_result["rewritten_end_offset"],
+            action_category=resolved_action.action_category,
+            action_subcategory=resolved_action.action_subcategory,
+        )
 
     @staticmethod
     def _raise_stream_result_error(message: str) -> None:
@@ -271,33 +597,37 @@ class UserFeedbackProcessor:
         )
 
     @staticmethod
-    async def send_result(session, feedback: dict, result: object | None, final_result: dict | None = None):
-        mapping = resolve_user_input_action(feedback["action"])
-        senders = {
-            UserFeedbackActionCategory.SYNONYM_REWRITE:
-                UserFeedbackProcessor._send_synonym_rewrite_result,
-            UserFeedbackActionCategory.SUPPLEMENTARY_SEARCH:
-                UserFeedbackProcessor._send_supplementary_search_result,
-            UserFeedbackActionCategory.NEW_TASK:
-                UserFeedbackProcessor._send_new_task_result,
-            UserFeedbackActionCategory.SECTION_CHANGE:
-                UserFeedbackProcessor._send_section_change_result,
-            UserFeedbackActionCategory.FINISH:
-                UserFeedbackProcessor._send_finish_result,
-        }
-        sender = senders.get(mapping.action_category)
-        if sender is None:
-            UserFeedbackProcessor._raise_stream_result_error(
-                f"Unsupported action_category for send_result: {mapping.action_category}"
-            )
-        await sender(session, result, final_result)
+    async def _send_finish_result(
+        session,
+        result: object | None,
+        final_result: dict | None = None,
+        feedback_interaction_count: int = 0,
+    ):
+        return None
 
     @staticmethod
-    async def _send_synonym_rewrite_result(session, result: object | None, final_result: dict | None = None):
-        """向前端发送改写成功结果。
+    async def _send_rewrite_stream_result(
+        session,
+        result: object | None,
+        final_result: dict | None = None,
+        feedback_interaction_count: int = 0,
+    ):
+        """向前端发送结构化改写结果。
 
         先返回局部变更信息，便于前端按区间替换现有内容，
-        再同步返回最新的完整 final_result 快照。
+        再同步返回最新的完整 ``final_result`` 快照。
+
+        Args:
+            session: 当前会话对象。
+            result: 结构化改写结果对象，必须为 ``UserFeedbackRewriteStreamResult``。
+            final_result: 可选的完整结果快照。
+            feedback_interaction_count: 当前反馈交互计数。
+
+        Returns:
+            None
+
+        Raises:
+            CustomRuntimeException: 当 ``result`` 类型不符合预期时抛出。
         """
         if not isinstance(result, UserFeedbackRewriteStreamResult):
             UserFeedbackProcessor._raise_stream_result_error(
@@ -312,13 +642,10 @@ class UserFeedbackProcessor:
             "rewritten_end_offset": result.rewritten_end_offset,
             "action_category": result.action_category.value,
             "action_subcategory": result.action_subcategory.value,
+            "feedback_interaction_count": feedback_interaction_count,
         }
         if final_result is not None:
-            content_payload["final_result"] = {
-                "response_content": final_result.get("response_content", ""),
-                "citation_messages": final_result.get("citation_messages", {}),
-                "infer_messages": final_result.get("infer_messages", []),
-            }
+            content_payload["final_result"] = final_result
 
         content = json.dumps(content_payload, ensure_ascii=False)
         await session.write_custom_stream({
@@ -329,35 +656,38 @@ class UserFeedbackProcessor:
             "event": StreamEvent.SUMMARY_RESPONSE.value,
             "created_time": get_current_time(),
         })
-
+        
     @staticmethod
-    async def _send_supplementary_search_result(session, result: object | None, final_result: dict | None = None):
+    def _build_new_task_stream_result(action_result: dict, resolved_action: ResolvedUserAction) -> None:
         return None
 
     @staticmethod
-    async def _send_new_task_result(session, result: object | None, final_result: dict | None = None):
+    async def _send_new_task_result(
+        session,
+        result: object | None,
+        final_result: dict | None = None,
+        feedback_interaction_count: int = 0,
+    ):
         return None
 
     @staticmethod
-    async def _send_section_change_result(session, result: object | None, final_result: dict | None = None):
-        return None
+    async def _send_supplementary_search_result(
+        session,
+        result: object | None,
+        final_result: dict | None = None,
+        feedback_interaction_count: int = 0,
+    ):
+        """补充搜索：复用 ``_send_rewrite_stream_result``。
 
-    @staticmethod
-    async def _send_finish_result(session, result: object | None, final_result: dict | None = None):
-        return None
-
-    @staticmethod
-    async def send_error(session, error_msg: str | Exception):
-        """向前端发送错误信息。"""
-        content = json.dumps({"error": UserFeedbackProcessor._stringify_error(error_msg)}, ensure_ascii=False)
-        await session.write_custom_stream({
-            "message_id": str(uuid.uuid4()),
-            "agent": NodeId.USER_FEEDBACK_PROCESSOR.value,
-            "content": content,
-            "message_type": MessageType.MESSAGE_CHUNK.value,
-            "event": StreamEvent.ERROR.value,
-            "created_time": get_current_time(),
-        })
+        Args:
+            session: 当前会话对象。
+            result: 流式结果对象。
+            final_result: 可选的完整结果快照。
+            feedback_interaction_count: 当前反馈交互计数。
+        """
+        await UserFeedbackProcessor._send_rewrite_stream_result(
+            session, result, final_result, feedback_interaction_count
+        )
 
     # ------------------------------------------------------------------
     # 错误处理
@@ -365,6 +695,14 @@ class UserFeedbackProcessor:
 
     @staticmethod
     def _stringify_error(error: str | Exception) -> str:
+        """将错误信息转换为字符串格式。
+
+        Args:
+            error: 错误消息字符串或异常对象。
+
+        Returns:
+            str: 格式化后的错误消息字符串。
+        """
         if isinstance(error, CustomException):
             return str(error)
         if isinstance(error, Exception):
@@ -374,3 +712,70 @@ class UserFeedbackProcessor:
             )
             return str(wrapped_error)
         return str(error)
+
+    # ------------------------------------------------------------------
+    # 执行反馈动作
+    # ------------------------------------------------------------------
+
+    async def execute(
+        self,
+        feedback: dict,
+        final_result,
+        language: str,
+    ) -> dict:
+        """根据动作类型路由到具体反馈处理逻辑。
+
+        ``sync`` 动作会直接接收前端给出的整篇新报告并沿用当前 metadata；
+        同义改写与补充搜索则会进入对应子处理器，返回统一结构的结果快照，
+        供节点层写回 session 并下发流式结果。
+
+        Args:
+            feedback: 已通过校验的用户反馈字典。
+            final_result: 当前报告完整结果，至少包含正文与 metadata。
+            language: 当前报告语言。
+
+        Returns:
+            dict: 改写后的结果快照，包含：
+                - new_report: 更新后的完整报告
+                - original_text / original_start_offset / original_end_offset: 原始被替换区间
+                - original_text_clean: 剥离选区内标记后的原文片段
+                - rewritten_text: LLM 返回的改写文本
+                - rewritten_start_offset / rewritten_end_offset: 改写后文本在新报告中的区间
+                - section_start_offset / section_end_offset / collector_summary: 补充搜索路径附加字段（可选）
+        """
+        action = feedback["action"]
+
+        report_content = final_result.get("response_content", "") or ""
+        if action == "sync":
+            synced_report = feedback["selected_text"]
+            return {
+                "sync_only": True,
+                "new_report": synced_report,
+                "original_text": report_content,
+                "original_start_offset": 0,
+                "original_end_offset": len(report_content),
+                "rewritten_text": synced_report,
+                "rewritten_start_offset": 0,
+                "rewritten_end_offset": len(synced_report),
+            }
+
+        if action in SYNONYM_REWRITE_ACTIONS:
+            return await self._synonym_rewriter.synonym_rewrite(
+                feedback=feedback,
+                report_content=report_content,
+                language=language,
+            )
+
+        if action == "supplementary_search":
+            return await self._supplementary_searcher.supplementary_search(
+                feedback=feedback,
+                final_result=final_result,
+                language=language,
+            )
+
+        # 后续根据不同的action，调用不同的处理逻辑
+
+        raise CustomValueException(
+            StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_ACTION.code,
+            StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_ACTION.errmsg.format(action=action),
+        )

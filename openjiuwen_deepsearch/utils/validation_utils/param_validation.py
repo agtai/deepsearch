@@ -5,7 +5,7 @@ from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
 from openjiuwen_deepsearch.config.config import LLMConfig
 from openjiuwen_deepsearch.utils.validation_utils.field_validation import validate_not_empty_field, \
-    validate_str_field, validate_bool_field, validate_bytearray_field
+    validate_str_field, validate_bool_field
 
 
 def validate_generate_template_params(

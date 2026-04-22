@@ -10,6 +10,8 @@ from openjiuwen.core.foundation.tool.function.function import LocalFunction
 from openjiuwen_deepsearch.algorithm.prompts.template import apply_system_prompt
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
+from openjiuwen_deepsearch.framework.openjiuwen.tools.runtime_api import build_runtime_api_tools, \
+    merge_runtime_api_tools
 from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import Outline, Section
 from openjiuwen_deepsearch.utils.common_utils.llm_utils import ainvoke_llm_with_stats
 from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
@@ -20,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 def normalize_sections(args: dict) -> dict:
+    """标准化大纲分节结构，统一字段与层级格式。"""
     sections = args.get("sections")
     if isinstance(sections, str):
         try:
@@ -212,18 +215,28 @@ def creat_dep_driving_outline_tool(max_section_num: int):
     return dep_driving_outline_tool
 
 
-def check_tool_call(tool: LocalFunction, tool_calls: list):
+def check_tool_call(tool_dict: dict[str, LocalFunction] | LocalFunction, tool_calls: list):
     """
     Args:
-        tool: 定义的 outline FunctionCall
+        tool_dict: 定义的 outline FunctionCall 映射
         tool_calls: 模型实际的给出的 tool_calls
     """
     is_sensitive = LogManager.is_sensitive()
+    if isinstance(tool_dict, LocalFunction):
+        tool_dict = {tool_dict.card.name: tool_dict}
     if not tool_calls:
         _raise_tool_call_error("No outline tool calls found in response")
     if len(tool_calls) > 1:
         logger.error("Multiple tool calls found in response")
     for tool_call in tool_calls:
+        tool_name = tool_call.get("name", "")
+        tool = tool_dict.get(tool_name)
+        if tool is None and len(tool_dict) == 1:
+            tool = next(iter(tool_dict.values()))
+        if tool is None:
+            _raise_tool_call_error(
+                f"Tool name '{tool_name}' not found in tool call: {'**' if is_sensitive else tool_call}"
+            )
         _check_tool_name(tool, tool_call, is_sensitive)
         arguments = _check_tool_arguments(tool_call, is_sensitive)
         _check_required_params(tool, arguments, tool_call, is_sensitive)
@@ -319,26 +332,36 @@ class Outliner:
         error_msg = ""
         max_section_num = current_inputs.get("max_section_num")
         if self.with_dep_driving:
-            tool = creat_dep_driving_outline_tool(max_section_num)
+            default_tool = creat_dep_driving_outline_tool(max_section_num)
         else:
-            tool = create_outline_tool(max_section_num)
+            default_tool = create_outline_tool(max_section_num)
+        tools = [default_tool]
+        api_tools = build_runtime_api_tools(
+            current_inputs.get("api_tools_config", {}).get("query_understanding_tools", []),
+            response_model=Outline,
+        )
+        tools = merge_runtime_api_tools(tools, api_tools)
+        tool_dict = {tool.card.name: tool for tool in tools}
         try:
             # invoke LLM
             response = await ainvoke_llm_with_stats(
                 self.llm,
                 prompt,
                 agent_name=NodeId.OUTLINE.value,
-                tools=[tool.card.tool_info()],
+                tools=[tool.card.tool_info() for tool in tools],
                 need_stream_out=False,
             )
 
             tool_calls = response.get("tool_calls", [])
             for tool_call in tool_calls:
-                tool_call["args"] = normalize_sections(tool_call.get("args", {}))
+                args = tool_call.get("args", {})
+                if isinstance(args, dict) and "sections" in args:
+                    tool_call["args"] = normalize_sections(args)
 
-            check_tool_call(tool, tool_calls)
+            check_tool_call(tool_dict, tool_calls)
 
             for tool_call in tool_calls:
+                tool = tool_dict[tool_call.get("name")]
                 outline = await tool.invoke(tool_call.get("args"))
                 logger.info(
                     f"The outline generation is completed: "

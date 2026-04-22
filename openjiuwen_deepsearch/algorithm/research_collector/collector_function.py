@@ -3,8 +3,10 @@
 
 import json
 import logging
+from typing import Any
 
 from openjiuwen_deepsearch.common.common_constants import MAX_URL_LENGTH, MAX_SEARCH_CONTENT_LENGTH
+from openjiuwen_deepsearch.framework.openjiuwen.tools import build_runtime_api_search_payload
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
 
 logger = logging.getLogger(__name__)
@@ -76,8 +78,7 @@ async def execute_tool(tool_call: dict, agent_input: dict, tool_dict: dict, step
             args["search_engine_name"] = local_search_engine_name
         elif tool_name == "web_search_tool":
             args["search_engine_name"] = web_search_engine_name
-        else:
-            args["search_engine_name"] = ""
+
         result = await tool_dict[tool_name].invoke(args)
         tool_result = json.dumps(result, ensure_ascii=False, indent=4)
         processed_results = process_tool_result(tool_name, tool_result, agent_input)
@@ -101,25 +102,32 @@ async def execute_tool(tool_call: dict, agent_input: dict, tool_dict: dict, step
     return processed_results
 
 
-def process_tool_result(tool_name: str, tool_content: any, agent_input: dict) -> list:
+def process_tool_result(tool_name: str, tool_content: Any, agent_input: dict) -> list:
     """处理工具返回结果"""
 
-    if "web_search" in tool_name:
+    if tool_name == "web_search_tool":
         tool_result, agent_input = web_search_jiuwen(agent_input, tool_content)
     elif tool_name == "local_search_tool":
         tool_result, agent_input = process_local_search_result(agent_input, tool_content)
     else:
         tool_result = json.loads(tool_content)
-        result_dict = {
-            "tool_name": tool_name,
-            "content": tool_content,
-        }
-        agent_input["other_tool_record"].append(result_dict)
+        runtime_api_search_payload = build_runtime_api_search_payload(tool_result)
+        if runtime_api_search_payload is not None:
+            tool_result, agent_input = web_search_jiuwen(
+                agent_input,
+                json.dumps(runtime_api_search_payload, ensure_ascii=False),
+            )
+        else:
+            result_dict = {
+                "tool_name": tool_name,
+                "content": tool_content,
+            }
+            agent_input["other_tool_record"].append(result_dict)
 
     return tool_result
 
 
-def web_search_jiuwen(agent_input: dict, tool_content: any) -> (list, dict):
+def web_search_jiuwen(agent_input: dict, tool_content: Any) -> (list, dict):
     """处理jiuwen搜索工具结果"""
     tool_content = json.loads(tool_content)
     engine = tool_content.get("search_engine", "")
@@ -134,7 +142,7 @@ def web_search_jiuwen(agent_input: dict, tool_content: any) -> (list, dict):
     return tool_result, agent_input
 
 
-def process_tavily_search_result(agent_input: dict, tool_content: any) -> (list, dict):
+def process_tavily_search_result(agent_input: dict, tool_content: Any) -> (list, dict):
     """Tavily搜索工具结果处理方法"""
     original_records = agent_input.get("web_page_search_record", [])
     if not isinstance(original_records, list):
@@ -157,7 +165,7 @@ def process_tavily_search_result(agent_input: dict, tool_content: any) -> (list,
     return tool_result, agent_input
 
 
-def process_google_search_result(agent_input: dict, tool_content: any) -> (list, dict):
+def process_google_search_result(agent_input: dict, tool_content: Any) -> (list, dict):
     """Google Serper搜索工具结果处理方法"""
     original_records = agent_input.get("web_page_search_record", [])
     if not isinstance(original_records, list):
@@ -188,7 +196,7 @@ def process_google_search_result(agent_input: dict, tool_content: any) -> (list,
     return tool_result, agent_input
 
 
-def process_common_search_result(agent_input: dict, tool_content: any) -> (list, dict):
+def process_common_search_result(agent_input: dict, tool_content: Any) -> (list, dict):
     """标准搜索工具结果处理方法"""
     original_records = agent_input.get("web_page_search_record", [])
     if not isinstance(original_records, list):
@@ -217,7 +225,7 @@ def process_common_search_result(agent_input: dict, tool_content: any) -> (list,
     return tool_result, agent_input
 
 
-def process_local_search_result(agent_input: dict, tool_content: any) -> (list, dict):
+def process_local_search_result(agent_input: dict, tool_content: Any) -> (list, dict):
     """本地搜索工具结果处理方法"""
 
     tool_content = json.loads(tool_content)
@@ -228,7 +236,7 @@ def process_local_search_result(agent_input: dict, tool_content: any) -> (list, 
     return tool_result, agent_input
 
 
-def process_local_search_common(agent_input: dict, tool_content: any) -> (list, dict):
+def process_local_search_common(agent_input: dict, tool_content: Any) -> (list, dict):
     """标准搜索工具结果处理方法"""
     original_records = agent_input.get("local_text_search_record", [])
     if not isinstance(original_records, list):

@@ -4,6 +4,8 @@ from typing import List, Literal, Dict
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from openjiuwen_deepsearch.config.runtime_api_models import ApiToolsConfig
+
 
 class LLMConfig(BaseModel):
     model_name: str = Field(default="", description="模型名称")
@@ -99,7 +101,8 @@ class AgentConfig(BaseModel):
     source_tracer_research_trace_source_switch: bool = Field(default=True, description="溯源功能开关")
     source_tracer_infer_switch: bool = Field(default=True, description="溯源推理功能开关")
     llm_config: Dict[
-        Literal["general", "plan_understanding", "info_collecting", "writing_checking"], LLMConfig
+        Literal["general", "plan_understanding", "info_collecting", "writing_checking",
+                "vlm_chart_generating"], LLMConfig
     ] = Field(default_factory=dict, description="LLM配置")
     info_collector_search_method: Literal["web", "local", "all"] = Field(default="web",
                                                                          description="搜索方式: "
@@ -110,13 +113,21 @@ class AgentConfig(BaseModel):
     local_search_engine_config: LocalSearchEngineConfig = Field(default_factory=LocalSearchEngineConfig)
     custom_web_search_config: CustomWebSearchConfig = Field(default_factory=CustomWebSearchConfig)
     custom_local_search_config: CustomLocalSearchConfig = Field(default_factory=CustomLocalSearchConfig)
+    api_tools_config: ApiToolsConfig = Field(default_factory=ApiToolsConfig, description="API tools config")
 
     # 联网增强引擎 QPS 流控配置
     web_search_max_qps: float = Field(default=0, description="联网增强引擎最大 QPS，0 表示不限流，支持浮点数如 0.5 表示每 2 秒 1 个请求")
 
     # 用户反馈局部优化参数
     user_feedback_processor_enable: bool = Field(default=False, description="是否启用用户反馈优化功能")
-    user_feedback_processor_max_interactions: int = Field(default=3, ge=1, le=5, description="最大交互次数")
+    user_feedback_processor_max_interactions: int = Field(default=100, ge=1, le=100, description="最大交互次数")
+
+    # 统计性能信息参数
+    stats_info_llm: bool = Field(default=False, description="LLM调用统计")
+
+    # vlm迭代生成图参数
+    vlm_chart_generator_enable: bool = Field(default=False, description="vlm迭代生成图开关")
+    vlm_chart_generator_max_iterations: int = Field(default=1, ge=0, le=3, description="vlm迭代生成图最大迭代次数，0表示不进行迭代")
 
 
 class ServiceConfig(BaseModel):
@@ -163,12 +174,8 @@ class ServiceConfig(BaseModel):
     source_tracer_citation_verify_max_concurrency_num: int = Field(default=30, description="溯源校验最大并发数量")
     source_tracer_citation_verify_batch_size: int = Field(default=1, description="溯源校验批次大小")
 
-    # 用户反馈优化节点参数
-    user_feedback_processor_max_text_length: int = Field(default=2000, ge=1, le=10000, description="选中文本最大长度")
-
     # 统计性能信息参数
     stats_info_node_duration: bool = Field(default=False, description="节点持续时间统计")
-    stats_info_llm: bool = Field(default=False, description="LLM调用统计")
     stats_info_search: bool = Field(default=False, description="搜索工具调用统计")
 
     # 大模型超时参数

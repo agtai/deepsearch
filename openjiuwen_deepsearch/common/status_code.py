@@ -36,6 +36,7 @@ class StatusCode(Enum):
     |      22      |  模板功能模块错误         |  模板提取失败异常等                                                |
     |      23      |  溯源推理模块错误         |  溯源推理生成失败等                                                |
     |      24      |  用户反馈处理模块错误      |  UserFeedbackProcessorNode模块异常：改写失败、偏移量不匹配等          |
+    |      25      |  vlm迭代图生成模块错误     |  vlm迭代图生成错误，校验失败等                                      |
 
     """
 
@@ -139,7 +140,7 @@ class StatusCode(Enum):
 
     TEMPLATE_NAME_INVALID = (212201, "Invalid template name: {name}. Only Chinese/English letters, numbers,"
                                      "underscores (_), hyphens (-), and dots (.) are allowed.")
-    
+
     SOURCE_TRACER_INFER_ERROR = (212300, "Source tracer infer error {e}")
     SOURCE_TRACER_INFER_DATA_TYPE_ERROR = (212301, "Source tracer infer data type error {e}")
     SOURCE_TRACER_INFER_DATA_LEN_ERROR = (212302, "Source tracer infer data length error {e}")
@@ -157,6 +158,17 @@ class StatusCode(Enum):
         212407, "Invalid parameter type for {param}, expected {expected_type}"
     )
     USER_FEEDBACK_PROCESSOR_INVALID_OFFSET_RANGE = (212408, "Invalid offset range [{start}, {end})")
+    USER_FEEDBACK_PROCESSOR_INVALID_REWRITE_SCOPE = (
+        212409,
+        "Invalid rewrite_scope: {rewrite_scope}, expected selected_only or selected_and_related",
+    )
+
+
+    CHART_GENERATION_ERROR = (212500, "Error occurred during chart generation, error: {e}")
+    CHART_PLACEHOLDER_ERROR = (212501, "Error occurred when inserting chart placeholders, error: {e}")
+    CHART_DATA_COLLECTION_ERROR = (212502, "Error occurred during chart data collection, error: {e}")
+    CHART_VLM_GENERATION_ERROR = (212503, "Error occurred during VLM chart generation, error: {e}")
+    CHART_INSERT_ERROR = (212504, "Error occurred during chart insertion, error: {e}")
 
     @property
     def errmsg(self):

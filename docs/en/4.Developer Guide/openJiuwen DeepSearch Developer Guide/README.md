@@ -37,6 +37,7 @@ DeepSearch can assign up to four logical models:
 - **info_collecting** — information gathering (InfoCollector).
 - **writing_checking** — report body and rich content (Sub-reporter).
 - **general** — default for any stage without a specific model (**required**).
+- **vlm_chart_generating** — multimodal model specialized for chart processing, can receive chart image inputs.(VLMChartGenerator).
 
 **general must be configured**; other slots fall back to **general**. Prefer a strong model for **general**.
 
@@ -46,6 +47,19 @@ Supported backends (OpenAI-compatible):
 - OpenAI-compatible HTTP APIs: set `model_type` to `openai`.
 
 > Obtain `api_key`, `model_name`, and `base_url` from your provider.
+
+### vlm_chart_generating multimodal model reference
+
+| Model | Time per image / 1 evaluation iteration (s) | Advantages |
+| :---: | :---: | :--- |
+| qwen3.5-plus | 34.18 | Qwen's most powerful visual understanding model |
+| qwen3.5-flash | 20.28 | Faster speed, lower cost; suitable for latency-sensitive scenarios |
+| qwen3-vl-plus | 4.68 | Strongest model in Qwen3-VL series |
+| qwen3-vl-flash | 3.7 | Faster speed, lower cost; suitable for latency-sensitive scenarios |
+| qwen-vl-max | 4.88 | Best-performing model in Qwen2.5-VL series |
+| qwen-vl-plus | 2.7 | Faster speed; good balance between quality and cost |
+
+> Supports other qwen-series VLM models and OpenAI-compatible models.
 
 ## Web search / augmentation configuration
 
@@ -298,6 +312,10 @@ agent_config["outline_interaction_enabled"] = True
 
 Server fields (`DeepSearchRequest`): `outline_interaction_enabled`, `outline_interaction_max_rounds` (1–100, default 3). SDK passes them through `agent_config`.
 
+**Runtime API tools (optional)**: at the Server layer, `DeepSearchRequest.tools` accepts a list of HTTP API tools (see `RuntimeApiToolRequest`). During agent construction, the server normalizes this list into `api_tools_config`. The normalized tools are then used in both query-understanding stages (planner/outliner) and collector stages.
+
+**Runtime API URL safety toggle**: Runtime API URLs are validated by default (for example, private/local addresses are rejected). For local debugging only, you can relax this check with `RUNTIME_API_ALLOW_UNSAFE_URL=true` (truthy values: `1/true/yes`). If unset, safety validation stays enabled. Do not enable this in production, or SSRF protection will be weakened.
+
 ### `space_id` and local knowledge bases
 
 `space_id` scopes tenants: KB creation/upload APIs are tied to it. When calling `run` with local search, every id in `local_search_config.local_search_config_ids` must belong to that `space_id`; cross-space ids are rejected.
@@ -347,25 +365,47 @@ Agent cache keys hash stable JSON of all fields that affect agent construction (
 
 ---
 
-After the report (and provenance) are ready, users can expand/polish/shorten selections.
-
-Enable:
+This feature supports continuing to expand, polish, or shorten user-selected local text after report generation is complete. To enable it, set the following in `agent_config`:
 
 ```python
 agent_config["user_feedback_processor_enable"] = True
-agent_config["user_feedback_processor_max_interactions"] = 3
+agent_config["user_feedback_processor_max_interactions"] = 100
 ```
 
-Unlike pre-planning HITL, this enters `UserFeedbackProcessorNode` after generation: first emit a full `final_result` snapshot; subsequent calls reuse the same `conversation_id` and send JSON strings in `message`; each successful rewrite returns partial replacements plus an updated `final_result`; `finish` or max rounds ends the session.
+Unlike the earlier HITL stage, this feature runs after the report and provenance results have already been generated. The workflow then enters `UserFeedbackProcessorNode`:
+- On first entry, the system first sends a full `final_result` snapshot to the frontend.
+- The frontend then continues using the same `conversation_id` and passes user actions to `message` as JSON strings.
+- After each successful rewrite, the system returns partial replacement information together with the latest `final_result`, and the frontend can refresh content incrementally.
+- The flow ends when the user sends `finish` or when the maximum interaction count is reached.
 
-Supported actions: `expand`, `polish`, `shorten`, `finish`.
+The currently supported actions are:
+- `expand`: expand the selected text.
+- `polish`: polish the selected text.
+- `shorten`: shorten the selected text.
+- `supplementary_search`: selectively enhance the selected content together with supplementary retrieval. See "Rewrite Scope" below.
+- `sync`: sync the full report already edited on the frontend back into backend state.
+- `finish`: end the current local editing session.
 
-Payload shape (first three actions):
+**Protocol rules (aligned with the implementation):**
+- **`action` is required**: it must be one of the registered actions and must be a non-empty string. It cannot be omitted or inferred by the backend.
+- **`rewrite_scope` (recommended for all actions except `finish`)**: this is a shared field. If omitted or passed as an empty string, the backend normalizes it to `selected_only` during parsing. Current valid values are:
+  - `selected_only`: replace only the user-selected span. This is the default.
+  - `selected_and_related`: replace the entire section containing the selection and allow connective rewriting across related content. This is only used by `supplementary_search`; other actions ignore it behaviorally even if it is present.
+- For `supplementary_search`, `rewrite_scope` must be one of the two values above, otherwise validation fails.
 
-- `action`
-- `selected_text`
-- `start_offset` / `end_offset` in the current report
-- optional `user_instruction`
+The request body for local rewrite actions (`expand`, `polish`, `shorten`, `supplementary_search`) must contain the following fields:
+- `action`: action type. Required.
+- `selected_text`: the original text currently selected by the user.
+- `start_offset`: the start offset of the selected text in the current report.
+- `end_offset`: the end offset of the selected text in the current report.
+- `user_instruction`: optional extra rewrite or supplementary instruction. If present, it must be a string.
+- `rewrite_scope`: optional, default is `selected_only`; only `supplementary_search` requires it semantically.
+
+The `sync` request body only needs:
+- `action`: fixed as `sync`.
+- `selected_text`: the full report content after frontend editing.
+
+`sync` does not require `start_offset` / `end_offset`, and it does not consume `feedback_interaction_count`.
 
 ```python
 import json
@@ -376,35 +416,60 @@ agent_factory = AgentFactory()
 agent = agent_factory.create_agent(agent_config)
 
 conversation_id = str(uuid.uuid4())
-message = "Produce an industry research report"
+message = "Please generate an industry research report"
 
 async for chunk in agent.run(message=message, conversation_id=conversation_id, agent_config=agent_config):
     logger.debug("[Stream message from node: %s]", chunk)
 
-feedback_message = json.dumps(
-    {
-        "action": "expand",
-        "selected_text": "snippet to expand",
-        "start_offset": 120,
-        "end_offset": 136,
-        "user_instruction": "Add industry background and figures",
-    },
-    ensure_ascii=False,
-)
+# Round 2: perform expansion on a local part of the report
+feedback_message = json.dumps({
+    "action": "expand",
+    "rewrite_scope": "selected_only",
+    "selected_text": "snippet to expand",
+    "start_offset": 120,
+    "end_offset": 136,
+    "user_instruction": "Add industry background and figures"
+}, ensure_ascii=False)
 
 async for chunk in agent.run(message=feedback_message, conversation_id=conversation_id, agent_config=agent_config):
     logger.debug("[Rewrite stream message: %s]", chunk)
 
+# Use supplementary search as needed. Similar to `expand`, just replace the message with one of the following:
+# - Replace only the selected span: `rewrite_scope` is `selected_only`, or omit it for the same default behavior.
+# - Linked full-section rewrite: `rewrite_scope` is `selected_and_related`, which uses another backend prompt and replacement range.
+# supplementary_message = json.dumps(
+#     {
+#         "action": "supplementary_search",
+#         "rewrite_scope": "selected_only",  # or "selected_and_related"
+#         "selected_text": "snippet to improve",
+#         "start_offset": 0,
+#         "end_offset": 0,
+#         "user_instruction": "Optional extra guidance",
+#     },
+#     ensure_ascii=False,
+# )
+
 finish_message = json.dumps({"action": "finish"}, ensure_ascii=False)
 async for chunk in agent.run(message=finish_message, conversation_id=conversation_id, agent_config=agent_config):
     logger.debug("[Finish stream message: %s]", chunk)
+
+# The frontend can also send `sync` after editing the full report, to synchronize the latest full text back to backend state:
+# sync_message = json.dumps(
+#     {
+#         "action": "sync",
+#         "selected_text": "fully edited report content",
+#     },
+#     ensure_ascii=False,
+# )
 ```
 
-Rules:
-
-- `selected_text` must exactly match `[start_offset, end_offset)` in the latest report or offsets are rejected.
-- Selection length is capped by `service_config.user_feedback_processor_max_text_length` (default `2000`).
-- Always treat the newest `final_result` as authoritative for offsets/citations.
+Notes:
+- Local rewrite actions require `selected_text` to exactly match the text in `[start_offset, end_offset)` of the current report, otherwise offset validation fails.
+- Rewrite results update only `final_result.response_content`. Existing citation / infer metadata stays unchanged, and the backend no longer maintains an extra offset mapping.
+- `sync` only updates `final_result.response_content`, does not consume `feedback_interaction_count`, and appends a `search_context.rewrite_history` record only when the full report content actually changes.
+- The backend keeps only the latest 10 `sync` history records; unchanged `sync` requests do not create history entries.
+- Each successful normal local rewrite appends one record to `search_context.rewrite_history`, including `action`, `rewrite_scope` (when present), offsets, and related information for debugging and auditing.
+- **Compatibility**: omitting `rewrite_scope` is equivalent to explicitly sending `selected_only`; **`action` cannot be omitted or be an empty string**. If an older frontend still relies on backend inference, it must be updated to send a valid explicit `action`.
 
 # Further reading
 

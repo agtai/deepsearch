@@ -1,6 +1,8 @@
 # coding: utf-8
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
 
+import ipaddress
+import os
 import re
 from urllib.parse import urlparse, urlunparse
 
@@ -166,3 +168,65 @@ def are_similar_urls(url1: str, url2: str, threshold: float = 0.9) -> bool:
 
     except Exception:
         return False
+
+
+def _is_runtime_api_unsafe_url_relaxed() -> bool:
+    value = os.environ.get("RUNTIME_API_ALLOW_UNSAFE_URL", "").strip().lower()
+    return value in ("1", "true", "yes")
+
+
+def _unsafe_url_exception_detail(url: str, reason: str) -> str:
+    return f"runtime api url is not allowed ({reason}): {url!r}"
+
+
+def validate_runtime_request_url(url: str) -> None:
+    """
+    Validate runtime API request URL to reduce SSRF risk.
+    Local debugging can bypass this check with RUNTIME_API_ALLOW_UNSAFE_URL.
+    """
+    if _is_runtime_api_unsafe_url_relaxed():
+        return
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise CustomValueException(
+            StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
+            StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(
+                e=_unsafe_url_exception_detail(url, "scheme must be http or https")
+            ),
+        )
+    host = parsed.hostname
+    if not host:
+        raise CustomValueException(
+            StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
+            StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(
+                e=_unsafe_url_exception_detail(url, "missing host")
+            ),
+        )
+    host_lower = host.lower()
+    if host_lower == "localhost" or host_lower.endswith(".localhost"):
+        raise CustomValueException(
+            StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
+            StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(
+                e=_unsafe_url_exception_detail(url, "localhost host is blocked")
+            ),
+        )
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return
+
+    is_non_public_ip = any((
+        ip.is_private,
+        ip.is_loopback,
+        ip.is_link_local,
+        ip.is_multicast,
+        ip.is_reserved,
+        ip.is_unspecified,
+    ))
+    if is_non_public_ip:
+        raise CustomValueException(
+            StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
+            StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(
+                e=_unsafe_url_exception_detail(url, "private or non-public IP")
+            ),
+        )

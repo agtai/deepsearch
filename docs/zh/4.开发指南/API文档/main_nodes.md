@@ -158,6 +158,23 @@ class ReporterNode(BaseNode)
 
 ---
 
+### class VLMChartGeneratorNode
+```python
+class VLMChartGeneratorNode(BaseNode)
+```
+**VLMChartGeneratorNode** 负责vlm迭代式图表生成。
+
+**功能**：
+- 若 `vlm_chart_generator_enable` 关闭则跳过。
+- 若 `vlm_chart_generator_enable` 开启：
+  - 且 `vlm_chart_generator_max_iterations` 等于0, 则只执行vlm图生成过程，不执行vlm迭代优化功能。
+  - 且 `vlm_chart_generator_max_iterations` 大于0, 必须传入vlm模型配置，否则系统关闭该模块开关，跳过模块。
+- 系统选择图表插入位置生成图表并完成相应图表优化。
+- 写入 `final_result.chart_messages`。
+- 图表生成错误会写入 `exception_info`。
+
+---
+
 ### class SourceTracerNode
 ```python
 class SourceTracerNode(BaseNode)
@@ -168,7 +185,7 @@ class SourceTracerNode(BaseNode)
 - 若 `source_tracer_research_trace_source_switch` 关闭则跳过。
 - 预处理后调用校验逻辑，生成引用信息。
 - 写入 `final_result.response_content` 与 `citation_messages`。
-- 引用结果中的文本引用会携带 `citation_start_offset` 与 `citation_end_offset`，供后续局部改写使用。
+- 引用结果会在报告正文中写入稳定的 `[checked_citation:id]` 标记，并同步返回对应的 citation metadata，供前端按最新 `final_result` 渲染与后续交互。
 - 校验失败时写入 `exception_info`。
 
 
@@ -182,11 +199,16 @@ class UserFeedbackProcessorNode(BaseNode)
 
 **功能**：
 - 根据 `user_feedback_processor_enable` 决定是否启用报告后局部优化。
-- 首次进入时先向前端发送完整的 `final_result` 快照。
-- 读取用户 JSON 反馈，支持 `expand`、`shorten`、`polish`、`finish`。
-- 调用 `UserFeedbackProcessor` 完成局部改写，并同步更新 `citation_messages` 与 `infer_messages`。
-- 维护 `search_context.feedback_interaction_count` 与 `search_context.rewrite_history`。
-- 达到 `user_feedback_processor_max_interactions` 或收到 `finish` 后结束流程。
+- 首次进入时先向前端发送完整的 `final_result` 快照，并通过 `search_context.feedback_snapshot_sent` 保证只发送一次。
+- 读取用户 JSON 反馈，支持 `expand`、`shorten`、`polish`、`supplementary_search`、`sync`、`finish`。
+- 对改写类动作解析并校验 `action`、`rewrite_scope`、`selected_text`、偏移量等字段。
+- `supplementary_search` 支持 `selected_only` 与 `selected_and_related` 两种改写范围。
+- `sync` 会以轻量 ack 回传整篇报告更新结果，不消耗 `feedback_interaction_count`；只有整篇报告内容实际变化时才会追加一条 `rewrite_history` 记录。
+- 调用 `UserFeedbackProcessor` 完成局部改写，仅更新 `final_result.response_content`。
+- 普通 rewrite / supplementary_search 会维护 `search_context.feedback_interaction_count` 与 `search_context.rewrite_history`，记录动作类型、改写范围和实际替换区间。
+- 改写链路保留原有 citation / infer metadata，不再额外维护前端偏移映射。
+- `sync` 历史仅保留最近 10 条；内容未变化的 `sync` 不会新增历史记录。
+- 只有非 `sync` 动作会受 `user_feedback_processor_max_interactions` 约束；收到 `finish` 后结束流程。
 
 ---
 

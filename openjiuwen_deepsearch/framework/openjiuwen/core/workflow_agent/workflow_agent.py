@@ -8,6 +8,7 @@ WorkflowAgent 封装。
 from __future__ import annotations
 
 import copy
+import inspect
 import logging
 
 from typing import Any, AsyncIterator, Dict, List, Optional, Union
@@ -31,8 +32,98 @@ from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
 from openjiuwen_deepsearch.framework.openjiuwen.core.workflow_agent.config import WorkflowControllerConfig
 from openjiuwen_deepsearch.framework.openjiuwen.core.workflow_agent.workflow_controller import WorkflowController
+from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_workflow_instance(item: Any, provider: Any, workflow_key: str) -> Any:
+    """Best-effort resolve a workflow instance for topology inspection."""
+    if hasattr(item, "_internal") and hasattr(item, "card"):
+        return item
+    if provider is None or not callable(provider) or inspect.iscoroutinefunction(provider):
+        return None
+    try:
+        return provider()
+    except Exception as exc:
+        logger.warning("Failed to inspect workflow topology for %s: %s", workflow_key, exc)
+        return None
+
+
+def _build_workflow_signature(workflow: Any) -> Optional[Dict[str, Any]]:
+    """Extract a compact topology signature from a workflow instance."""
+    graph = getattr(getattr(workflow, "_internal", None), "_graph", None)
+    nodes = getattr(graph, "nodes", None)
+    if not isinstance(nodes, dict):
+        return None
+
+    node_classes = {}
+    for node_id, vertex in nodes.items():
+        executable = getattr(vertex, "_executable", None)
+        if executable is None:
+            node_classes[node_id] = type(vertex).__name__
+        else:
+            node_classes[node_id] = type(executable).__name__
+
+    editor_node_id = None
+    if NodeId.EDITOR_TEAM.value in node_classes:
+        editor_node_id = NodeId.EDITOR_TEAM.value
+    elif NodeId.DEPENDENCY_EDITOR_TEAM.value in node_classes:
+        editor_node_id = NodeId.DEPENDENCY_EDITOR_TEAM.value
+
+    return {
+        "node_ids": tuple(sorted(node_classes.keys())),
+        "outline_node": node_classes.get(NodeId.OUTLINE.value),
+        "outline_interaction_node": node_classes.get(NodeId.OUTLINE_INTERACTION.value),
+        "editor_node_id": editor_node_id,
+        "editor_node": node_classes.get(editor_node_id) if editor_node_id else None,
+    }
+
+
+def _format_workflow_signature(signature: Optional[Dict[str, Any]]) -> str:
+    """Format workflow signature for concise logging."""
+    if not signature:
+        return "unavailable"
+    return (
+        f"outline={signature.get('outline_node')}, "
+        f"outline_interaction={signature.get('outline_interaction_node')}, "
+        f"editor={signature.get('editor_node_id')}:{signature.get('editor_node')}, "
+        f"nodes={list(signature.get('node_ids', ())) or []}"
+    )
+
+
+def _get_registered_workflow_metadata(resource_mgr: Any, workflow_key: str) -> Dict[str, Any]:
+    """Read existing workflow tags and topology from the resource manager."""
+    metadata = {"tags": (), "signature": None}
+    if resource_mgr is None:
+        return metadata
+
+    tag_mgr = getattr(resource_mgr, "_tag_mgr", None)
+    if tag_mgr and hasattr(tag_mgr, "get_resources_tags"):
+        try:
+            resource_tags = tag_mgr.get_resources_tags(workflow_key)
+            if isinstance(resource_tags, (list, tuple, set)):
+                metadata["tags"] = tuple(sorted(resource_tags))
+        except Exception as exc:
+            logger.warning("Failed to read workflow tags for %s: %s", workflow_key, exc)
+
+    registry = getattr(resource_mgr, "_resource_registry", None)
+    if registry is None or not hasattr(registry, "workflow"):
+        return metadata
+
+    workflow_mgr = registry.workflow()
+    providers = getattr(workflow_mgr, "_providers", None)
+    existing_provider = providers.get(workflow_key) if providers else None
+    if existing_provider is None:
+        return metadata
+
+    existing_workflow = _resolve_workflow_instance(
+        item=None,
+        provider=existing_provider,
+        workflow_key=workflow_key,
+    )
+    metadata["signature"] = _build_workflow_signature(existing_workflow)
+    return metadata
 
 
 def _input_event_to_dict(inputs: InputEvent, session: Any) -> Dict[str, Any]:
@@ -231,6 +322,19 @@ class WorkflowAgent(ControllerAgent):
             card_copy = copy.deepcopy(workflow_card)
             card_copy.id = workflow_key
             tag = config.id or self.card.id or "default"
+            workflow_instance = _resolve_workflow_instance(
+                item=item,
+                provider=provider,
+                workflow_key=workflow_key,
+            )
+            workflow_signature = _build_workflow_signature(workflow_instance)
+            logger.info(
+                "Registering workflow %s for WorkflowAgent %s with tag=%s, signature=%s",
+                workflow_key,
+                self.card.id,
+                tag,
+                _format_workflow_signature(workflow_signature),
+            )
             add_result = Runner.resource_mgr.add_workflow(
                 card=card_copy, workflow=provider, tag=tag
             )
@@ -238,7 +342,35 @@ class WorkflowAgent(ControllerAgent):
                 err = add_result.error() if hasattr(add_result, "error") else add_result.msg()
                 err_str = str(err) if err else ""
                 if "already exist" in err_str.lower():
-                    logger.info(f"Workflow {workflow_key} already registered for tag {tag}")
+                    registered_metadata = _get_registered_workflow_metadata(Runner.resource_mgr, workflow_key)
+                    registered_tags = registered_metadata.get("tags", ())
+                    registered_signature = registered_metadata.get("signature")
+                    if registered_tags and tag not in registered_tags:
+                        logger.warning(
+                            "Workflow %s already exists under tags %s, requested tag=%s",
+                            workflow_key,
+                            registered_tags,
+                            tag,
+                        )
+                    if (
+                        workflow_signature is not None
+                        and registered_signature is not None
+                        and workflow_signature != registered_signature
+                    ):
+                        logger.warning(
+                            "Workflow %s already registered with different topology under tag=%s: "
+                            "existing=%s, requested=%s",
+                            workflow_key,
+                            tag,
+                            _format_workflow_signature(registered_signature),
+                            _format_workflow_signature(workflow_signature),
+                        )
+                    logger.info(
+                        "Workflow %s already registered for tag=%s, existing_signature=%s",
+                        workflow_key,
+                        tag,
+                        _format_workflow_signature(registered_signature),
+                    )
                 else:
                     raise CustomValueException(
                         StatusCode.WORKFLOW_ADD_FAILED.code,
@@ -246,7 +378,12 @@ class WorkflowAgent(ControllerAgent):
                             workflow_key=workflow_key, err=str(err)
                         ),
                     ) from (err if isinstance(err, Exception) else None)
-            logger.info(f"Added workflow {workflow_key} to WorkflowAgent {self.card.id}")
+            logger.info(
+                "Added workflow %s to WorkflowAgent %s with signature=%s",
+                workflow_key,
+                self.card.id,
+                _format_workflow_signature(workflow_signature),
+            )
 
         if self.controller and isinstance(self.controller, WorkflowControllerAdapter):
             self.controller.setup_from_agent(self)
