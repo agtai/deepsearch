@@ -571,12 +571,20 @@ class CitationVerifyResearch:
                 "source", "unknown source")
             if "unknown" in self.datas[idx]["source"]:
                 self.datas[idx]["source"] = handle_datas[idx]["domain"]
-            self.datas[idx]["score"] = ordered_result.get("score", 0)
+            if self.datas[idx].get("is_vlm_chart", False):
+                # vlm迭代生成图的图表溯源分数使用vlm模型的图表打分，如果没有经历vlm迭代优化，则使用溯源模块的打分
+                self.datas[idx]["score"] = max(self.datas[idx]["score"], 
+                                               ordered_result.get("score", 0))
+            else:
+                self.datas[idx]["score"] = ordered_result.get("score", 0)
             if self.datas[idx]["score"] < 0.85:
                 self.datas[idx]["valid"] = False
                 self.datas[idx]["invalid_reason"] = "score lower than threshold"
                 continue
             if not ordered_result.get("marked_citation_content", []):
+                if self.datas[idx].get("is_vlm_chart", False):
+                    # vlm图表由于是用llm生成的图表描述去匹配高亮引用的，如果匹配不到也要显示图表的溯源
+                    continue
                 self.datas[idx]["valid"] = False
                 self.datas[idx]["invalid_reason"] = "marked citation content empty"
                 continue

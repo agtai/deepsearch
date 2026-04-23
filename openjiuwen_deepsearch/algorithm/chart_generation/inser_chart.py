@@ -161,7 +161,7 @@ class InsertChartNode:
                     "publish_time": "",
                     "from": "",
                     "chunk": chart.get("description", ""),
-                    "score": 8.5,
+                    "score": chart.get("score", 0) / 100, # 后续分数应用于溯源模块，分制对齐
                     "id": "",
                     "_sentence_position": sentence_position + pos_offset, # 符合datas中位置递增变化即可
                     "is_vlm_chart": True,

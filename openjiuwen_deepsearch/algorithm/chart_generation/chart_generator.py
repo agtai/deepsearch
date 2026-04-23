@@ -35,6 +35,8 @@ FONT_PATH = os.path.join(os.path.dirname(__file__), "fonts", "kt_font.ttf")
 # 并发控制：限制同时执行的沙箱子进程数量，避免内存耗尽和进程阻塞
 MAX_CONCURRENT_CHART_TASKS = 3
 
+CHART_THRESHOLD = 85
+
 
 class ChartGenerator:
     """图表生成器"""
@@ -58,6 +60,7 @@ class ChartGenerator:
         self._vlm_model = vlm_model_name
         self.output_dir = output_dir
         self._vlm_max_iterations = vlm_max_iterations
+        self._chart_threshold = CHART_THRESHOLD
         self._log_prefix = "[ChartGenerator]"
         # 最大并发图表生成任务数，限制子进程数量
         self._max_concurrent_tasks = MAX_CONCURRENT_CHART_TASKS
@@ -90,7 +93,7 @@ class ChartGenerator:
             use_vlm_critic: 是否使用VLM评估反馈
 
         Returns:
-            Dict[str, str]: 图表路径字典 {figure_id: 图表文件路径}
+            Dict[str, str]: 图表各项信息
         """
         # 并行每个章节的图表生成任务
         section_coroutines: List[asyncio.Future] = []
@@ -170,7 +173,7 @@ class ChartGenerator:
 
     @staticmethod
     def _post_process_section_results(
-        results: List[Optional[str]],
+        results: List[Dict[str, Any]],
         section_chart_tasks: List[Dict[str, Any]],
         section_idx: int,
     ) -> List[Dict[str, Any]]:
@@ -184,8 +187,10 @@ class ChartGenerator:
             section_chart_idx = 1
             for result, chart_task in zip(results, section_chart_tasks):
                 if result:
+                    # result = {chart_base64, score}
                     section_chart_results.append(chart_task.copy())
-                    section_chart_results[-1]["chart_base64"] = result
+                    section_chart_results[-1]["chart_base64"] = result.get("chart_base64", "")
+                    section_chart_results[-1]["score"] = result.get("score", 0)
                     section_chart_results[-1]["chart_id"] = (
                         f"chart_{section_idx}_{section_chart_idx}"
                     )
@@ -195,7 +200,8 @@ class ChartGenerator:
             logger.error(f"Error post processing section results: {e}")
             return []
 
-    async def _generate_single_chart(self, chart_task: Dict[str, Any]) -> Optional[str]:
+    async def _generate_single_chart(self, chart_task: Dict[str, Any]
+                                     ) -> Dict[str, Any]:
         """
         生成单个图表的代码并执行，进行VLM评估反馈（可选）
 
@@ -203,7 +209,9 @@ class ChartGenerator:
             chart_task: 图表生成任务
 
         Returns:
-            Optional[str]: 图表base64编码，失败返回None
+            Dict[str, Any]: 
+                chart_base64: 图表base64编码，失败返回None，过滤掉分数低于阈值的图表
+                score: 图表分数（vlm迭代优化功能开启后该分数才有意义）
         """
 
         try:
@@ -234,27 +242,31 @@ class ChartGenerator:
             result = await self._generate_and_execute_code(gen_chart_input, figure_id)
             if not result or not result.get("chart_base64"):
                 logger.warning(f"Failed to generate chart for {figure_id}")
-                return None
+                return {}
             code = result.get("code", "")
             chart_base64 = result.get("chart_base64", "")
 
             if self._vlm_max_iterations == 0:
-                return chart_base64
+                return {"chart_base64": chart_base64, "score": 0}
 
             # ---------- Part 2: VLM评估反馈（可选） ----------
             for _ in range(self._vlm_max_iterations):
-                suggestions = await self._vlm_iterate(
+                suggestion_and_score = await self._vlm_iterate(
                     chart_base64, gen_chart_input, suggestion_list
                 )
-
-                if "pass" in suggestions.lower():
-                    logger.info(f"Chart generated successfully: {figure_id}")
+                
+                score = suggestion_and_score.get("score", 0)
+                suggestions = suggestion_and_score.get("suggestion", "")
+                
+                if score >= self._chart_threshold:
+                    logger.info(f"Chart generated successfully: {figure_id},"
+                                f"chart title: {chart_title}, score: {score}")
                     final_base64 = chart_base64
                     # 释放内存
                     del chart_base64
                     del suggestion_list
                     del result
-                    return final_base64
+                    return {"chart_base64": final_base64, "score": score}
                 else:
                     suggestion_list.append(suggestions)
 
@@ -274,15 +286,15 @@ class ChartGenerator:
                     )
                     if not result or not result.get("chart_base64"):
                         logger.warning(f"Failed to generate chart for {figure_id}")
-                        return None
+                        return {}
                     code = result.get("code", "")
                     chart_base64 = result.get("chart_base64", "")
 
         except Exception as e:
             logger.warning(f"Error generating chart: {e}")
-            return None
+            return {}
 
-        return chart_base64
+        return {}
 
     async def _generate_and_execute_code(
         self, gen_chart_input: Dict[str, Any], figure_id: str
@@ -444,7 +456,7 @@ class ChartGenerator:
         chart_base64: str,
         gen_chart_input: Dict[str, Any],
         suggestion_list: List[str],
-    ) -> str:
+    ) -> Dict[str, Any]:
         """
         VLM迭代反馈优化图表
 
@@ -453,7 +465,9 @@ class ChartGenerator:
             gen_chart_input: 图表生成任务输入信息
 
         Returns:
-            str: 反馈意见内容
+            Dict[str, Any]: 
+            - 反馈意见内容
+            - 图表得分
         """
         # 构建输入
         vlm_llm_input = {
@@ -473,14 +487,9 @@ class ChartGenerator:
                 agent_name=NodeId.VLM_CHART_GENERATOR.value + "vlm_iterate",
             )
             response = await call_model(call_model_input, use_vlm=True)
-
-            # 解析反馈并重新生成
             if not response:
-                return ""
-            suggestion = (
-                response.get("suggestion", "") if isinstance(response, dict) else ""
-            )
-            return suggestion
+                return {}
+            return response
 
         except Exception as e:
             error_msg = f"Error in VLM iteration: {e}"

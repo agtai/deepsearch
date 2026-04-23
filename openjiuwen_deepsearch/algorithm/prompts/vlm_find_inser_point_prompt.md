@@ -81,7 +81,7 @@ Return a JSON array. Each element is a chart dict:
 4. **Multiple Charts**: A section may have multiple charts, each with its own placeholder index
 5. **Valid JSON**: Return ONLY the JSON array, no explanations
 6. **No Chart**: If there is no chart to insert, the `description` returns "NO CHART"`, and the other fields is None
-6. **Language**: Language consistency: **{{ language }}**
+7. **Language**: Always use the language specified by the locale = **{{ language }}**.
 
 ## Section Content
 
