@@ -34,8 +34,13 @@ class NodeId(enum.Enum):
     SEARCH_PLAN_REASONING = "search_plan_reasoning"
 
     # search 相关
-    SEARCH_TEAM = "search_team"
-    ANSWER = "answer"
+    END_NODE = "end_node"
+    FIND_ACTION_SPACE = "find_action_space"
+    INITIAL_STATE = "initial_state"
+    RUN_ACTION = "run_action"
+    START_NODE = "start_node"
+    TOOL = "tool"
+    VALIDATE_NEW_STATE = "validate_new_state"
 
     # info collector 子图相关
     COLLECTOR_QUERY_GEN = "collector_query_generation"

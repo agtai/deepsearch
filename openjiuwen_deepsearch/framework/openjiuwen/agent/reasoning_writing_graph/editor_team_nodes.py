@@ -308,6 +308,8 @@ class SubReporterNode(BaseNode):
         self.log_prefix = f"section_idx: {section_idx} | [{self.__class__.__name__}] "
         logger.info(f"{self.log_prefix} Start [{self.__class__.__name__}].")
 
+        llm_model_name = adapt_llm_model_name(session, NodeId.SUB_REPORTER.value)
+
         return dict(
             thread_id=session.get_global_state("section_context.session_id"),
             has_template=bool(session.get_global_state("section_context.report_template")),

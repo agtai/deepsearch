@@ -90,6 +90,7 @@ class SourceTracerInfer:
         logger.info(f"[SOURCE TRACER INFER] async_run starting...")
         checked_infer_graphs = None
         infer_message = {}
+        inferences: Dict = {}
         try:
             # search_records中筛选与结论有关的引用
             conclusion_and_evidences = await self.extract_reference(datas)

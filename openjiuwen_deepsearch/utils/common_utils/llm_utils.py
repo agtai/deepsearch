@@ -3,8 +3,10 @@
 
 import asyncio
 import copy
+import inspect
 import json
 import logging
+import os
 import re
 import time
 import uuid
@@ -27,12 +29,45 @@ from openjiuwen_deepsearch.common.status_code import StatusCode
 from openjiuwen_deepsearch.config.config import Config
 from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import Message
 from openjiuwen_deepsearch.utils.common_utils.stream_utils import get_current_time, MessageType, StreamEvent
+from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
 from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import session_context, cancel_context
 from openjiuwen_deepsearch.utils.log_utils.log_common import session_id_ctx
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
 from openjiuwen_deepsearch.utils.log_utils.log_metrics import metrics_logger, TIME_LOGGER_TAG
 
 logger = logging.getLogger(__name__)
+
+
+def format_llm_log_correlation_suffix() -> str:
+    """Suffix for LLM logs: per-run directory basename (e.g. result_<conversation_id>) and absolute path."""
+    try:
+        rt = session_context.get()
+    except LookupError:
+        return ""
+    if rt is None:
+        return ""
+    ld = rt.get_global_state("log_dir")
+    if not ld:
+        cfg = rt.get_global_state("config") or {}
+        if isinstance(cfg, dict):
+            ld = cfg.get("log_dir") or ""
+    if not ld:
+        return ""
+    if LogManager.is_sensitive():
+        return " result_run=***"
+    base = os.path.basename(os.path.normpath(str(ld)))
+    return f" result_run={base} log_dir={os.path.abspath(str(ld))}"
+
+
+_DEEPSEARCH_NODE_IDS = frozenset({
+    NodeId.INITIAL_STATE.value,
+    NodeId.FIND_ACTION_SPACE.value,
+    NodeId.RUN_ACTION.value,
+    NodeId.VALIDATE_NEW_STATE.value,
+    NodeId.TOOL.value,
+})
+
+
 _WORKFLOW_LLM_USAGE: dict[str, dict[str, Any]] = {}
 _USAGE_ONLY_PARSER_PATCHES: dict[int, dict[str, Any]] = {}
 
@@ -221,9 +256,9 @@ def save_workflow_llm_usage_to_session(session: Any, session_id: str) -> dict[st
         return usage
     try:
         session.update_global_state({"search_context.final_result.workflow_llm_token_usage": usage})
-    except Exception:
+    except Exception as e:
         # 持久化失败时仅降级，不影响主流程执行。
-        pass
+        logger.debug("Exception when updating session's global state: %s", e, exc_info=True)
     return usage
 
 
@@ -399,12 +434,10 @@ def _is_llm_stats_enabled() -> bool:
             session_flag = session.get_global_state("config.stats_info_llm")
             if session_flag is not None:
                 return bool(session_flag)
-    except LookupError:
+    except Exception as e:
         # 非 workflow 会话场景，走全局默认配置兜底。
-        pass
-    except Exception:
         # 避免统计开关读取异常影响主流程。
-        pass
+        logger.debug("Exception when checking whether llm stats is enabled: %s", e, exc_info=True)
 
     return bool(Config().agent_config.stats_info_llm)
 
@@ -490,6 +523,115 @@ def normalize_json_output(input_data: str) -> str:
 def _extract_json(text: str) -> str:
     # 去除 ```json 或 ``` 包裹
     return re.sub(r"^```(?:json)?\n|\n```$", "", text.strip())
+
+
+def _single_provider_error_detail(
+    exc: BaseException, *, max_response_text: int = 16_000
+) -> dict[str, Any]:
+    """Same fields the OpenAI Python SDK exposes on API errors (cf. openai.APIStatusError).
+
+    Mirrors ``test.test._error_detail`` so logs match direct ``OpenAI()`` calls.
+    """
+    out: dict[str, Any] = {
+        "exception_type": type(exc).__name__,
+        "exception_str": str(exc),
+    }
+    body = getattr(exc, "body", None)
+    if body is not None:
+        out["exception_body"] = body
+
+    response = getattr(exc, "response", None)
+    if response is not None:
+        status = getattr(response, "status_code", None)
+        if status is not None:
+            out["response_status"] = status
+        try:
+            text = getattr(response, "text", None)
+            if isinstance(text, str) and text.strip():
+                frag = text.strip()
+                if len(frag) > max_response_text:
+                    frag = frag[:max_response_text] + "...(truncated)"
+                out["response_text"] = frag
+        except Exception as e:
+            logger.debug("Exception when extracting response text: %s", e, exc_info=True)
+
+    # Common on openai.APIStatusError / BadRequestError
+    for attr in ("request_id", "code", "param", "type"):
+        val = getattr(exc, attr, None)
+        if val is not None:
+            out[f"exception_{attr}"] = val
+
+    return out
+
+
+def _format_llm_invoke_exception(
+    exc: BaseException,
+    *,
+    max_response_text: int = 16_000,
+    max_formatted_len: int = 48_000,
+) -> str:
+    """JSON matching normal OpenAI client errors: structured body + optional cause chain."""
+    chain: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    for _ in range(8):
+        if cur is None or id(cur) in seen:
+            break
+        seen.add(id(cur))
+        chain.append(
+            _single_provider_error_detail(cur, max_response_text=max_response_text)
+        )
+        cur = cur.__cause__
+
+    if not chain:
+        payload: dict[str, Any] = {
+            "exception_type": type(exc).__name__,
+            "exception_str": str(exc),
+        }
+    elif len(chain) == 1:
+        payload = chain[0]
+    else:
+        payload = {"error_chain": chain}
+
+    raw = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
+    if len(raw) > max_formatted_len:
+        raw = raw[:max_formatted_len] + "\n...(truncated)"
+    return raw
+
+
+def llm_error_chain_blob(exc: BaseException | None, *, max_depth: int = 8) -> str:
+    """Concatenate ``str(exc)`` along ``__cause__`` and the root's ``__context__`` chain.
+
+    Used for substring heuristics (e.g. context-limit phrases) when the wrapper message
+    only says "status code is 400".
+    """
+    if exc is None:
+        return ""
+    parts: list[str] = []
+    seen: set[int] = set()
+
+    def walk_chain(start: BaseException | None) -> None:
+        cur = start
+        for _ in range(max_depth):
+            if cur is None or id(cur) in seen:
+                break
+            seen.add(id(cur))
+            parts.append(str(cur))
+            cur = cur.__cause__
+
+    walk_chain(exc)
+    ctx = exc.__context__
+    if ctx is not None and id(ctx) not in seen:
+        walk_chain(ctx)
+    return " ".join(parts)
+
+
+async def _call_model_method(method, primary_kwargs: dict):
+    """Invoke sync or async model methods without losing awaitables."""
+    if inspect.iscoroutinefunction(method):
+        return await method(**primary_kwargs)
+
+    return await asyncio.to_thread(method, **primary_kwargs)
 
 
 def _extract_usage_payload_from_stream_chunk(raw_chunk: Any) -> Any:
@@ -753,6 +895,19 @@ async def llm_astream(*args, **kwargs):
     return full_chunk
 
 
+def _parse_invoke_llm_args(args, kwargs) -> dict:
+    return {
+        "llm": kwargs.get("llm", args[0] if len(args) > 0 else None),
+        "messages": kwargs.get("messages", args[1] if len(args) > 1 else None),
+        "llm_type": kwargs.get("llm_type", "basic"),
+        "agent_name": kwargs.get("agent_name", "AI"),
+        "schema": kwargs.get("schema", None),
+        "tools": kwargs.get("tools", None),
+        "need_stream_out": kwargs.get("need_stream_out", False),
+        "stream_meta": kwargs.get("stream_meta", None),
+    }
+
+
 async def ainvoke_llm_with_stats(*args, **kwargs):
     """调用 LLM 并按配置记录调用统计。
 
@@ -816,22 +971,84 @@ async def ainvoke_llm_with_stats(*args, **kwargs):
         raise CustomValueException(
             error_code=StatusCode.LLM_INSTANCE_NONE_ERROR.code,
             message=StatusCode.LLM_INSTANCE_NONE_ERROR.errmsg)
-
     resolved_stream_options = (
         _resolve_stream_options(llm_model=llm_model, need_include_usage=True)
         if stats_info_llm
         else None
     )
-    response = await llm_astream(
-        llm=llm_model,
-        messages=messages,
-        model_name=model_name,
-        agent_name=agent_name,
-        tools=tools,
-        need_stream_out=need_stream_out,
-        stream_meta=stream_meta,
-        stream_options=resolved_stream_options,
-    )
+
+    if agent_name in _DEEPSEARCH_NODE_IDS:
+        processed_messages = []
+        for m in messages:
+            if isinstance(m, (SystemMessage, UserMessage, AssistantMessage, ToolMessage)):
+                name = getattr(m, "name", None)
+                if name == "" or name is None:
+                    msg_dict = m.model_dump()
+                    msg_dict.pop("name", None)
+                    if isinstance(m, SystemMessage):
+                        processed_messages.append(SystemMessage(**msg_dict))
+                    elif isinstance(m, UserMessage):
+                        processed_messages.append(UserMessage(**msg_dict))
+                    elif isinstance(m, AssistantMessage):
+                        processed_messages.append(AssistantMessage(**msg_dict))
+                    elif isinstance(m, ToolMessage):
+                        processed_messages.append(ToolMessage(**msg_dict))
+                else:
+                    processed_messages.append(m)
+            else:
+                processed_messages.append(m)
+        messages = processed_messages
+        invoke_kw = {
+            "model": model_name,
+            "messages": messages,
+            "tools": tools,
+        }
+        try:
+            if hasattr(llm_model, "invoke"):
+                response = await _call_model_method(llm_model.invoke, invoke_kw)
+            elif hasattr(llm_model, "_ainvoke"):
+                ainvoke_method = getattr(llm_model, "_ainvoke", None)
+                if ainvoke_method:
+                    response = await _call_model_method(ainvoke_method, invoke_kw)
+            elif hasattr(llm_model, "ainvoke"):
+                response = await _call_model_method(llm_model.ainvoke, invoke_kw)
+            else:
+                response = await llm_astream(
+                    llm=llm_model,
+                    messages=messages,
+                    model_name=model_name,
+                    agent_name=agent_name,
+                    tools=tools,
+                    need_stream_out=False,
+                    stream_meta=stream_meta,
+                    stream_options=resolved_stream_options,
+                )
+        except Exception as e:
+            detail = _format_llm_invoke_exception(e)
+            corr = format_llm_log_correlation_suffix()
+            logger.warning(
+                "[ainvoke_llm_with_stats] LLM invoke failed%s agent=%s: %s",
+                corr,
+                agent_name or "-",
+                "*" if LogManager.is_sensitive() else detail,
+                exc_info=not LogManager.is_sensitive(),
+            )
+            raise CustomValueException(
+                StatusCode.LLM_CALL_FAILED.code,
+                StatusCode.LLM_CALL_FAILED.errmsg.format(e=detail),
+            ) from e
+
+    else:
+        response = await llm_astream(
+            llm=llm_model,
+            messages=messages,
+            model_name=model_name,
+            agent_name=agent_name,
+            tools=tools,
+            need_stream_out=need_stream_out,
+            stream_meta=stream_meta,
+            stream_options=resolved_stream_options,
+        )
 
     if stats_info_llm:
         duration = time.time() - start
@@ -864,19 +1081,6 @@ async def ainvoke_llm_with_stats(*args, **kwargs):
     return _unify_responnse(response)
 
 
-def _parse_invoke_llm_args(args, kwargs) -> dict:
-    return {
-        "llm": kwargs.get("llm", args[0] if len(args) > 0 else None),
-        "messages": kwargs.get("messages", args[1] if len(args) > 1 else None),
-        "llm_type": kwargs.get("llm_type", "basic"),
-        "agent_name": kwargs.get("agent_name", "AI"),
-        "schema": kwargs.get("schema", None),
-        "tools": kwargs.get("tools", None),
-        "need_stream_out": kwargs.get("need_stream_out", False),
-        "stream_meta": kwargs.get("stream_meta", None),
-    }
-
-
 def _unify_responnse(response):
     temp_response = response.model_dump()
     new_response = copy.deepcopy(temp_response)
@@ -889,8 +1093,10 @@ def _unify_responnse(response):
                 new_response.get("tool_calls")[idx]["args"] = json.loads(arguments)
             if func and func.get("name"):
                 new_response.get("tool_calls")[idx]["name"] = func.get("name")
-            if tool_call.get("type"):
-                new_response.get("tool_calls")[idx]["type"] = "function"
+            # OpenAI Chat Completions requires tool_calls[].type == "function". A previous
+            # bug stored "tool_call" here, which causes 400 on the next request when the
+            # conversation is replayed.
+            new_response.get("tool_calls")[idx]["type"] = "function"
             new_response.get("tool_calls")[idx].pop("index", None)
     return new_response
 
@@ -908,11 +1114,23 @@ def transfer_to_jiuwen_messages(origin_messages: list):
             elif role == "user":
                 output_messages.append(UserMessage(content=content, name=name))
             elif role == "assistant":
+                raw_tcs = message.get("tool_calls", []) or []
+                fixed_tcs = []
+                for tc in raw_tcs:
+                    if isinstance(tc, dict):
+                        tc = dict(tc)
+                        if tc.get("type") == "tool_call":
+                            tc["type"] = "function"
+                        elif not tc.get("type"):
+                            tc["type"] = "function"
+                        fixed_tcs.append(tc)
+                    else:
+                        fixed_tcs.append(tc)
                 output_messages.append(
                     AssistantMessage(
                         content=content,
                         name=name,
-                        tool_calls=message.get("tool_calls", []),
+                        tool_calls=fixed_tcs,
                         usage_metadata=message.get("usage_metadata", None),
                         reasoning_content=message.get("reason_content", "")
                     )
