@@ -454,7 +454,10 @@ class DeepresearchAgent(BaseAgent):
 
             web_search_token, local_search_token = self._initialize_tools(session_agent_config)
             await self._aopen_local_search_engines()
-        except (ValidationError, CustomValueException) as e:
+        except CustomValueException:
+            self._reset_context_tokens(llm_token, web_search_token, local_search_token)
+            raise
+        except ValidationError as e:
             self._reset_context_tokens(llm_token, web_search_token, local_search_token)
             if LogManager.is_sensitive():
                 raise CustomValueException(

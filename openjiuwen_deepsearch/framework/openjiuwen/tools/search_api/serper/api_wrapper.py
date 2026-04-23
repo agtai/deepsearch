@@ -47,9 +47,8 @@ class GoogleSearchAPIWrapper(BaseModel, Generic[T]):
             self.gl = ext["gl"]
         if "hl" in ext:
             self.hl = ext["hl"]
-        search_type = ext.get("search_type", ext.get("type"))
-        if search_type in self.result_key_for_type:
-            self.type = search_type
+        if "type" in ext and ext["type"] in self.result_key_for_type:
+            self.type = ext["type"]
         if "tbs" in ext:
             self.tbs = ext["tbs"]
 

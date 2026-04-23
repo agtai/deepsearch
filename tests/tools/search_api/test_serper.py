@@ -270,6 +270,6 @@ class TestGoogleSearchAPIWrapper:
         wrapper = GoogleSearchAPIWrapper(
             search_api_key=bytearray(b"test-key"),
             search_url=SecretStr("https://api.serper.dev"),
-            extension={"search_type": "news"},
+            extension={"type": "news"},
         )
         assert wrapper.type == "news"

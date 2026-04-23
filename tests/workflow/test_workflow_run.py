@@ -8,6 +8,7 @@ from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.config.config import Config
 from openjiuwen_deepsearch.framework.openjiuwen.agent.agent_factory import AgentFactory
 from openjiuwen_deepsearch.framework.openjiuwen.agent.workflow import DeepresearchAgent
+from openjiuwen_deepsearch.utils.validation_utils.param_validation import validate_run_agent_params
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,15 @@ async def test_run_validate_interrupt_feedback(invalid_value, error_code, error_
         error_code,
         error_msg_fragment,
         Config().agent_config.model_dump()
+    )
+
+
+def test_validate_run_agent_params_allows_empty_message_for_accepted_interrupt():
+    validate_run_agent_params(
+        message="",
+        conversation_id="conversation-1",
+        report_template="",
+        interrupt_feedback="accepted",
     )
 
 

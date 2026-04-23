@@ -24,7 +24,7 @@ class PetalSearchAPIWrapper(BaseModel, Generic[T]):
     extension: Optional[dict] = None
 
     include_raw_content: bool = True
-    fressness: str = "noLimit"
+    freshness: str = "noLimit"
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
@@ -38,8 +38,8 @@ class PetalSearchAPIWrapper(BaseModel, Generic[T]):
             return
         if "content" in ext:
             self.include_raw_content = bool(ext["content"])
-        if "fressness" in ext:
-            self.fressness = ext["fressness"]
+        if "freshness" in ext:
+            self.freshness = ext["freshness"]
 
     def results(self, query: str) -> List[Dict]:
         """Run query through Internal Search"""
@@ -81,7 +81,7 @@ class PetalSearchAPIWrapper(BaseModel, Generic[T]):
         search_data = {
             "query": search_term,
             "content": self.include_raw_content,
-            "fressness": self.fressness,
+            "freshness": self.freshness,
         }
         return search_headers, search_url, search_data
 
