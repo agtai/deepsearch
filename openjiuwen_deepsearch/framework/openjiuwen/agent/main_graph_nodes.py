@@ -84,6 +84,8 @@ class StartNode(Start):
             agent_config["outliner_max_section_num"] = origin_agent_config.get("outliner_max_section_num", 5)
             agent_config["source_tracer_research_trace_source_switch"] = origin_agent_config.get(
                 "source_tracer_research_trace_source_switch", True)
+            agent_config["source_tracer_generated_citation_switch"] = origin_agent_config.get(
+                "source_tracer_generated_citation_switch", True)
             agent_config["source_tracer_infer_switch"] = origin_agent_config.get("source_tracer_infer_switch", True)
             agent_config["llm_config"] = origin_agent_config.get("llm_config", {})
             agent_config["info_collector_search_method"] = origin_agent_config.get(

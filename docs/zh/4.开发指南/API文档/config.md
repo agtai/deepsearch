@@ -239,6 +239,7 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 - **outline_interaction_enabled**(bool, 可选)：大纲交互功能开关，开启后用户可对生成的大纲进行多轮修改。默认值：`True`。
 - **outline_interaction_max_rounds**(int, 可选)：大纲交互最大轮次，取值范围：[1, 100]。默认值：`3`。
 - **source_tracer_research_trace_source_switch**(bool, 可选)：溯源功能开关。默认值：`True`。
+- **source_tracer_generated_citation_switch**(bool, 可选)：新增引用生成开关；关闭时仅保留原文已有引用，不基于搜索结果生成新引用。默认值：`True`。
 - **source_tracer_infer_switch**(bool, 可选)：溯源推理功能开关。默认值：`True`。
 - **llm_config**(Dict[Literal["general", "plan_understanding", "info_collecting", "writing_checking", "vlm_chart_generating"], LLMConfig], 可选)：LLM模型配置。默认值：`dict()`。
 - **info_collector_search_method**(Literal["web", "local", "all"], 可选)：搜索方式，`web`：联网增强搜索，`local`：本地搜索工具搜索，`all`：联网增强+本地融合搜索。默认值：`"web"`。

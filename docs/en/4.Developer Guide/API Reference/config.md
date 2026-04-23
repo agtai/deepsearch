@@ -100,6 +100,7 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 - **outline_interaction_enabled** (bool, optional): Whether to enable outline interaction. Default value: `True`.
 - **outline_interaction_max_rounds** (int, optional): Maximum number of outline interaction rounds. Range: `[1, 100]`. Default value: `3`.
 - **source_tracer_research_trace_source_switch** (bool, optional): Whether to enable citation tracing. Default value: `True`.
+- **source_tracer_generated_citation_switch** (bool, optional): Whether to generate new citations from search results. When disabled, the system keeps only citations already present in the original report. Default value: `True`.
 - **source_tracer_infer_switch** (bool, optional): Whether to enable provenance reasoning. Default value: `True`.
 - **llm_config** (Dict[Literal["general", "plan_understanding", "info_collecting", "writing_checking"], LLMConfig], optional): LLM model configuration. Default value: `dict()`.
 - **info_collector_search_method** (Literal["web", "local", "all"], optional): Search method. `web` means web augmentation search, `local` means local search tool, and `all` means hybrid web + local search. Default value: `"web"`.

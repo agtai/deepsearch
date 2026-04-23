@@ -17,7 +17,7 @@ Your goal is to generate sophisticated and diverse web search queries. These que
 ## Format: 
 - Format your response as a JSON object with ALL two of these exact keys:
    - "description": Brief explanation of why these queries are relevant
-   - "query": A list of search queries, each query is less than 5 keywords, connect keywords with spaces e.g. "Tesla battery lifespan offical statement"
+   - "queries": A list of search queries, each query is less than 5 keywords, connect keywords with spaces e.g. "Tesla battery lifespan offical statement"
 
 ## Example: (Directly provide a structured response with out ```json tags)
 ```json
