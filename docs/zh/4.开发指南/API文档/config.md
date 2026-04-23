@@ -79,6 +79,18 @@ petal 5
 >>> web_search_config = WebSearchEngineConfig()
 >>> print(web_search_config.search_engine_name)
 tavily
+
+>>> # 样例3：配置 tavily 并指定搜索域名
+>>> web_search_config = WebSearchEngineConfig(
+...     search_engine_name="tavily",
+...     search_api_key=bytearray("your_api_key", encoding="utf-8"),
+...     max_web_search_results=8,
+...     extension={
+...         "include_domains": ["www.sz.gov.cn", "www.pku.edu.cn"]
+...     }
+... )
+>>> print(web_search_config.search_engine_name, web_search_config.extension["include_domains"])
+tavily ["www.sz.gov.cn", "www.pku.edu.cn"]
 ```
 
 ## class openjiuwen_deepsearch.config.config.EmbedModelConfig

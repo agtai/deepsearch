@@ -11,31 +11,29 @@ class TestTavilySearchAPIWrapper:
     @pytest.fixture
     def wrapper(self):
         """创建测试用的wrapper实例"""
-        # 修正：使用真实的 SecretStr 实例而不是 Mock
-        from openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper import \
-            TavilySearchAPIWrapper
+        from openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper import (
+            TavilySearchAPIWrapper,
+        )
 
-        # 创建实际的 SecretStr 实例
         secret_str = SecretStr("http://api.example.com")
 
-        # 打补丁 get_secret_value 方法
-        with patch.object(secret_str, 'get_secret_value', return_value="http://api.example.com"):
-            wrapper = TavilySearchAPIWrapper[str](
-                search_api_key=bytearray(b'fake_api_key'),
+        with patch.object(secret_str, "get_secret_value", return_value="http://api.example.com"):
+            return TavilySearchAPIWrapper[str](
+                search_api_key=bytearray(b"fake_api_key"),
                 search_url=secret_str,
-                max_web_search_results=5
+                max_web_search_results=5,
             )
-            return wrapper
 
-    @patch('openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.requests.post')
-    @patch('openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.SslUtils.get_ssl_config')
-    def test_raw_search_results(self, mock_get_ssl_config, mock_post, wrapper):
+    @patch("openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.requests.post")
+    @patch("openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.SslUtils.get_ssl_config")
+    def test_raw_search_results(self, mock_get_ssl_config, mock_post):
         """测试 raw_search_results 方法"""
-        from openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper import TavilySearchOptions
-        # 模拟SSL配置
+        from openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper import (
+            TavilySearchAPIWrapper,
+        )
+
         mock_get_ssl_config.return_value = (True, None)
 
-        # 模拟响应
         mock_response = Mock()
         mock_response.json.return_value = {
             "results": [
@@ -45,209 +43,210 @@ class TestTavilySearchAPIWrapper:
         mock_response.raise_for_status = Mock()
         mock_post.return_value = mock_response
 
-        # 调用方法前需要打补丁 get_secret_value
-        with patch.object(wrapper.search_url, 'get_secret_value', return_value="http://api.example.com"):
-            # 调用方法
-            result = wrapper.raw_search_results(
-                query="test query",
-                options=TavilySearchOptions(
-                    max_results=3,
-                    search_depth="basic",
-                    include_domains=["example.com"],
-                    exclude_domains=["bad.com"],
-                    include_answer=True,
-                    include_raw_content=True,
-                    include_images=False
-                )
+        secret_str = SecretStr("http://api.example.com")
+        with patch.object(secret_str, "get_secret_value", return_value="http://api.example.com"):
+            wrapper = TavilySearchAPIWrapper[str](
+                search_api_key=bytearray(b"fake_api_key"),
+                search_url=secret_str,
+                max_web_search_results=3,
+                search_depth="basic",
+                include_domains=["example.com"],
+                exclude_domains=["bad.com"],
+                include_answer=True,
+                include_raw_content=True,
+                include_images=False,
             )
 
-        # 验证结果
+        with patch.object(wrapper.search_url, "get_secret_value", return_value="http://api.example.com"):
+            result = wrapper.raw_search_results(query="test query")
+
         assert result == mock_response.json.return_value
         mock_post.assert_called_once()
 
-        # 验证调用参数
         call_args = mock_post.call_args
         assert call_args[0][0] == "http://api.example.com/search"
-        assert call_args[1]['json']['query'] == "test query"
-        assert call_args[1]['json']['max_results'] == 3
+        assert call_args[1]["json"]["query"] == "test query"
+        assert call_args[1]["json"]["max_results"] == 3
 
-    @patch('openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.requests.post')
-    @patch('openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.SslUtils.get_ssl_config')
-    def test_results(self, mock_get_ssl_config, mock_post, wrapper):
+    @patch("openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.requests.post")
+    @patch("openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.SslUtils.get_ssl_config")
+    def test_results(self, mock_get_ssl_config, mock_post):
         """测试 results 方法"""
-        from openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper import TavilySearchOptions
-        # 模拟SSL配置
+        from openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper import (
+            TavilySearchAPIWrapper,
+        )
+
         mock_get_ssl_config.return_value = (False, None)
 
-        # 模拟响应
         mock_response = Mock()
         mock_response.json.return_value = {
             "results": [
                 {
-                    "title": "Test Result" * 100,  # 长标题
-                    "url": "http://example.com/" + "a" * 3000,  # 长URL
-                    "content": "Test content" * 1000,  # 长内容
+                    "title": "Test Result" * 100,
+                    "url": "http://example.com/" + "a" * 3000,
+                    "content": "Test content" * 1000,
                     "score": 0.95,
-                    "raw_content": "Raw content here"
+                    "raw_content": "Raw content here",
                 }
             ]
         }
         mock_response.raise_for_status = Mock()
         mock_post.return_value = mock_response
 
-        # 调用方法前需要打补丁 get_secret_value
-        with patch.object(wrapper.search_url, 'get_secret_value', return_value="http://api.example.com"):
-            # 调用方法
-            results = wrapper.results(
-                query="test query",
-                options=TavilySearchOptions(
-                    search_depth="advanced",
-                    include_domains=None,  # 测试None值
-                    exclude_domains=["bad.com"],
-                    include_answer=True,
-                    include_raw_content=False,
-                    include_images=True
-                )
+        secret_str = SecretStr("http://api.example.com")
+        with patch.object(secret_str, "get_secret_value", return_value="http://api.example.com"):
+            wrapper = TavilySearchAPIWrapper[str](
+                search_api_key=bytearray(b"fake_api_key"),
+                search_url=secret_str,
+                max_web_search_results=5,
+                search_depth="advanced",
+                include_domains=None,
+                exclude_domains=["bad.com"],
+                include_answer=True,
+                include_raw_content=False,
+                include_images=True,
             )
 
-        # 验证结果被正确清理
+        with patch.object(wrapper.search_url, "get_secret_value", return_value="http://api.example.com"):
+            results = wrapper.results(query="test query")
+
         assert len(results) == 1
-        # 注意：这里需要导入或定义这些常量
         from openjiuwen_deepsearch.common.common_constants import MAX_URL_LENGTH, MAX_SEARCH_CONTENT_LENGTH
-        assert len(results[0]['title']) <= MAX_SEARCH_CONTENT_LENGTH
-        assert len(results[0]['url']) <= MAX_URL_LENGTH
-        assert len(results[0]['content']) <= MAX_SEARCH_CONTENT_LENGTH
-        assert results[0]['score'] == 0.95
-        assert 'raw_content' in results[0]  # raw_content应该保留
+
+        assert len(results[0]["title"]) <= MAX_SEARCH_CONTENT_LENGTH
+        assert len(results[0]["url"]) <= MAX_URL_LENGTH
+        assert len(results[0]["content"]) <= MAX_SEARCH_CONTENT_LENGTH
+        assert results[0]["score"] == 0.95
+        assert "raw_content" in results[0]
 
     def test_clean_results(self, wrapper):
         """测试 clean_results 方法"""
-        # 导入常量
         from openjiuwen_deepsearch.common.common_constants import MAX_URL_LENGTH, MAX_SEARCH_CONTENT_LENGTH
 
         test_results = [
             {
-                "title": "A" * (MAX_SEARCH_CONTENT_LENGTH + 1),  # 超过限制
-                "url": "http://example.com/" + "b" * (MAX_URL_LENGTH + 1),  # 超过限制
-                "content": "C" * (MAX_SEARCH_CONTENT_LENGTH + 1),  # 超过限制
+                "title": "A" * (MAX_SEARCH_CONTENT_LENGTH + 1),
+                "url": "http://example.com/" + "b" * (MAX_URL_LENGTH + 1),
+                "content": "C" * (MAX_SEARCH_CONTENT_LENGTH + 1),
                 "score": 0.8,
-                "raw_content": "Some raw content"
+                "raw_content": "Some raw content",
             },
             {
                 "title": "Short title",
                 "url": "http://short.com",
                 "content": "Short content",
-                "score": 0.5
-                # 没有raw_content
-            }
+                "score": 0.5,
+            },
         ]
 
         cleaned = wrapper.clean_results(test_results)
 
-        # 验证清理结果
         assert len(cleaned) == 2
 
-        # 第一个结果应该被截断
-        assert len(cleaned[0]['title']) == MAX_SEARCH_CONTENT_LENGTH
-        assert len(cleaned[0]['url']) == MAX_URL_LENGTH
-        assert len(cleaned[0]['content']) == MAX_SEARCH_CONTENT_LENGTH
-        assert cleaned[0]['score'] == 0.8
-        assert cleaned[0]['raw_content'] == "Some raw content"
+        assert len(cleaned[0]["title"]) == MAX_SEARCH_CONTENT_LENGTH
+        assert len(cleaned[0]["url"]) == MAX_URL_LENGTH
+        assert len(cleaned[0]["content"]) == MAX_SEARCH_CONTENT_LENGTH
+        assert cleaned[0]["score"] == 0.8
+        assert cleaned[0]["raw_content"] == "Some raw content"
 
-        # 第二个结果不变（除了可能添加的raw_content）
-        assert cleaned[1]['title'] == "Short title"
-        assert 'raw_content' not in cleaned[1]  # 没有raw_content时不应该添加
+        assert cleaned[1]["title"] == "Short title"
+        assert "raw_content" not in cleaned[1]
 
     @pytest.mark.asyncio
-    @patch('openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.httpx.AsyncClient')
-    @patch('openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.SslUtils.get_ssl_config')
-    async def test_raw_search_results_async(self, mock_get_ssl_config, mock_async_client, wrapper):
+    @patch("openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.httpx.AsyncClient")
+    @patch("openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.SslUtils.get_ssl_config")
+    async def test_raw_search_results_async(self, mock_get_ssl_config, mock_async_client):
         """测试 raw_search_results_async 方法"""
-        from openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper import TavilySearchOptions
-        # 模拟SSL配置
+        from openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper import (
+            TavilySearchAPIWrapper,
+        )
+
         mock_get_ssl_config.return_value = (True, "/path/to/cert")
 
-        # 模拟异步客户端
         mock_client = AsyncMock()
         mock_response = AsyncMock()
         mock_response.status_code = 200
-        mock_response.text = json.dumps({
-            "results": [{"title": "Async Result"}],
-            "other": "data"
-        })
+        mock_response.text = json.dumps(
+            {
+                "results": [{"title": "Async Result"}],
+                "other": "data",
+            }
+        )
         mock_client.post.return_value = mock_response
         mock_async_client.return_value.__aenter__.return_value = mock_client
 
-        # 调用异步方法前需要打补丁 get_secret_value
-        with patch.object(wrapper.search_url, 'get_secret_value', return_value="http://api.example.com"):
-            # 调用异步方法
-            result = await wrapper.raw_search_results_async(
-                query="async query",
-                options=TavilySearchOptions(
-                    max_results=2,
-                    search_depth="basic"
-                )
+        secret_str = SecretStr("http://api.example.com")
+        with patch.object(secret_str, "get_secret_value", return_value="http://api.example.com"):
+            wrapper = TavilySearchAPIWrapper[str](
+                search_api_key=bytearray(b"fake_api_key"),
+                search_url=secret_str,
+                max_web_search_results=2,
+                search_depth="basic",
             )
 
-        # 验证结果
+        with patch.object(wrapper.search_url, "get_secret_value", return_value="http://api.example.com"):
+            result = await wrapper.raw_search_results_async(query="async query")
+
         assert result["results"][0]["title"] == "Async Result"
         mock_client.post.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch('openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.httpx.AsyncClient')
-    @patch('openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.SslUtils.get_ssl_config')
-    async def test_aresults(self, mock_get_ssl_config, mock_async_client, wrapper):
+    @patch("openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.httpx.AsyncClient")
+    @patch("openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.SslUtils.get_ssl_config")
+    async def test_aresults(self, mock_get_ssl_config, mock_async_client):
         """测试 aresults 方法"""
-        from openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper import TavilySearchOptions
-        # 模拟SSL配置
+        from openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper import (
+            TavilySearchAPIWrapper,
+        )
+
         mock_get_ssl_config.return_value = (False, None)
 
-        # 模拟异步客户端
         mock_client = AsyncMock()
         mock_response = AsyncMock()
         mock_response.status_code = 200
-        mock_response.text = json.dumps({
-            "results": [
-                {
-                    "title": "Async Cleaned",
-                    "url": "http://async.com",
-                    "content": "Async content",
-                    "score": 0.75
-                }
-            ]
-        })
+        mock_response.text = json.dumps(
+            {
+                "results": [
+                    {
+                        "title": "Async Cleaned",
+                        "url": "http://async.com",
+                        "content": "Async content",
+                        "score": 0.75,
+                    }
+                ]
+            }
+        )
         mock_client.post.return_value = mock_response
         mock_async_client.return_value.__aenter__.return_value = mock_client
 
-        # 调用异步方法前需要打补丁 get_secret_value
-        with patch.object(wrapper.search_url, 'get_secret_value', return_value="http://api.example.com"):
-            # 调用异步方法
-            results = await wrapper.aresults(
-                query="async clean query",
-                options=TavilySearchOptions(
-                    search_depth="advanced",
-                    include_domains=["good.com"],
-                    exclude_domains=None,
-                    include_answer=False,
-                    include_raw_content=True,
-                    include_images=False
-                )
+        secret_str = SecretStr("http://api.example.com")
+        with patch.object(secret_str, "get_secret_value", return_value="http://api.example.com"):
+            wrapper = TavilySearchAPIWrapper[str](
+                search_api_key=bytearray(b"fake_api_key"),
+                search_url=secret_str,
+                max_web_search_results=5,
+                search_depth="advanced",
+                include_domains=["good.com"],
+                exclude_domains=None,
+                include_answer=False,
+                include_raw_content=True,
+                include_images=False,
             )
 
-        # 验证清理后的结果
+        with patch.object(wrapper.search_url, "get_secret_value", return_value="http://api.example.com"):
+            results = await wrapper.aresults(query="async clean query")
+
         assert len(results) == 1
-        assert results[0]['title'] == "Async Cleaned"
-        assert results[0]['score'] == 0.75
+        assert results[0]["title"] == "Async Cleaned"
+        assert results[0]["score"] == 0.75
 
     @pytest.mark.asyncio
-    @patch('openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.httpx.AsyncClient')
-    @patch('openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.SslUtils.get_ssl_config')
+    @patch("openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.httpx.AsyncClient")
+    @patch("openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.SslUtils.get_ssl_config")
     async def test_raw_search_results_async_error(self, mock_get_ssl_config, mock_async_client, wrapper):
         """测试 raw_search_results_async 方法错误情况"""
-        # 模拟SSL配置
         mock_get_ssl_config.return_value = (True, None)
 
-        # 模拟错误响应
         mock_client = AsyncMock()
         mock_response = AsyncMock()
         mock_response.status_code = 500
@@ -255,8 +254,48 @@ class TestTavilySearchAPIWrapper:
         mock_client.post.return_value = mock_response
         mock_async_client.return_value.__aenter__.return_value = mock_client
 
-        # 调用异步方法前需要打补丁 get_secret_value
-        with patch.object(wrapper.search_url, 'get_secret_value', return_value="http://api.example.com"):
-            # 验证抛出异常
+        with patch.object(wrapper.search_url, "get_secret_value", return_value="http://api.example.com"):
             with pytest.raises(Exception, match="Error 500: Internal Server Error"):
                 await wrapper.raw_search_results_async(query="error query")
+
+    def test_extension_overrides_search_options(self):
+        """extension 中的 Tavily 配置应在 model_post_init 中应用到实例字段"""
+        from openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper import (
+            TavilySearchAPIWrapper,
+        )
+
+        secret_str = SecretStr("http://api.example.com")
+        wrapper = TavilySearchAPIWrapper(
+            search_api_key=bytearray(b"k"),
+            search_url=secret_str,
+            extension={
+                "search_depth": "basic",
+                "include_domains": ["a.com"],
+                "include_answer": True,
+            },
+        )
+        assert wrapper.search_depth == "basic"
+        assert wrapper.include_domains == ["a.com"]
+        assert wrapper.include_answer is True
+        # 未在 extension 中出现的字段保持类默认值
+        assert wrapper.include_images is False
+
+    def test_extension_none_and_empty_dict_use_defaults(self):
+        from openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper import (
+            TavilySearchAPIWrapper,
+        )
+
+        secret_str = SecretStr("http://api.example.com")
+        w1 = TavilySearchAPIWrapper(
+            search_api_key=bytearray(b"k"),
+            search_url=secret_str,
+            extension=None,
+        )
+        assert w1.search_depth == "advanced"
+
+        w2 = TavilySearchAPIWrapper(
+            search_api_key=bytearray(b"k"),
+            search_url=secret_str,
+            extension={},
+        )
+        assert w2.search_depth == "advanced"

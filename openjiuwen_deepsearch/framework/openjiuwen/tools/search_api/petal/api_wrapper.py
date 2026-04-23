@@ -2,7 +2,7 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
 
 import json
-from typing import Generic, TypeVar, List, Dict
+from typing import Any, Generic, TypeVar, List, Dict, Optional
 import logging
 import aiohttp
 import requests
@@ -21,12 +21,25 @@ class PetalSearchAPIWrapper(BaseModel, Generic[T]):
     search_api_key: bytearray = None
     search_url: SecretStr = None
     max_web_search_results: int = 5
-    extension: dict = None
+    extension: Optional[dict] = None
+
+    include_raw_content: bool = True
+    fressness: str = "noLimit"
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
         extra='allow'
     )
+
+    def model_post_init(self, __context: Any) -> None:
+        """Apply engine-specific options from ``extension``."""
+        ext = self.extension
+        if not ext:
+            return
+        if "content" in ext:
+            self.include_raw_content = bool(ext["content"])
+        if "fressness" in ext:
+            self.fressness = ext["fressness"]
 
     def results(self, query: str) -> List[Dict]:
         """Run query through Internal Search"""
@@ -67,7 +80,8 @@ class PetalSearchAPIWrapper(BaseModel, Generic[T]):
         search_url = self.search_url.get_secret_value()
         search_data = {
             "query": search_term,
-            "content": True,
+            "content": self.include_raw_content,
+            "fressness": self.fressness,
         }
         return search_headers, search_url, search_data
 

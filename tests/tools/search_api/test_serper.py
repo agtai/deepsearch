@@ -49,12 +49,7 @@ class TestGoogleSearchAPIWrapper:
         mock_post.return_value = mock_response
 
         # 执行测试
-        result = self.wrapper.google_search_results(
-            "test query",
-            gl="us",
-            hl="en",
-            num=5
-        )
+        result = self.wrapper.google_search_results("test query")
 
         # 验证调用参数
         mock_post.assert_called_once()
@@ -76,10 +71,10 @@ class TestGoogleSearchAPIWrapper:
         # 验证verify参数
         assert call_args[1]['verify'] == "/path/to/cert"
 
-        # 验证结果
-        assert "organic" in result
-        assert len(result["organic"]) == 1
-        assert result["organic"][0]["title"] == "Test Result"
+        # 验证结果（wrapper 返回 organic 列表）
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert result[0]["title"] == "Test Result"
 
     @patch('openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.serper.api_wrapper.requests.post')
     @patch('openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.serper.api_wrapper.SslUtils.get_ssl_config')
@@ -94,14 +89,12 @@ class TestGoogleSearchAPIWrapper:
         }
         mock_post.return_value = mock_response
 
-        # 测试news类型
-        result = self.wrapper.google_search_results(
-            "test query",
-            search_type="news"
-        )
+        # 通过默认类型配置使用news endpoint
+        self.wrapper.type = "news"
+        result = self.wrapper.google_search_results("test query")
 
-        assert "news" in result
-        assert result["news"][0]["title"] == "News Result"
+        assert isinstance(result, list)
+        assert result[0]["title"] == "News Result"
 
         # 验证verify为False（当ssl_verify为False时）
         call_args = mock_post.call_args
@@ -123,21 +116,13 @@ class TestGoogleSearchAPIWrapper:
     )
     def test_results_method(self, mock_search_results):
         """测试results包装方法"""
-        expected_result = {"organic": [{"title": "Test"}]}
+        expected_result = [{"title": "Test"}]
         mock_search_results.return_value = expected_result
 
-        result = self.wrapper.results("test query", extra_param="value")
+        result = self.wrapper.results("test query")
 
         # 验证调用了底层方法
-        mock_search_results.assert_called_once_with(
-            search_term="test query",
-            search_type="search",
-            gl="us",
-            hl="en",
-            num=5,
-            tbs=None,
-            extra_param="value"
-        )
+        mock_search_results.assert_called_once_with(search_term="test query")
 
         assert result == expected_result
 
@@ -161,14 +146,12 @@ class TestGoogleSearchAPIWrapper:
         # 模拟post方法返回响应
         mock_client.post.return_value = mock_response
 
+        self.wrapper.gl = "cn"
+        self.wrapper.hl = "zh-cn"
         with patch('openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.serper.api_wrapper.httpx.AsyncClient',
                    return_value=mock_client):
             # 执行异步测试
-            result = await self.wrapper.async_google_search_results(
-                "async query",
-                gl="cn",
-                hl="zh-cn"
-            )
+            result = await self.wrapper.async_google_search_results("async query")
 
             # 验证调用
             mock_client.post.assert_called_once()
@@ -188,8 +171,8 @@ class TestGoogleSearchAPIWrapper:
             assert params['hl'] == "zh-cn"
 
             # 验证结果
-            assert "organic" in result
-            assert result["organic"][0]["title"] == "Async Result"
+            assert isinstance(result, list)
+            assert result[0]["title"] == "Async Result"
 
     @pytest.mark.asyncio
     async def test_async_google_search_results_with_ssl_false(self):
@@ -231,22 +214,14 @@ class TestGoogleSearchAPIWrapper:
     )
     async def test_aresults_method(self, mock_async_search_results):
         """测试异步包装方法"""
-        expected_result = {"organic": [{"title": "Async Test"}]}
+        expected_result = [{"title": "Async Test"}]
         # 注意：async_google_search_results是异步方法，我们需要模拟它返回一个可等待的结果
         mock_async_search_results.return_value = expected_result
 
-        result = await self.wrapper.aresults("test query", extra_param="value")
+        result = await self.wrapper.aresults("test query")
 
         # 验证调用了底层异步方法
-        mock_async_search_results.assert_called_once_with(
-            search_term="test query",
-            search_type="search",
-            gl="us",
-            hl="en",
-            num=5,
-            tbs=None,
-            extra_param="value"
-        )
+        mock_async_search_results.assert_called_once_with(search_term="test query")
         assert result == expected_result
 
     def test_result_key_mapping(self):
@@ -289,3 +264,12 @@ class TestGoogleSearchAPIWrapper:
 
         # 验证可以获取秘密值
         assert wrapper.search_url.get_secret_value() == "https://secret.api.url"
+
+    def test_extension_search_type(self):
+        """测试extension中search_type可配置默认搜索类型"""
+        wrapper = GoogleSearchAPIWrapper(
+            search_api_key=bytearray(b"test-key"),
+            search_url=SecretStr("https://api.serper.dev"),
+            extension={"search_type": "news"},
+        )
+        assert wrapper.type == "news"

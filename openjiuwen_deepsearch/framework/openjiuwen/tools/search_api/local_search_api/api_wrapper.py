@@ -1,7 +1,7 @@
 # coding: utf-8
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
 
-from typing import Literal, Generic, TypeVar, List, Dict
+from typing import Literal, Generic, TypeVar, List, Dict, Optional
 import logging
 import aiohttp
 import requests
@@ -25,7 +25,7 @@ class LocalDatasetAPIWrapper(BaseModel, Generic[T]):
     search_mode: Literal["doc", "keyword", "mix"] = "doc"
     knowledge_base_type: Literal["internal", "external"] = "internal"
     source: Literal["KooSearch", "LakeSearch"] = "KooSearch"
-    extension: dict = None
+    extension: Optional[dict] = None
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
