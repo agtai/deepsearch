@@ -168,6 +168,12 @@ class WebFetch:
             )
 
             if extracted is None:
+                logger.error(
+                    "[WebFetch] extractor returned no structured result; falling back | url=%s goal=%s%s",
+                    url,
+                    "*" if LogManager.is_sensitive() else goal,
+                    format_llm_log_correlation_suffix(),
+                )
                 return await self._fallback(
                     url,
                     goal,
@@ -220,7 +226,14 @@ class WebFetch:
         return "[web_fetch] Failed to read page."
 
     @staticmethod
-    def _parse_extractor_json(raw: str) -> Optional[dict]:
+    def _extractor_raw_preview(raw: str, limit: int = 200) -> str:
+        t = str(raw).replace("\n", " ").replace("\r", " ").strip()
+        if len(t) > limit:
+            return t[: limit - 3] + "..."
+        return t
+
+    @staticmethod
+    def _parse_extractor_json(raw: str, attempt_no: int) -> Optional[dict]:
         if not raw or not str(raw).strip():
             return None
         try:
@@ -231,7 +244,13 @@ class WebFetch:
                 "summary": parsed["summary"],
             }
         except Exception as e:
-            logger.exception("[WebFetch] _parse_extractor_json failed: %s", e, exc_info=True)
+            logger.warning(
+                "[WebFetch] extractor did not return valid JSON (attempt=%s, direct parse): %s | raw_preview=%s",
+                attempt_no,
+                e,
+                WebFetch._extractor_raw_preview(raw),
+                exc_info=True,
+            )
         try:
             left, right = raw.find("{"), raw.rfind("}")
             if left != -1 and right != -1 and left <= right:
@@ -241,7 +260,13 @@ class WebFetch:
                     "summary": parsed["summary"],
                 }
         except Exception as e:
-            logger.exception("[WebFetch] _parse_extractor_json failed: %s", e, exc_info=True)
+            logger.warning(
+                "[WebFetch] extractor did not return valid JSON (attempt=%s, brace slice): %s | raw_preview=%s",
+                attempt_no,
+                e,
+                WebFetch._extractor_raw_preview(raw),
+                exc_info=True,
+            )
         return None
 
     @staticmethod
@@ -278,7 +303,7 @@ class WebFetch:
             messages = [{"role": "user", "content": prompt_content}]
             raw, err = await WebFetch._invoke_llm(messages, model_name)
 
-            parsed = WebFetch._parse_extractor_json(raw)
+            parsed = WebFetch._parse_extractor_json(raw, attempt_no=attempt + 1)
             if parsed is not None:
                 return parsed
 
@@ -380,12 +405,20 @@ class WebFetch:
         raw: str,
         log_fetch: bool,
     ) -> str:
+        raw_section = ""
+        if not LogManager.is_sensitive():
+            raw_text = "" if raw is None else str(raw)
+            raw_text = raw_text.strip()
+            if raw_text:
+                raw_section = f"Raw page content [:2000 chars]:\n{raw_text[:2000]}\n\n"
+
         result = (
             f"The useful information in {url} for user goal {goal} as follows:\n\n"
             "Evidence in page:\n"
-            "The provided webpage content could not be accessed.\n\n"
+            "The provided webpage content could only be accessed as raw text (no structured extraction available).\n\n"
+            f"{raw_section}"
             "Summary:\n"
-            "The webpage content could not be processed.\n\n"
+            "A structured summary could not be produced from the page.\n\n"
         )
         if log_fetch:
             await self._write_log(url, goal, raw, result)

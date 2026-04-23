@@ -161,8 +161,16 @@ async def run_find_action_space(
             max_tries -= 1
             if max_tries == 0:
                 logger.error("All retries exhausted, returning empty actions.")
+                fail_messages: List[Dict[str, Any]] = list(
+                    context_vars.get("messages") or []
+                )
+                if content is not None:
+                    fail_messages = fail_messages + [
+                        {"role": "assistant", "content": content}
+                    ]
                 algorithm_output = dict(
                     actions=[],
+                    messages=fail_messages,
                     total_input_tokens=total_input_tokens,
                     total_output_tokens=total_output_tokens,
                     success=False,
