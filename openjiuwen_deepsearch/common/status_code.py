@@ -108,6 +108,11 @@ class StatusCode(Enum):
     LLM_RESPONSE_NONE = (211202, "LLM response is none")
     LLM_CONFIG_NONE = (211203, "LLM is not configured, at least the general model needs to be configured")
     LLM_CALL_FAILED = (211204, "LLM call failed: {e}")
+    LLM_WALL_CLOCK_TIMEOUT = (
+        211205,
+        "LLM wall-clock timeout after {timeout}s for agent {agent_name}, "
+        "matched_by={matched_by}, matched_key={matched_key}, node_key={node_key}",
+    )
 
     WEB_SEARCH_INSTANCE_OBTAIN_ERROR = (211300, "web search engine instance is {name} when ainvoke, check if register")
     LOCAL_SEARCH_INSTANCE_OBTAIN_ERROR = (211301, "local search engine instance {name} when ainvoke, check if register")

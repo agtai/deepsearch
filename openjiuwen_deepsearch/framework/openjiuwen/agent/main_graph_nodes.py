@@ -180,6 +180,7 @@ class StartNode(Start):
             agent_config["vlm_chart_generator_max_iterations"] = origin_agent_config.get(
                 "vlm_chart_generator_max_iterations", 1
             )
+            agent_config["agent_llm_timeouts"] = origin_agent_config.get("agent_llm_timeouts", {})
 
         service_config = Config().service_config.model_dump()
         service_config["thread_id"] = inputs.get("thread_id", "")

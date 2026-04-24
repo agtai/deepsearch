@@ -10,6 +10,7 @@ import os
 import re
 import time
 import uuid
+from dataclasses import dataclass
 from typing import Sequence, Any
 
 import json_repair
@@ -72,6 +73,68 @@ _WORKFLOW_LLM_USAGE: dict[str, dict[str, Any]] = {}
 _USAGE_ONLY_PARSER_PATCHES: dict[int, dict[str, Any]] = {}
 
 
+def normalize_agent_llm_timeouts(value: Any) -> dict[str, int]:
+    """规范化按 agent 配置的 LLM 总超时字典。
+
+    Args:
+        value: 原始超时配置。
+
+    Returns:
+        dict[str, int]: 规范化后的超时配置；缺少 ``default`` 时返回空字典表示未启用。
+    """
+    if not isinstance(value, dict) or not value or "default" not in value:
+        return {}
+    normalized_value: dict[str, int] = {}
+    for agent_key, timeout in value.items():
+        try:
+            normalized_value[agent_key] = max(int(timeout), 0)
+        except (TypeError, ValueError):
+            normalized_value[agent_key] = 0
+    return normalized_value
+
+
+@dataclass(frozen=True)
+class ResolvedAgentTimeout:
+    """描述一次 agent LLM 总超时的解析结果。
+
+    Attributes:
+        timeout: 最终命中的超时时间，单位秒。
+        matched_by: 命中来源，取值为 ``agent_name``、``node_key`` 或 ``default``。
+        matched_key: 实际命中的配置 key。
+        resolved_node_key: 从 ``agent_name`` 解析出的节点级 key；无法解析时为 ``None``。
+    """
+
+    timeout: int
+    matched_by: str
+    matched_key: str
+    resolved_node_key: str | None
+
+
+@dataclass(frozen=True)
+class _ConsumeLlmStreamRequest:
+    """封装流消费阶段所需的上下文参数。
+
+    Attributes:
+        llm: LLM 对象。
+        stream_kwargs: 传给 ``llm.stream`` 的参数。
+        can_write_stream: 是否允许写自定义流。
+        need_stream_out: 是否需要输出流式消息。
+        session: 当前 session。
+        stream_id: 当前流 ID。
+        stream_meta: 附加流元数据。
+        agent_name: 当前 agent 名称。
+    """
+
+    llm: Any
+    stream_kwargs: dict[str, Any]
+    can_write_stream: bool
+    need_stream_out: bool
+    session: Any
+    stream_id: str | None
+    stream_meta: dict[str, Any] | None
+    agent_name: str
+
+
 def _normalize_agent_name(agent_name: Any) -> str:
     """标准化 agent_name 字段。
 
@@ -85,6 +148,70 @@ def _normalize_agent_name(agent_name: Any) -> str:
         return "unknown"
     normalized_name = agent_name.strip()
     return normalized_name if normalized_name else "unknown"
+
+
+def _resolve_node_agent_key(agent_name: str) -> str | None:
+    """按最长前缀从 agent_name 中解析节点级 key。
+
+    Args:
+        agent_name: 原始 agent_name。
+
+    Returns:
+        str | None: 解析得到的 ``NodeId.value``；无法匹配时返回 ``None``。
+    """
+    normalized_agent_name = _normalize_agent_name(agent_name)
+    for node_key in sorted((item.value for item in NodeId), key=len, reverse=True):
+        if normalized_agent_name.startswith(node_key):
+            return node_key
+    return None
+
+
+def _resolve_agent_llm_timeout(agent_name: str, session: Any = None) -> ResolvedAgentTimeout | None:
+    """解析当前 agent 应使用的 wall-clock timeout。
+
+    Args:
+        agent_name: 原始 agent_name。
+        session: 当前 session 对象。
+
+    Returns:
+        ResolvedAgentTimeout | None: 命中的超时解析结果；未配置时返回 ``None``。
+    """
+    if session is None:
+        return None
+    try:
+        timeout_config = session.get_global_state("config.agent_llm_timeouts")
+    except Exception:
+        return None
+    timeout_config = normalize_agent_llm_timeouts(timeout_config)
+    if not timeout_config:
+        return None
+
+    normalized_agent_name = _normalize_agent_name(agent_name)
+    if normalized_agent_name in timeout_config:
+        return ResolvedAgentTimeout(
+            timeout=timeout_config[normalized_agent_name],
+            matched_by="agent_name",
+            matched_key=normalized_agent_name,
+            resolved_node_key=_resolve_node_agent_key(normalized_agent_name),
+        )
+
+    resolved_node_key = _resolve_node_agent_key(normalized_agent_name)
+    if resolved_node_key and resolved_node_key in timeout_config:
+        return ResolvedAgentTimeout(
+            timeout=timeout_config[resolved_node_key],
+            matched_by="node_key",
+            matched_key=resolved_node_key,
+            resolved_node_key=resolved_node_key,
+        )
+
+    if "default" in timeout_config:
+        return ResolvedAgentTimeout(
+            timeout=timeout_config["default"],
+            matched_by="default",
+            matched_key="default",
+            resolved_node_key=resolved_node_key,
+        )
+    return None
 
 
 def _build_empty_agent_name_usage(agent_name: str) -> dict[str, Any]:
@@ -793,6 +920,47 @@ def _resolve_stream_options(llm_model: Any, need_include_usage: bool) -> dict | 
     return merged_options or None
 
 
+async def _consume_llm_stream(
+    request: _ConsumeLlmStreamRequest,
+) -> Any:
+    """消费流式 LLM 输出并聚合完整结果。
+
+    Args:
+        request: 流消费阶段的具名上下文参数。
+
+    Returns:
+        Any: 聚合后的完整响应块。
+    """
+    full_chunk = None
+    async for chunk in request.llm.stream(**request.stream_kwargs):
+        _raise_if_cancelled()
+        if full_chunk is None:
+            full_chunk = chunk
+        else:
+            full_chunk += chunk
+            if len(full_chunk.content) >= MAX_LLM_RESP_LENGTH:
+                logger.warning(
+                    "[llm_astream] llm response is too long, "
+                    "truncate to %s characters", MAX_LLM_RESP_LENGTH
+                )
+                full_chunk.content = full_chunk.content[:MAX_LLM_RESP_LENGTH]
+                break
+        chunk_content = getattr(chunk, "content", "")
+        if request.can_write_stream and request.need_stream_out and chunk_content:
+            payload = {
+                "message_id": request.stream_id,
+                "agent": request.agent_name,
+                "content": chunk_content,
+                "message_type": MessageType.MESSAGE_CHUNK.value,
+                "event": StreamEvent.MESSAGE.value,
+                "created_time": get_current_time(),
+            }
+            if request.stream_meta:
+                payload.update(dict(request.stream_meta))
+            await request.session.write_custom_stream(payload)
+    return full_chunk
+
+
 async def llm_astream(*args, **kwargs):
     """以流式方式调用 LLM 并返回完整响应。
 
@@ -850,6 +1018,7 @@ async def llm_astream(*args, **kwargs):
         await session.write_custom_stream(_make_payload(stream_id, StreamEvent.START.value, ""))
 
     restore_usage_parser = None
+    resolved_timeout = None
     if isinstance(stream_options, dict) and bool(stream_options.get("include_usage")):
         restore_usage_parser = _install_usage_only_chunk_parser(llm)
 
@@ -862,20 +1031,62 @@ async def llm_astream(*args, **kwargs):
         if stream_options is not None:
             stream_kwargs["stream_options"] = stream_options
 
-        async for chunk in llm.stream(**stream_kwargs):
-            _raise_if_cancelled()
-            if full_chunk is None:
-                full_chunk = chunk
-            else:
-                full_chunk += chunk
-                if len(full_chunk.content) >= MAX_LLM_RESP_LENGTH:
-                    logger.warning(
-                        f"[llm_astream] llm response is too long, truncate to {MAX_LLM_RESP_LENGTH} characters")
-                    full_chunk.content = full_chunk.content[:MAX_LLM_RESP_LENGTH]
-                    break
-            chunk_content = getattr(chunk, "content", "")
-            if can_write_stream and need_stream_out and chunk_content:
-                await session.write_custom_stream(_make_payload(stream_id, StreamEvent.MESSAGE.value, chunk_content))
+        resolved_timeout = _resolve_agent_llm_timeout(agent_name=agent_name, session=session)
+        if resolved_timeout is not None and resolved_timeout.timeout > 0:
+            logger.info(
+                "[llm_astream] applying wall-clock timeout agent_name=%s "
+                "node_key=%s matched_by=%s matched_key=%s timeout=%s",
+                agent_name,
+                resolved_timeout.resolved_node_key,
+                resolved_timeout.matched_by,
+                resolved_timeout.matched_key,
+                resolved_timeout.timeout,
+            )
+            full_chunk = await asyncio.wait_for(
+                _consume_llm_stream(_ConsumeLlmStreamRequest(
+                    llm=llm,
+                    stream_kwargs=stream_kwargs,
+                    can_write_stream=can_write_stream,
+                    need_stream_out=need_stream_out,
+                    session=session,
+                    stream_id=stream_id,
+                    stream_meta=stream_meta,
+                    agent_name=agent_name,
+                )),
+                timeout=resolved_timeout.timeout,
+            )
+        else:
+            full_chunk = await _consume_llm_stream(_ConsumeLlmStreamRequest(
+                llm=llm,
+                stream_kwargs=stream_kwargs,
+                can_write_stream=can_write_stream,
+                need_stream_out=need_stream_out,
+                session=session,
+                stream_id=stream_id,
+                stream_meta=stream_meta,
+                agent_name=agent_name,
+            ))
+    except asyncio.TimeoutError as exc:
+        if can_write_stream and need_stream_out:
+            await session.write_custom_stream(_make_payload(stream_id, StreamEvent.DONE.value, ""))
+        logger.warning(
+            "[llm_astream] wall-clock timeout agent_name=%s node_key=%s matched_by=%s matched_key=%s timeout=%s",
+            agent_name,
+            resolved_timeout.resolved_node_key if resolved_timeout else None,
+            resolved_timeout.matched_by if resolved_timeout else None,
+            resolved_timeout.matched_key if resolved_timeout else None,
+            resolved_timeout.timeout if resolved_timeout else None,
+        )
+        raise CustomValueException(
+            error_code=StatusCode.LLM_WALL_CLOCK_TIMEOUT.code,
+            message=StatusCode.LLM_WALL_CLOCK_TIMEOUT.errmsg.format(
+                timeout=resolved_timeout.timeout,
+                agent_name=agent_name,
+                matched_by=resolved_timeout.matched_by,
+                matched_key=resolved_timeout.matched_key,
+                node_key=resolved_timeout.resolved_node_key,
+            ),
+        ) from exc
     except Exception as e:
         if can_write_stream and need_stream_out:
             await session.write_custom_stream(_make_payload(stream_id, StreamEvent.DONE.value, ""))
