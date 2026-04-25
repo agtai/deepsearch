@@ -1,6 +1,7 @@
 # -*- coding: UTF-8 -*-
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
 import copy
+import asyncio
 import json
 import logging
 import os
@@ -19,7 +20,7 @@ from openjiuwen.core.workflow.components.flow.start_comp import Start
 from openjiuwen_deepsearch.algorithm.chart_generation.vlm_chart_generator import VLMChartGenerator
 from openjiuwen_deepsearch.algorithm.query_understanding.interpreter import query_interpreter
 from openjiuwen_deepsearch.algorithm.query_understanding.outliner import Outliner
-from openjiuwen_deepsearch.algorithm.query_understanding.router import classify_query
+from openjiuwen_deepsearch.algorithm.query_understanding.router import classify_query, web_search_for_query
 from openjiuwen_deepsearch.algorithm.report.config import ReportFormat, ReportStyle
 from openjiuwen_deepsearch.algorithm.report.report import Reporter
 from openjiuwen_deepsearch.algorithm.search_nodes.find_action import run_find_action_space
@@ -203,13 +204,26 @@ class EntryNode(BaseNode):
 
         messages = session.get_global_state("search_context.messages")
         llm_model_name = adapt_llm_model_name(session, NodeId.ENTRY.value)
+        query = session.get_global_state("search_context.query")
+        web_search_engine_config = session.get_global_state("config.web_search_engine_config")
+        web_search_engine_name = web_search_engine_config.search_engine_name if web_search_engine_config else "petal"
 
-        return dict(messages=messages, llm_model_name=llm_model_name)
+        return dict(messages=messages, llm_model_name=llm_model_name,
+                    query=query, web_search_engine_name=web_search_engine_name)
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
         current_inputs = self._pre_handle(inputs, session, context)
 
-        classify_query_output = await classify_query(current_inputs)
+        # Parallel execution of classify_query and web_search_for_query
+        web_search_input = {
+            "query": current_inputs.get("query", ""),
+            "web_search_engine_name": current_inputs.get("web_search_engine_name", "petal")
+        }
+        classify_query_output, web_search_output = await asyncio.gather(
+            classify_query(current_inputs),
+            web_search_for_query(web_search_input)
+        )
+        classify_query_output["entry_search_results"] = web_search_output.get("search_results", [])
 
         result = self._post_handle(inputs, classify_query_output, session, context)
         return result
@@ -219,6 +233,7 @@ class EntryNode(BaseNode):
         lang = algorithm_output.get("lang", "zh-CN").lower()
         llm_result = algorithm_output.get("llm_result", "")
         error_msg = algorithm_output.get("error_msg", "")
+        entry_search_results = algorithm_output.get("entry_search_results", [])
 
         if "zh" in lang or "chinese" in lang or "中文" in lang:
             lang = CHINESE
@@ -227,6 +242,8 @@ class EntryNode(BaseNode):
 
         # 更新session
         session.update_global_state({"search_context.language": lang})
+        if entry_search_results:
+            session.update_global_state({"search_context.entry_search_results": entry_search_results})
 
         # 决定下一个节点
         next_node = NodeId.GENERATE_QUESTIONS.value if human_in_the_loop else NodeId.OUTLINE.value
@@ -513,14 +530,12 @@ class GenerateQuestionsNode(BaseNode):
         logger.info(f"[GenerateQuestionsNode] Start GenerateQuestionsNode.")
         language = session.get_global_state("search_context.language")
         query = session.get_global_state("search_context.query")
+        entry_search_results = session.get_global_state("search_context.entry_search_results") or []
         max_gen_question_retry_num = session.get_global_state("config.workflow_max_gen_question_retry_num")
         llm_model_name = adapt_llm_model_name(session, NodeId.GENERATE_QUESTIONS.value)
-        return dict(
-            language=language,
-            query=query,
-            max_gen_question_retry_num=max_gen_question_retry_num,
-            llm_model_name=llm_model_name,
-        )
+        return dict(language=language, query=query, entry_search_results=entry_search_results,
+                    max_gen_question_retry_num=max_gen_question_retry_num,
+                    llm_model_name=llm_model_name)
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
         session_context.set(session)
@@ -634,12 +649,15 @@ class OutlineNode(BaseNode):
         current_outline = session.get_global_state("search_context.current_outline")
         outline_interaction_enabled = session.get_global_state("config.outline_interaction_enabled")
         api_tools_config = session.get_global_state("config.api_tools_config") or {}
+        entry_search_results = session.get_global_state("search_context.entry_search_results") or []
+
 
         return dict(
             messages=messages,
             user_feedback=user_feedback,
             questions=questions,
             language=language,
+            entry_search_results=entry_search_results,
             max_section_num=max_section_num,
             max_outline_retry_num=max_outline_retry_num,
             llm_model_name=llm_model_name,

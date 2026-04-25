@@ -347,14 +347,10 @@ if __name__ == "__main__":
     if args.vlm_chart_generator_enable:
         # vlm迭代轮次大于0, 必须传入vlm模型相关配置
         current_agent_config["vlm_chart_generator_enable"] = True
+        current_agent_config["vlm_chart_generator_max_iterations"] = args.vlm_chart_generator_max_iterations
         if args.vlm_chart_generator_max_iterations > 0:
-            current_agent_config["vlm_chart_generator_max_iterations"] = args.vlm_chart_generator_max_iterations
-            vlm_configs = [
-                args.vlm_model_name,
-                args.vlm_model_type,
-                args.vlm_base_url,
-                args.vlm_api_key,
-            ]
+            vlm_configs = [args.vlm_model_name, args.vlm_model_type,
+                          args.vlm_base_url, args.vlm_api_key]
             if all(vlm_configs):
                 current_agent_config["llm_config"]["vlm_chart_generating"] = {}
                 current_agent_config["llm_config"]["vlm_chart_generating"]["model_name"] = args.vlm_model_name

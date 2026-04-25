@@ -164,6 +164,7 @@ class SearchContext(BaseModel):
     language: str = Field(default="zh-CN", description="语言")
     report_template: str = Field(default="", description="模板内容")
     search_mode: str = Field(default="research", description="搜索类型，research 或 search 对应研究或深搜模式")
+    entry_search_results: List[Dict] = Field(default_factory=list, description="Entry节点预搜索结果")
 
     # 2、feedback相关参数
     questions: str = Field(default="", description="系统基于用户问题提出的问题")
