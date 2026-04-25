@@ -1,5 +1,6 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
 import asyncio
+import json
 import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
@@ -8,6 +9,15 @@ logger = logging.getLogger(__name__)
 
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
+
+
+def format_tool_result_for_message(tool_result: Any) -> str:
+    if isinstance(tool_result, str):
+        return tool_result
+    try:
+        return json.dumps(tool_result, ensure_ascii=False, default=str)
+    except Exception:
+        return str(tool_result)
 
 
 @dataclass

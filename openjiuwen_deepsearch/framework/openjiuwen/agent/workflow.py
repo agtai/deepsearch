@@ -6,6 +6,7 @@ import copy
 import json
 import logging
 import os
+from pathlib import Path
 import time
 import uuid
 from typing import Any, AsyncGenerator, Optional
@@ -29,6 +30,16 @@ from openjiuwen_deepsearch.algorithm.search_agent.deepsearch_agent import (
     parse_and_validate_find_action_result,
     parse_and_validate_init_state_result,
     parse_and_validate_state_creation_result,
+)
+from openjiuwen_deepsearch.algorithm.search_nodes.llm_utils import _run_llm_via_ainvoke
+from openjiuwen_deepsearch.algorithm.search_nodes.run_action import (
+    _parse_one_native_tool_call,
+    get_tool_definitions,
+)
+from openjiuwen_deepsearch.algorithm.search_nodes.tool_node import (
+    ExecuteToolConfig,
+    execute_tool,
+    format_tool_result_for_message,
 )
 from openjiuwen_deepsearch.algorithm.search_nodes.utils import (
     SaveSearchFinalResultConfig,
@@ -1568,6 +1579,235 @@ class DeepSearchAgent(BaseAgent):
         finally:
             if llm_token is not None:
                 llm_context.reset(llm_token)
+
+
+class SimpleReactSearchAgent(BaseAgent):
+    _cached_system_prompt: str | None = None
+
+    @classmethod
+    def _load_system_prompt(cls) -> str:
+        if cls._cached_system_prompt is None:
+            path = (
+                Path(__file__).resolve().parents[3] / "algorithm" / "prompts" / "simple_react_search.md"
+            )
+            cls._cached_system_prompt = path.read_text(encoding="utf-8").strip()
+        return cls._cached_system_prompt
+
+    async def run(
+        self,
+        message: str,
+        conversation_id: str,
+        agent_config: dict,
+        *,
+        report_template: str = "",
+        interrupt_feedback: str = "",
+        service_config: Optional[dict] = None,
+        gold_answer: str | None = None,
+    ) -> AsyncGenerator[str, None]:
+        validate_run_agent_params(
+            message, conversation_id, report_template, interrupt_feedback
+        )
+        validate_agent_required_field(agent_config)
+        session_agent_config = copy.deepcopy(AgentConfig.model_validate(agent_config))
+        try:
+            search_config = SearchWorkflowConfig.model_validate(
+                (service_config or {}).get("search_workflow", {})
+            )
+        except Exception:
+            search_config = SearchWorkflowConfig()
+
+        general = session_agent_config.llm_config.get("general")
+        if general is None:
+            raise CustomValueException(
+                error_code=StatusCode.LLM_CONFIG_NONE.code,
+                message=StatusCode.LLM_CONFIG_NONE.errmsg,
+            )
+        llm_registry = {general.model_name: create_llm_obj(copy.deepcopy(general))}
+
+        llm_token = llm_context.set(llm_registry)
+        try:
+            per_question_params: PerQuestionParams = (
+                session_agent_config.search_workflow_per_question_params
+            )
+            if per_question_params.tool_map == "search_fetch":
+                tool_class = [
+                    WebFetch({"jina_api_key": session_agent_config.jina_api_key}),
+                    WebSearch({"serper_api_key": session_agent_config.serper_api_key}),
+                ]
+                zero_secret(session_agent_config.jina_api_key)
+                zero_secret(session_agent_config.serper_api_key)
+            elif per_question_params.tool_map == "retrieve":
+                milvus_cfg = session_agent_config.search_workflow_milvus_config
+                tool_class = [
+                    RetrieveBrowsecompPlus(
+                        {
+                            "milvus_host": milvus_cfg.milvus_host,
+                            "milvus_port": milvus_cfg.milvus_port,
+                            "database_name": milvus_cfg.database_name,
+                            "collection_name": milvus_cfg.collection_name,
+                            "embedder_model_name": milvus_cfg.embedder_model_name,
+                            "embedder_api_key": milvus_cfg.embedder_api_key,
+                            "embedder_base_url": milvus_cfg.embedder_base_url,
+                            "embedder_timeout": milvus_cfg.embedder_timeout,
+                        }
+                    )
+                ]
+                zero_secret(milvus_cfg.embedder_api_key)
+            else:
+                raise CustomValueException(
+                    StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
+                    StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(
+                        e=f"Invalid tool map: {per_question_params.tool_map}"
+                    ),
+                )
+            tool_map = {tool.name: tool for tool in tool_class}
+
+            retrieval_only = per_question_params.tool_map == "retrieve"
+            tools_list = get_tool_definitions(retrieval_tool_only=retrieval_only)
+
+            sc_dict = to_dict_safe(search_config.state_creation_agent) or {}
+            retrieval_settings = to_dict_safe(sc_dict.get("retrieval_settings") or {})
+            tool_exec_config_base = dict(sc_dict)
+
+            base_log_dir = LogManager.get_log_dir() or "./output/logs"
+            log_dir = os.path.join(base_log_dir, f"result_{conversation_id}")
+            os.makedirs(log_dir, exist_ok=True)
+
+            max_steps = 1000
+            # _run_llm_via_ainvoke reads top-level model_name; agent_config nests it under llm_config.
+            llm_invoke_cfg = {
+                **agent_config,
+                "model_name": general.model_name,
+            }
+
+            messages: list[dict[str, Any]] = [
+                {"role": "system", "content": self._load_system_prompt()},
+                {"role": "user", "content": message},
+            ]
+
+            start_time = time.time()
+            total_in_tok = 0
+            total_out_tok = 0
+            prediction: str | None = None
+            new_found_evidence_ids: list[Any] = []
+
+            for _step in range(max_steps):
+                try:
+                    raw, _reasoning, in_tok, out_tok = await _run_llm_via_ainvoke(
+                        messages=messages,
+                        config=llm_invoke_cfg,
+                        agent_name=NodeId.SIMPLE_REACT_SEARCH.value,
+                        tools=tools_list,
+                    )
+                except Exception as e:
+                    messages.append(
+                        {
+                            "role": "assistant",
+                            "content": f"Error: {e}",
+                        }
+                    )
+                    break
+
+                total_in_tok += int(in_tok or 0)
+                total_out_tok += int(out_tok or 0)
+
+                if isinstance(raw, dict):
+                    resp_content = raw.get("content") or ""
+                    tool_calls = raw.get("tool_calls") or []
+                else:
+                    resp_content = raw if isinstance(raw, str) else str(raw)
+                    tool_calls = []
+
+                if not tool_calls:
+                    prediction = (resp_content or "").strip() or None
+                    messages.append(
+                        {
+                            "role": "assistant",
+                            "content": resp_content or "",
+                        }
+                    )
+                    break
+
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": resp_content or "",
+                        "tool_calls": tool_calls,
+                    }
+                )
+
+                for tc in tool_calls:
+                    parsed, err = _parse_one_native_tool_call(tc)
+                    if err or not parsed:
+                        raw_id = tc.get("id") if isinstance(tc, dict) else None
+                        tid = raw_id or str(uuid.uuid4().hex[:24])
+                        nm = (
+                            (tc.get("name") if isinstance(tc, dict) else None)
+                            or (tc.get("function") or {}).get("name")
+                            if isinstance(tc, dict)
+                            else None
+                        ) or "unknown"
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tid,
+                                "name": nm,
+                                "content": f"Tool call error: {err or 'parse failed'}",
+                            }
+                        )
+                        continue
+
+                    tool_name = parsed["name"]
+                    tool_args = dict(parsed["arguments"])
+                    call_id = parsed.get("tool_call_id") or str(uuid.uuid4().hex[:24])
+                    try:
+                        tool_result, new_found_evidence_ids = await execute_tool(
+                            ExecuteToolConfig(
+                                tool_map=tool_map,
+                                tool_name=tool_name,
+                                tool_args=tool_args,
+                                config=tool_exec_config_base,
+                                retrieval_settings=retrieval_settings,
+                                action={},
+                                new_found_evidence_ids=new_found_evidence_ids,
+                            )
+                        )
+                        content = format_tool_result_for_message(tool_result)
+                    except CustomValueException as e:
+                        content = str(e)
+                    except Exception as e:
+                        content = f"Tool execution error: {e}"
+
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": call_id,
+                            "name": tool_name,
+                            "content": content,
+                        }
+                    )
+
+
+            result = _save_and_return_search_final_result(
+                SaveSearchFinalResultConfig(
+                    question=message,
+                    messages=messages,
+                    prediction=prediction or "No answer found",
+                    gold_answer=gold_answer,
+                    termination=Termination.ANSWER if prediction else Termination.FAIL_LIMIT,
+                    retrieved_evidence_ids=new_found_evidence_ids,
+                    params={
+                        "total_input_tokens": total_in_tok,
+                        "total_output_tokens": total_out_tok,
+                        "start_time": start_time,
+                        "log_dir": log_dir,
+                    },
+                    config={"agent": "simple_react_search"},
+                )
+            )
+            yield json.dumps(to_json_safe(result.model_dump()), ensure_ascii=False)
+        finally:
+            llm_context.reset(llm_token)
 
 
 def parse_endnode_content(chunk: CustomSchema) -> dict | None:

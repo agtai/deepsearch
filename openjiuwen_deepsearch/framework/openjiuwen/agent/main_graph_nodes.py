@@ -31,6 +31,7 @@ from openjiuwen_deepsearch.algorithm.search_nodes.run_action import (
 from openjiuwen_deepsearch.algorithm.search_nodes.tool_node import (
     ExecuteToolConfig,
     execute_tool,
+    format_tool_result_for_message,
 )
 from openjiuwen_deepsearch.algorithm.search_nodes.utils import (
     _save_result,
@@ -1597,14 +1598,14 @@ class VLMChartGeneratorNode(BaseNode):
     async def _run_vlm_chart_generator_handle(self, inputs: Input) -> dict:
         logger.info("[VLMChartGeneratorNode] Run VLMChartGeneratorNode.")
 
-        report_content = current_inputs.get("report_content", "")
-        all_classified_contents = current_inputs.get("all_classified_contents", [])
-        trace_source_datas = current_inputs.get("trace_source_datas", [])
+        report_content = inputs.get("report_content", "")
+        all_classified_contents = inputs.get("all_classified_contents", [])
+        trace_source_datas = inputs.get("trace_source_datas", [])
 
         vlm_chart_generator = VLMChartGenerator(
-            llm_model_name=current_inputs.get("llm_model_name", ""),
-            vlm_model_name=current_inputs.get("vlm_model_name", ""),
-            vlm_max_iterations=current_inputs.get("vlm_chart_generator_max_iterations", 1),
+            llm_model_name=inputs.get("llm_model_name", ""),
+            vlm_model_name=inputs.get("vlm_model_name", ""),
+            vlm_max_iterations=inputs.get("vlm_chart_generator_max_iterations", 1),
         )
         chart_messages, modified_report, new_source_trace_datas = await vlm_chart_generator.run(
             report_content=report_content,
@@ -2381,15 +2382,6 @@ class RunActionNode(BaseNode):
             return dict(next_node=NodeId.RUN_ACTION.value)
 
 
-def _format_tool_result_for_message(tool_result) -> str:
-    if isinstance(tool_result, str):
-        return tool_result
-    try:
-        return json.dumps(tool_result, ensure_ascii=False, default=str)
-    except Exception:
-        return str(tool_result)
-
-
 class ToolNode(BaseNode):
     """
     工具调用节点
@@ -2480,7 +2472,7 @@ class ToolNode(BaseNode):
                     tool_name,
                     "***" if LogManager.is_sensitive() else tool_result,
                 )
-                content = _format_tool_result_for_message(tool_result)
+                content = format_tool_result_for_message(tool_result)
             except CustomValueException as e:
                 error_msg = str(e)
                 if "Available tools:" not in error_msg:

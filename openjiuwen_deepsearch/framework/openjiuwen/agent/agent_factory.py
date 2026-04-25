@@ -14,6 +14,7 @@ from openjiuwen_deepsearch.framework.openjiuwen.agent.workflow import (
     DeepresearchAgent,
     DeepresearchDependencyAgent,
     DeepSearchAgent,
+    SimpleReactSearchAgent,
 )
 from openjiuwen_deepsearch.utils.validation_utils.field_validation import validate_agent_required_field
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
@@ -33,9 +34,12 @@ class AgentFactory:
             ExecutionMethod.PARALLEL.value: DeepresearchAgent,
             ExecutionMethod.DEPENDENCY_DRIVING.value: DeepresearchDependencyAgent,
             SearchMode.SEARCH.value: DeepSearchAgent,
+            SearchMode.REACT.value: SimpleReactSearchAgent,
         }
 
-    def create_agent(self, agent_config: dict):
+    def create_agent(
+        self, agent_config: dict
+    ) -> DeepresearchAgent | DeepresearchDependencyAgent | DeepSearchAgent | SimpleReactSearchAgent:
         """
         Create an agent based on the provided configuration.
 
@@ -58,29 +62,42 @@ class AgentFactory:
                 StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
                 StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(e=str(e)),
             ) from e
+        search_mode = agent_config.get("search_mode", None)
 
-        # research or search
-        search_mode = agent_config.get("search_mode", SearchMode.RESEARCH.value)
-        if search_mode == SearchMode.RESEARCH.value:
-            execution_agent_key = agent_config.get("execution_method", ExecutionMethod.PARALLEL.value)
-        else:
-            execution_agent_key = search_mode
-
-        agent_class = self.agent_map.get(execution_agent_key)
-
-        if not agent_class:
+        if search_mode not in {m.value for m in SearchMode}:
             raise CustomValueException(
                 StatusCode.WORKFLOW_TYPE_NOT_EXIST_ERROR.code,
                 StatusCode.WORKFLOW_TYPE_NOT_EXIST_ERROR.errmsg.format(
-                    config=f"execution agent not found: {execution_agent_key}"
+                    config=f"execution agent not found: {search_mode}"
                 ),
             )
+        if search_mode == SearchMode.RESEARCH.value:
+            execution_method = agent_config.get("execution_method", ExecutionMethod.PARALLEL.value)
+            if execution_method not in {m.value for m in ExecutionMethod}:
+                raise CustomValueException(
+                    StatusCode.WORKFLOW_TYPE_NOT_EXIST_ERROR.code,
+                    StatusCode.WORKFLOW_TYPE_NOT_EXIST_ERROR.errmsg.format(
+                        config=f"execution agent not found: {execution_method}"
+                    ),
+                )
+            agent_class = self.agent_map.get(execution_method)
+        else:
+            agent_class = self.agent_map.get(search_mode)
+
+        if agent_class is None:
+            raise CustomValueException(
+                StatusCode.WORKFLOW_TYPE_NOT_EXIST_ERROR.code,
+                StatusCode.WORKFLOW_TYPE_NOT_EXIST_ERROR.errmsg.format(
+                    config=f"execution agent not found for search_mode={search_mode}"
+                ),
+            )
+
         agent = agent_class()
         logger.info(
             "Created agent class=%s research_name=%s search_mode=%s execution_method=%s",
             agent.__class__.__name__,
             getattr(agent, "research_name", ""),
             search_mode,
-            execution_agent_key,
+            agent_config.get("execution_method", ""),
         )
         return agent

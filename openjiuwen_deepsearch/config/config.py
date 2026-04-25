@@ -298,7 +298,14 @@ class AgentConfig(BaseModel):
     local_search_engine_config: LocalSearchEngineConfig = Field(default_factory=LocalSearchEngineConfig)
     custom_web_search_config: CustomWebSearchConfig = Field(default_factory=CustomWebSearchConfig)
     custom_local_search_config: CustomLocalSearchConfig = Field(default_factory=CustomLocalSearchConfig)
-    search_mode: Literal["research", "search"] = Field(default="research", description="生成研究报告还是生成答案")
+    search_mode: Literal["research", "search", "react"] = Field(
+        default="research",
+        description="research: 研究报告; search: DeepSearch 图; react: 简单 ReAct + 与 search 相同的工具",
+    )
+    enable_question_router: bool = Field(
+        default=False,
+        description="为 True 且 search_mode 为 search 时，先经 LLM 路由：0→react，1→search（DeepSearch）",
+    )
     search_workflow_per_question_params: PerQuestionParams = Field(default_factory=PerQuestionParams)
     search_workflow_milvus_config: MilvusConfig = Field(default_factory=MilvusConfig)
     jina_api_key: bytearray = Field(default=bytearray("", encoding="utf-8"), description="Jina API密钥")

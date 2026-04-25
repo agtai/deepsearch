@@ -66,6 +66,7 @@ _DEEPSEARCH_NODE_IDS = frozenset({
     NodeId.RUN_ACTION.value,
     NodeId.VALIDATE_NEW_STATE.value,
     NodeId.TOOL.value,
+    NodeId.SIMPLE_REACT_SEARCH.value,
 })
 
 

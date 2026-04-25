@@ -75,7 +75,14 @@ class DeepSearchRequest(BaseModel):
     ] = Field(default="", description="中断反馈标识（可选）")
     outline_interaction_enabled: bool = Field(default=False, description="大纲交互开关")
     outline_interaction_max_rounds: int = Field(default=3, ge=1, le=100, description="大纲交互最大轮次")
-    search_mode: Literal["research", "search"] = Field(default="research", description="生成研究报告还是生成答案")
+    search_mode: Literal["research", "search", "react"] = Field(
+        default="research",
+        description="research: 报告; search: DeepSearch; react: 简单 ReAct",
+    )
+    enable_question_router: bool = Field(
+        default=False,
+        description="search 模式下先经 LLM 路由：0→react，1→search（DeepSearch）",
+    )
     execution_method: Literal["parallel", "dependency_driving"] = Field(default="parallel",
                                                                          description="执行方法："
                                                                                      "parallel: 并行工作流执行"

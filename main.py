@@ -7,15 +7,18 @@ import logging
 import os
 import uuid
 from pathlib import Path
+
 from openjiuwen_deepsearch.algorithm.search_nodes.utils import ensure_api_keys_bytearray
-from openjiuwen_deepsearch.config.config import Config
+from openjiuwen_deepsearch.config.config import Config, LLMConfig
 from openjiuwen_deepsearch.config.method import ExecutionMethod
 from openjiuwen_deepsearch.framework.openjiuwen.agent.agent_factory import AgentFactory
 from openjiuwen_deepsearch.utils.debug_utils.result_exporter import ResultExporter
 from openjiuwen_deepsearch.framework.openjiuwen.agent.workflow import (
     parse_endnode_content,
 )
+from openjiuwen_deepsearch.llm.llm_wrapper import create_llm_obj
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
+from openjiuwen_deepsearch.utils.question_model_router import route_question_search_path
 
 LogManager.init(
     log_dir="./output/logs",
@@ -42,6 +45,28 @@ async def run_jiuwen_workflow(query: str, agent_config: dict, report_template: s
     Returns:
         None
     """
+    if agent_config.get("enable_question_router") and agent_config.get("search_mode") == "search":
+        general_raw = copy.deepcopy((agent_config.get("llm_config") or {}).get("general") or {})
+        general_llm = LLMConfig.model_validate(general_raw)
+        ext = general_llm.extension or {}
+        raw_extra = ext.get("extra_body")
+        extra_body = dict(raw_extra) if isinstance(raw_extra, dict) else None
+        llm_entry = create_llm_obj(general_llm)
+        label = await route_question_search_path(query, llm_entry, extra_body=extra_body)
+        if label == 0:
+            agent_config["search_mode"] = "react"
+        _qp = (
+            "***"
+            if LogManager.is_sensitive()
+            else ((query[:200] + "…") if len(query) > 200 else query)
+        )
+        logger.info(
+            "question_router: label=%s -> %s (0=ReAct, 1=DeepSearch) | %s",
+            label,
+            agent_config.get("search_mode"),
+            _qp,
+        )
+
     agent_factory = AgentFactory()
     agent = agent_factory.create_agent(agent_config)
     async for chunk in agent.run(
@@ -159,11 +184,13 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
         if missing_research_web_args:
             parser.error(f"research 模式必须提供以下参数: {', '.join(missing_research_web_args)}")
 
-    if args.mode == "query" and args.search_mode == "search":
+    if args.mode == "query" and args.search_mode in ("search", "react"):
         if args.tool_map == "search_fetch":
             missing_search_args = _missing_required_args(args, ["jina_api_key", "serper_api_key"])
             if missing_search_args:
-                parser.error("search 模式 (tool_map=search_fetch) 必须提供以下参数: " + ", ".join(missing_search_args))
+                parser.error(
+                    "search / react 模式 (tool_map=search_fetch) 必须提供以下参数: " + ", ".join(missing_search_args)
+                )
 
 
 if __name__ == "__main__":
@@ -177,9 +204,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--search_mode",
-        choices=["research", "search"],
+        choices=["research", "search", "react"],
         default="research",
-        help="research: long-form report workflow (Deepresearch). search: Q&A search agent (DeepSearch).",
+        help="research: Deepresearch. search: DeepSearch graph. react: simple ReAct + same tools as search.",
     )
 
     llm_group = parser.add_argument_group("LLM", "llm 配置参数")
@@ -264,6 +291,12 @@ if __name__ == "__main__":
     search_group.add_argument("--fail_limit", type=int, default=0, help="最大连续失败次数，0=无限制")
     search_group.add_argument("--answer_mode_top_k", type=int, default=1, help="答案模式保留候选答案数量")
     search_group.add_argument("--provide_best_guess", action="store_true", help="超时时返回当前最佳猜测答案")
+    search_group.add_argument(
+        "--enable_question_router",
+        action="store_true",
+        default=False,
+        help="With --search_mode search: call LLM router first (0→react, 1→DeepSearch)",
+    )
     search_group.add_argument("--jina_api_key", type=str, default="", help="jina 模型密钥")
     search_group.add_argument("--serper_api_key", type=str, default="", help="serper 模型密钥")
     search_group.add_argument("--milvus_host", type=str, default="localhost", help="milvus 主机地址")
@@ -359,17 +392,18 @@ if __name__ == "__main__":
     current_agent_config["workflow_human_in_the_loop"] = False
     current_agent_config["outline_interaction_enabled"] = False
     current_agent_config["search_mode"] = args.search_mode
+    current_agent_config["enable_question_router"] = args.enable_question_router
     if args.execution_method.strip() == ExecutionMethod.DEPENDENCY_DRIVING.value:
         current_agent_config["execution_method"] = ExecutionMethod.DEPENDENCY_DRIVING.value
     else:
         current_agent_config["execution_method"] = ExecutionMethod.PARALLEL.value
 
     if args.mode == "query":
-        if not args.query or args.search_mode not in ["research", "search"]:
+        if not args.query or args.search_mode not in ["research", "search", "react"]:
             parser.print_help()
         else:
-            if args.search_mode == "search":
-                current_agent_config["search_mode"] = "search"
+            if args.search_mode in ("search", "react"):
+                current_agent_config["search_mode"] = args.search_mode
                 if args.tool_map == "search_fetch":
                     current_agent_config["jina_api_key"] = args.jina_api_key
                     current_agent_config["serper_api_key"] = args.serper_api_key

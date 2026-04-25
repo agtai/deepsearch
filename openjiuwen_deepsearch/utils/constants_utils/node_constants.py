@@ -41,6 +41,7 @@ class NodeId(enum.Enum):
     START_NODE = "start_node"
     TOOL = "tool"
     VALIDATE_NEW_STATE = "validate_new_state"
+    SIMPLE_REACT_SEARCH = "simple_react_search"
 
     # info collector 子图相关
     COLLECTOR_QUERY_GEN = "collector_query_generation"
