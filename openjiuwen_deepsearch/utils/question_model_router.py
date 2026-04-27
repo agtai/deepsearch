@@ -41,6 +41,7 @@ async def route_question_search_path(
     """
     import logging
     from openjiuwen_deepsearch.utils.common_utils.llm_utils import ainvoke_llm_with_stats
+    from openjiuwen_deepsearch.utils.constants_utils.node_constants import AgentLlmName
 
     log = logging.getLogger(__name__)
     q = (question or "").strip()
@@ -57,7 +58,7 @@ async def route_question_search_path(
             llm_entry,
             messages,
             llm_type="basic",
-            agent_name="question_model_router",
+            agent_name=AgentLlmName.QUESTION_MODEL_ROUTER.value,
             tools=None,
             extra_body=extra_body,
         )

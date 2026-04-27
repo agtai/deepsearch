@@ -16,7 +16,7 @@ from openjiuwen_deepsearch.utils.common_utils.llm_utils import (
     pop_workflow_llm_usage,
     save_workflow_llm_usage_to_session,
 )
-from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
+from openjiuwen_deepsearch.utils.constants_utils.node_constants import AgentLlmName, NodeId
 
 
 class _DummyModelConfig:
@@ -213,6 +213,79 @@ def test_resolve_agent_llm_timeout_disables_feature_without_default():
     resolved = _resolve_agent_llm_timeout("sub_reporter", fake_session)
 
     assert resolved is None
+
+
+@pytest.mark.asyncio
+async def test_ainvoke_allows_default_ai_agent_name():
+    """验证未显式传入或传入 None 时保留默认 AI 调用名。
+
+    Returns:
+        None.
+    """
+    llm_obj = {"model": object(), "model_name": "demo-model"}
+    with patch(
+        "openjiuwen_deepsearch.utils.common_utils.llm_utils.llm_astream",
+        new=AsyncMock(return_value=_FakeResponse()),
+    ) as mock_llm_astream:
+        await ainvoke_llm_with_stats(
+            llm=llm_obj,
+            messages=[{"role": "user", "content": "hello"}],
+        )
+        await ainvoke_llm_with_stats(
+            llm=llm_obj,
+            messages=[{"role": "user", "content": "hello"}],
+            agent_name=None,
+        )
+
+    assert mock_llm_astream.await_args_list[0].kwargs["agent_name"] == "AI"
+    assert mock_llm_astream.await_args_list[1].kwargs["agent_name"] == "AI"
+
+
+@pytest.mark.asyncio
+async def test_ainvoke_defaults_blank_agent_name_and_allows_declared_agent_names():
+    """验证空白 agent_name 归一为默认值，AgentLlmName 中定义的调用名可通过校验。
+
+    Returns:
+        None.
+    """
+    llm_obj = {"model": object(), "model_name": "demo-model"}
+    with patch(
+        "openjiuwen_deepsearch.utils.common_utils.llm_utils.llm_astream",
+        new=AsyncMock(return_value=_FakeResponse()),
+    ) as mock_llm_astream:
+        await ainvoke_llm_with_stats(
+            llm=llm_obj,
+            messages=[{"role": "user", "content": "hello"}],
+            agent_name="  ",
+        )
+        await ainvoke_llm_with_stats(
+            llm=llm_obj,
+            messages=[{"role": "user", "content": "hello"}],
+            agent_name=AgentLlmName.ENTRY.value,
+        )
+
+    assert mock_llm_astream.await_args_list[0].kwargs["agent_name"] == "AI"
+    assert mock_llm_astream.await_args_list[1].kwargs["agent_name"] == AgentLlmName.ENTRY.value
+
+
+@pytest.mark.asyncio
+async def test_ainvoke_rejects_undeclared_agent_name():
+    """验证未在 AgentLlmName 中定义的 agent_name 会被拒绝。
+
+    Returns:
+        None.
+    """
+    llm_obj = {"model": object(), "model_name": "demo-model"}
+
+    with pytest.raises(CustomValueException) as exc_info:
+        await ainvoke_llm_with_stats(
+            llm=llm_obj,
+            messages=[{"role": "user", "content": "hello"}],
+            agent_name="not_declared_agent",
+        )
+
+    assert exc_info.value.error_code == StatusCode.PARAM_CHECK_ERROR_COMMON_INVALID.code
+    assert "agent_name" in exc_info.value.message
 
 
 @pytest.mark.asyncio

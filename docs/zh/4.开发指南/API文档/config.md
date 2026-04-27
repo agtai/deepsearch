@@ -272,6 +272,8 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 
 - HTTP 服务入口 `DeepSearchRequest.agent_llm_timeouts` 会透传到 `AgentConfig.agent_llm_timeouts`，并在运行时进入 session 全局配置。
 - 该配置只控制业务层对整次 LLM 流式调用施加的 wall-clock timeout，不替代底层 provider/request 级超时。
+- 当前可配置的 `agent_name` / key 清单详见openjiuwen_deepsearch/utils/constants_utils/node_constants.py的AgentLlmName定义，`default` 用于兜底规则。
+
 
 **样例**：
 

@@ -118,7 +118,7 @@ from openjiuwen_deepsearch.utils.common_utils.stream_utils import (
     StreamEvent,
     get_current_time,
 )
-from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
+from openjiuwen_deepsearch.utils.constants_utils.node_constants import AgentLlmName, NodeId
 from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import (
     llm_context,
     local_search_context,
@@ -1696,7 +1696,7 @@ class SimpleReactSearchAgent(BaseAgent):
                     raw, _reasoning, in_tok, out_tok = await _run_llm_via_ainvoke(
                         messages=messages,
                         config=llm_invoke_cfg,
-                        agent_name=NodeId.SIMPLE_REACT_SEARCH.value,
+                        agent_name=AgentLlmName.SIMPLE_REACT_SEARCH.value,
                         tools=tools_list,
                     )
                 except Exception as e:

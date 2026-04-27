@@ -10,7 +10,7 @@ from openjiuwen_deepsearch.algorithm.prompts.template import apply_system_prompt
 from openjiuwen_deepsearch.common.status_code import StatusCode
 from openjiuwen_deepsearch.framework.openjiuwen.tools.web_search import run_web_search
 from openjiuwen_deepsearch.utils.common_utils import llm_utils
-from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
+from openjiuwen_deepsearch.utils.constants_utils.node_constants import AgentLlmName
 from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import llm_context
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
 
@@ -70,7 +70,7 @@ async def classify_query(inputs: dict) -> (bool, str):
         response = await llm_utils.ainvoke_llm_with_stats(llm,
                                                           prompts,
                                                           llm_type="basic",
-                                                          agent_name=NodeId.ENTRY.value,
+                                                          agent_name=AgentLlmName.ENTRY.value,
                                                           tools=[_create_function_tool().card.tool_info()],
                                                           need_stream_out=False)
         tool_calls = response.get('tool_calls', [])

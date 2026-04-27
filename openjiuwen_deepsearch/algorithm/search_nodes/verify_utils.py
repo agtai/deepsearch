@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 from openjiuwen_deepsearch.algorithm.search_nodes.llm_utils import RunLLMConfig, run_llm
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
-from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
+from openjiuwen_deepsearch.utils.constants_utils.node_constants import AgentLlmName
 
 logger = logging.getLogger(__name__)
 
@@ -257,7 +257,7 @@ async def find_relative_info(
                 "search_results": clue_items,
             },
             need_stream_out=False,
-            agent_name=NodeId.VALIDATE_NEW_STATE.value,
+            agent_name=AgentLlmName.VALIDATE_NEW_STATE.value,
         )
     )
 
@@ -301,7 +301,7 @@ async def verify_coarse(verify_config: VerifyCoarseConfig):
                 "evidence": verify_config.evidence,
             },
             need_stream_out=False,
-            agent_name=NodeId.VALIDATE_NEW_STATE.value,
+            agent_name=AgentLlmName.VALIDATE_NEW_STATE.value,
         )
     )
 
@@ -327,7 +327,7 @@ async def verify_coarse_set(
                 "candidates_json": candidates,
             },
             need_stream_out=False,
-            agent_name=NodeId.VALIDATE_NEW_STATE.value,
+            agent_name=AgentLlmName.VALIDATE_NEW_STATE.value,
         )
     )
 

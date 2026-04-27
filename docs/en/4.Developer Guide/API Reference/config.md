@@ -121,6 +121,7 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 
 - `DeepSearchRequest.agent_llm_timeouts` is passed through into `AgentConfig.agent_llm_timeouts` and then merged into runtime session config.
 - This setting controls the outer business-layer timeout for the whole streaming call; it does not replace provider/request-level timeout handling.
+- For the current configurable `agent_name` / key list, see the `AgentLlmName` definition in `openjiuwen_deepsearch/utils/constants_utils/node_constants.py`; `default` is the fallback rule.
 
 **Example**:
 

@@ -17,7 +17,7 @@ from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import (
     Result,
     State,
 )
-from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
+from openjiuwen_deepsearch.utils.constants_utils.node_constants import AgentLlmName
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
 
 logger = logging.getLogger(__name__)
@@ -119,7 +119,7 @@ async def run_find_action_space(
                     prompt_template_file="deepsearch_find_action_space",
                     context_vars=context_vars,
                     need_stream_out=False,
-                    agent_name=NodeId.FIND_ACTION_SPACE.value,
+                    agent_name=AgentLlmName.FIND_ACTION_SPACE.value,
                 )
             )
             total_input_tokens += input_tokens

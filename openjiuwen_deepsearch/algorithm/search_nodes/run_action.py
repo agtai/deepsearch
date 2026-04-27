@@ -23,7 +23,7 @@ from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import (
     State,
     Variable,
 )
-from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
+from openjiuwen_deepsearch.utils.constants_utils.node_constants import AgentLlmName, NodeId
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
 
 logger = logging.getLogger(__name__)
@@ -714,7 +714,7 @@ async def run_action(params: RunActionConfig) -> dict:
                 prompt_template_file=template,
                 context_vars=context_vars,
                 need_stream_out=False,
-                agent_name=NodeId.RUN_ACTION.value,
+                agent_name=AgentLlmName.RUN_ACTION.value,
                 tools=tools,
             )
         )

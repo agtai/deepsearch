@@ -17,7 +17,7 @@ from openjiuwen_deepsearch.algorithm.search_nodes.llm_utils import (
 )
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.utils.common_utils.llm_utils import format_llm_log_correlation_suffix
-from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
+from openjiuwen_deepsearch.utils.constants_utils.node_constants import AgentLlmName
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
 
 logger = logging.getLogger(__name__)
@@ -344,7 +344,7 @@ class WebFetch:
                     system_prompt="You are a helpful assistant that analyzes webpage content.",
                     context_vars={"messages": messages},
                     need_stream_out=False,
-                    agent_name=NodeId.TOOL.value,
+                    agent_name=AgentLlmName.TOOL.value,
                 )
             )
 

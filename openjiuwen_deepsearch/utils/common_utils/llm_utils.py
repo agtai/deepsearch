@@ -30,13 +30,15 @@ from openjiuwen_deepsearch.common.status_code import StatusCode
 from openjiuwen_deepsearch.config.config import Config
 from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import Message
 from openjiuwen_deepsearch.utils.common_utils.stream_utils import get_current_time, MessageType, StreamEvent
-from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
+from openjiuwen_deepsearch.utils.constants_utils.node_constants import AgentLlmName, NodeId
 from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import session_context, cancel_context
 from openjiuwen_deepsearch.utils.log_utils.log_common import session_id_ctx
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
 from openjiuwen_deepsearch.utils.log_utils.log_metrics import metrics_logger, TIME_LOGGER_TAG
 
 logger = logging.getLogger(__name__)
+DEFAULT_AGENT_NAME = "AI"
+_ALLOWED_AGENT_NAMES = frozenset({DEFAULT_AGENT_NAME, *(item.value for item in AgentLlmName)})
 
 
 def format_llm_log_correlation_suffix() -> str:
@@ -149,6 +151,37 @@ def _normalize_agent_name(agent_name: Any) -> str:
         return "unknown"
     normalized_name = agent_name.strip()
     return normalized_name if normalized_name else "unknown"
+
+
+def _validate_invoke_agent_name(agent_name: Any) -> str:
+    """校验并规范化 LLM 调用入口的 agent_name。
+
+    Args:
+        agent_name: 调用方传入的原始 agent_name。
+
+    Returns:
+        规范化后的 agent_name；None 或空白字符串返回默认值。
+
+    Raises:
+        CustomValueException: agent_name 既不是空值，也不是默认值或 AgentLlmName 中定义的值时抛出。
+    """
+    if agent_name is None:
+        return DEFAULT_AGENT_NAME
+    if not isinstance(agent_name, str):
+        raise CustomValueException(
+            error_code=StatusCode.PARAM_CHECK_ERROR_COMMON_INVALID.code,
+            message=StatusCode.PARAM_CHECK_ERROR_COMMON_INVALID.errmsg.format(param="agent_name"),
+        )
+
+    normalized_name = agent_name.strip()
+    if not normalized_name:
+        return DEFAULT_AGENT_NAME
+    if normalized_name in _ALLOWED_AGENT_NAMES:
+        return normalized_name
+    raise CustomValueException(
+        error_code=StatusCode.PARAM_CHECK_ERROR_COMMON_INVALID.code,
+        message=StatusCode.PARAM_CHECK_ERROR_COMMON_INVALID.errmsg.format(param="agent_name"),
+    )
 
 
 def _resolve_node_agent_key(agent_name: str) -> str | None:
@@ -1112,7 +1145,7 @@ def _parse_invoke_llm_args(args, kwargs) -> dict:
         "llm": kwargs.get("llm", args[0] if len(args) > 0 else None),
         "messages": kwargs.get("messages", args[1] if len(args) > 1 else None),
         "llm_type": kwargs.get("llm_type", "basic"),
-        "agent_name": kwargs.get("agent_name", "AI"),
+        "agent_name": kwargs.get("agent_name", DEFAULT_AGENT_NAME),
         "schema": kwargs.get("schema", None),
         "tools": kwargs.get("tools", None),
         "need_stream_out": kwargs.get("need_stream_out", False),
@@ -1139,7 +1172,7 @@ async def ainvoke_llm_with_stats(*args, **kwargs):
     llm = invoke_args["llm"]
     messages = invoke_args["messages"]
     llm_type = invoke_args["llm_type"]
-    agent_name = invoke_args["agent_name"]
+    agent_name = _validate_invoke_agent_name(invoke_args["agent_name"])
     schema = invoke_args["schema"]
     tools = invoke_args["tools"]
     need_stream_out = invoke_args["need_stream_out"]

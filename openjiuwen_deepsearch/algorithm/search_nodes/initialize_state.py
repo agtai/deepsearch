@@ -10,7 +10,7 @@ from openjiuwen_deepsearch.algorithm.search_nodes.llm_utils import RunLLMConfig,
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
 from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import State
-from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
+from openjiuwen_deepsearch.utils.constants_utils.node_constants import AgentLlmName
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
 
 logger = logging.getLogger(__name__)
@@ -69,7 +69,7 @@ async def run_initialize_state(
             prompt_template_file="deepsearch_initialize_state",
             context_vars=context_vars,
             need_stream_out=False,
-            agent_name=NodeId.INITIAL_STATE.value,
+            agent_name=AgentLlmName.INITIAL_STATE.value,
         )
     )
     total_input_tokens = total_input_tokens + input_tokens
