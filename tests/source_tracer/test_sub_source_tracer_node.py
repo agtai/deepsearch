@@ -206,6 +206,55 @@ class TestSubSourceTracerNode:
             # Assert
             mock_skip.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_do_invoke_skips_generated_citations_when_switch_disabled(
+            self, sub_source_tracer_node, mock_session, mock_search_context):
+        """Test _do_invoke skips new citation generation when the fine-grained switch is disabled."""
+        sub_report_content_obj = SubReportContent(
+            sub_report_content_text=mock_search_context["sub_report_content"],
+            classified_content=[]
+        )
+
+        def get_global_state_side_effect(key):
+            if key == "config.source_tracer_research_trace_source_switch":
+                return True
+            elif key == "config.source_tracer_generated_citation_switch":
+                return False
+            elif key == "section_context.sub_report_content":
+                return sub_report_content_obj
+            elif key == "section_context.search_record":
+                return mock_search_context["search_record"]
+            elif key == "section_context.language":
+                return mock_search_context["language"]
+            return None
+
+        mock_session.get_global_state.side_effect = get_global_state_side_effect
+
+        expected_add_source_result = {
+            "modified_report": "Test modified report",
+            "datas": [{"id": "test_id", "content": "Test content"}]}
+        with patch.object(SourceTracer, '__init__', return_value=None) as mock_init:
+            with patch.object(SourceTracer, 'research_trace_source', new_callable=AsyncMock) as mock_research:
+                with patch.object(SourceTracer, 'add_source_to_report') as mock_add_source:
+                    mock_add_source.return_value = expected_add_source_result
+
+                    with patch.object(sub_source_tracer_node, 'post_handle') as mock_post_handle:
+                        mock_post_handle.return_value = {
+                            "next_node": NodeId.END.value}
+
+                        result = await sub_source_tracer_node.do_invoke(None, mock_session, None)
+
+                    mock_init.assert_called_once()
+                    mock_research.assert_not_called()
+                    mock_add_source.assert_called_once()
+                    mock_post_handle.assert_called_once()
+
+                    args, kwargs = mock_post_handle.call_args
+                    algorithm_output = args[1]
+                    assert algorithm_output["trace_source_datas"] == expected_add_source_result["datas"]
+                    assert algorithm_output["modified_report"] == expected_add_source_result["modified_report"]
+                    assert result == {"next_node": NodeId.END.value}
+
     @staticmethod
     def test_post_handle(sub_source_tracer_node, mock_session):
         """Test post_handle method with different scenarios."""

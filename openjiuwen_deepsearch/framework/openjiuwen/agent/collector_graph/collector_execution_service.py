@@ -52,7 +52,6 @@ async def run_info_collector_sub_graph(
         parent=inner_session,
         session_id=uuid.uuid4().hex,
         state=InMemoryState(),
-        callback_manager=inner_session.callback_manager(),
     )
 
     if inner_session.stream_writer_manager():

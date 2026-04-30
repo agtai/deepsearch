@@ -1,8 +1,10 @@
 # coding: utf-8
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
-
+import json
 import logging
-from typing import Literal, Optional, Generic, TypeVar, Any, List, Dict, Union
+import os
+import asyncio
+from typing import Any, Literal, Optional, Generic, TypeVar, List, Dict, Union
 import httpx
 import requests
 
@@ -20,7 +22,7 @@ class GoogleSearchAPIWrapper(BaseModel, Generic[T]):
     search_api_key: bytearray = None
     search_url: SecretStr = None
     max_web_search_results: int = 5
-    extension: dict = None
+    extension: Optional[dict] = None
 
     gl: str = "us"
     hl: str = "en"
@@ -36,72 +38,55 @@ class GoogleSearchAPIWrapper(BaseModel, Generic[T]):
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
 
-    def results(self, query: str, **kwargs: Any) -> List[Dict]:
+    def model_post_init(self, __context: Any) -> None:
+        """Apply engine-specific options from ``extension``"""
+        ext = self.extension
+        if not ext:
+            return
+        if "gl" in ext:
+            self.gl = ext["gl"]
+        if "hl" in ext:
+            self.hl = ext["hl"]
+        if "type" in ext and ext["type"] in self.result_key_for_type:
+            self.type = ext["type"]
+        if "tbs" in ext:
+            self.tbs = ext["tbs"]
+
+    def results(self, query: str) -> List[Dict]:
         """Run query through Serper GoogleSearch API."""
-        merged_kwargs = kwargs.copy()
-        merged_kwargs.update(
-            {
-                "gl": self.gl,
-                "hl": self.hl,
-                "num": self.max_web_search_results,
-                "tbs": self.tbs,
-            }
-        )
-        results = self.google_search_results(
-            search_term=query,
-            search_type=self.type,
-            **merged_kwargs,
-        )
-        return results
+        return self.google_search_results(search_term=query)
 
-    async def aresults(self, query: str, **kwargs: Any) -> List[Dict]:
+    async def aresults(self, query: str) -> List[Dict]:
         """Run query through Serper GoogleSearch API asynchronously."""
+        return await self.async_google_search_results(search_term=query)
 
-        merged_kwargs = kwargs.copy()
-        merged_kwargs.update(
-            {
-                "gl": self.gl,
-                "hl": self.hl,
-                "num": self.max_web_search_results,
-                "tbs": self.tbs,
-            }
-        )
-        results = await self.async_google_search_results(
-            search_term=query,
-            search_type=self.type,
-            **merged_kwargs,
-        )
-        return results
-
-    def google_search_results(
-            self, search_term: str, search_type: str = "search", **kwargs: Any
-    ) -> List[Dict]:
+    def google_search_results(self, search_term: str) -> Any:
         """Run query through Serper GoogleSearch API and parse result."""
         return self._execute_search_request(
-            search_term=search_term, search_type=search_type, is_async=False, **kwargs
+            search_term=search_term, is_async=False
         )
 
-    async def async_google_search_results(
-            self, search_term: str, search_type: str = "search", **kwargs: Any
-    ) -> List[Dict]:
+    async def async_google_search_results(self, search_term: str) -> Any:
         """Run query through Serper GoogleSearch API asynchronously and parse result."""
         return await self._execute_search_request(
-            search_term=search_term, search_type=search_type, is_async=True, **kwargs
+            search_term=search_term, is_async=True
         )
 
-    def _prepare_search_request_data(
-            self, search_term: str, search_type: str, **kwargs: Any
-    ) -> tuple[dict, dict, str, Union[str, bool]]:
+    def _prepare_search_request_data(self, search_term: str) -> tuple[dict, dict, str, Union[str, bool]]:
         """Prepare common data for search requests."""
         headers = {
             "X-API-KEY": self.search_api_key.decode("utf-8") or "",
             "Content-Type": "application/json",
         }
-        url = f"{self.search_url.get_secret_value()}/{search_type}"
-        params = {
+        url = f"{self.search_url.get_secret_value()}/{self.type}"
+        params: Dict[str, Any] = {
             "q": search_term,
-            **{key: value for key, value in kwargs.items() if value is not None},
+            "gl": self.gl,
+            "hl": self.hl,
+            "num": self.max_web_search_results,
         }
+        if self.tbs is not None:
+            params["tbs"] = self.tbs
         ssl_verify, ssl_cert = SslUtils.get_ssl_config(
             "TOOL_SSL_VERIFY", "TOOL_SSL_CERT", ["false"]
         )
@@ -109,33 +94,47 @@ class GoogleSearchAPIWrapper(BaseModel, Generic[T]):
 
         return headers, params, url, verify
 
-    def _execute_search_request(
-            self, search_term: str, search_type: str, is_async: bool = False, **kwargs: Any
-    ) -> Any:
+    def _parsed_results(self, raw: Any) -> List[Dict]:
+        """Take items from Serper JSON for the given endpoint."""
+        if not isinstance(raw, dict):
+            return []
+        key = self.result_key_for_type.get(self.type, "organic")
+        items = raw.get(key)
+        if not isinstance(items, list):
+            return []
+        return items
+
+    def _execute_search_request(self, search_term: str, is_async: bool = False) -> Any:
         """Execute search request with optional async support."""
-        headers, params, url, verify = self._prepare_search_request_data(
-            search_term, search_type, **kwargs
-        )
+        headers, params, url, verify = self._prepare_search_request_data(search_term)
 
         if is_async:
             return self._async_search(headers, params, url, verify)
         return self._sync_search(headers, params, url, verify)
 
     def _sync_search(
-            self, headers: dict, params: dict, url: str, verify: Union[str, bool]
+        self,
+        headers: dict,
+        params: dict,
+        url: str,
+        verify: Union[str, bool],
     ) -> List[Dict]:
         """Execute synchronous search request."""
         response = requests.post(url, headers=headers, params=params, verify=verify)
         if response.status_code != 200:
             logger.error(f"Request search failed! Status code: {response.status_code}")
             response.raise_for_status()
-        return response.json()
+        return self._parsed_results(response.json())
 
     async def _async_search(
-            self, headers: dict, params: dict, url: str, verify: Union[str, bool]
+        self,
+        headers: dict,
+        params: dict,
+        url: str,
+        verify: Union[str, bool],
     ) -> List[Dict]:
         """Execute asynchronous search request."""
         async with httpx.AsyncClient(verify=verify, timeout=30) as client:
             response = await client.post(url, params=params, headers=headers)
             response.raise_for_status()
-            return response.json()
+            return self._parsed_results(response.json())

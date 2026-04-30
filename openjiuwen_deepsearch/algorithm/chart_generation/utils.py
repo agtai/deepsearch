@@ -13,7 +13,7 @@ from openjiuwen_deepsearch.utils.common_utils.llm_utils import ainvoke_llm_with_
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
-from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
+from openjiuwen_deepsearch.utils.constants_utils.node_constants import AgentLlmName
 
 logger = logging.getLogger(__name__)
 MAX_LLM_RETRY_TIMES = 3
@@ -41,7 +41,7 @@ class CallModelInput(BaseModel):
     model_name: str = Field(default="", description="模型名称")
     prompt: str = Field(default="", description="prompt文件名")
     user_input: dict = Field(default={}, description="需要处理的输入数据")
-    agent_name: str = Field(default=NodeId.VLM_CHART_GENERATOR.value, description="agent名称")
+    agent_name: str = Field(default=AgentLlmName.VLM_CHART_GENERATOR.value, description="agent名称")
 
 
 async def call_model(call_model_input: CallModelInput, 
@@ -114,4 +114,39 @@ def get_chart_base64(chart_path: str) -> Optional[str]:
             return base64.b64encode(f.read()).decode("utf-8")
     except Exception as e:
         logger.error(f"Error reading chart: {e}")
+        return None
+
+
+def save_chart_file(chart_base64: str, file_name: str, file_path: str) -> Optional[str]:
+    """
+    将base64编码的图表数据解码并保存为PNG图像文件
+
+    Args:
+        chart_base64: 图表的base64编码字符串
+        file_name: 保存的文件名（不含扩展名）
+        file_path: 文件保存的目录路径
+
+    Returns:
+        Optional[str]: 保存成功时返回完整文件路径，失败时返回None
+    """
+    import os
+
+    try:
+        # 解码base64字符串
+        image_data = base64.b64decode(chart_base64)
+
+        # 确保目录存在
+        os.makedirs(file_path, exist_ok=True)
+
+        # 构建完整文件路径
+        full_path = os.path.join(file_path, f"{file_name}.png")
+
+        # 写入文件
+        with open(full_path, "wb") as f:
+            f.write(image_data)
+
+        logger.info(f"[CHART GENERATION] Chart saved successfully: {full_path}")
+        return full_path
+    except Exception as e:
+        logger.error(f"[CHART GENERATION] Error saving chart: {e}")
         return None

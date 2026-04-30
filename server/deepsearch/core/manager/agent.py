@@ -304,6 +304,7 @@ class DeepSearchAgentManager:
             "workflow_human_in_the_loop": request.workflow_human_in_the_loop,
             "outliner_max_section_num": request.outliner_max_section_num,
             "source_tracer_research_trace_source_switch": request.source_tracer_research_trace_source_switch,
+            "source_tracer_generated_citation_switch": request.source_tracer_generated_citation_switch,
             "source_tracer_infer_switch": request.source_tracer_infer_switch,
             "info_collector_search_method": request.info_collector_search_method,
             "llm_config": dict(general=llm_config) if "model_name" in llm_config else llm_config,
@@ -318,6 +319,8 @@ class DeepSearchAgentManager:
             # vlm迭代生成图配置
             "vlm_chart_generator_enable": request.vlm_chart_generator_enable,
             "vlm_chart_generator_max_iterations": request.vlm_chart_generator_max_iterations,
+            # llm_timeout 配置
+            "agent_llm_timeouts": request.agent_llm_timeouts,
         }
         if request.web_search_config:
             res["web_search_engine_config"] = self._load_web_search_config(

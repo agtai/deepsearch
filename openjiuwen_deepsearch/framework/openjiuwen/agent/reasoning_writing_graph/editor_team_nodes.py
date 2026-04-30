@@ -28,7 +28,7 @@ from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import SubR
 from openjiuwen_deepsearch.framework.openjiuwen.llm.llm_adapter import adapt_llm_model_name
 from openjiuwen_deepsearch.utils.common_utils.llm_utils import messages_to_json
 from openjiuwen_deepsearch.utils.common_utils.stream_utils import custom_stream_output
-from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
+from openjiuwen_deepsearch.utils.constants_utils.node_constants import AgentLlmName, NodeId
 from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import session_context
 from openjiuwen_deepsearch.utils.debug_utils.node_debug import add_debug_log_wrapper, NodeType, NodeDebugData
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
@@ -117,7 +117,7 @@ class BasePlanReasoningNode(BaseNode):
             "collected_doc_num": session.get_global_state("section_context.collected_doc_num"),
             "warning_infos": session.get_global_state("section_context.warning_infos"),
             "exception_infos": session.get_global_state("section_context.exception_infos"),
-            "agent_name": NodeId.PLAN_REASONING.value,
+            "agent_name": AgentLlmName.PLAN_REASONING.value,
             "llm_model_name": adapt_llm_model_name(session, NodeId.PLAN_REASONING.value),
             "api_tools_config": session.get_global_state("config.api_tools_config") or {},
         }
@@ -308,6 +308,8 @@ class SubReporterNode(BaseNode):
         self.log_prefix = f"section_idx: {section_idx} | [{self.__class__.__name__}] "
         logger.info(f"{self.log_prefix} Start [{self.__class__.__name__}].")
 
+        llm_model_name = adapt_llm_model_name(session, NodeId.SUB_REPORTER.value)
+
         return dict(
             thread_id=session.get_global_state("section_context.session_id"),
             has_template=bool(session.get_global_state("section_context.report_template")),
@@ -399,6 +401,8 @@ class SubSourceTracerNode(BaseNode):
         self.log_prefix = f"section_idx: {section_idx} | [{self.__class__.__name__}] "
         logger.info(f"{self.log_prefix} Start [{self.__class__.__name__}].")
         research_trace_source_switch = session.get_global_state("config.source_tracer_research_trace_source_switch")
+        generated_citation_switch = session.get_global_state("config.source_tracer_generated_citation_switch")
+
         language = session.get_global_state("section_context.language")
         llm_model_name = adapt_llm_model_name(session, NodeId.SUB_SOURCE_TRACER.value)
 
@@ -415,6 +419,7 @@ class SubSourceTracerNode(BaseNode):
             report=report,
             classified_content=classified_content,
             research_trace_source_switch=research_trace_source_switch,
+            generated_citation_switch=generated_citation_switch,
             language=language, llm_model_name=llm_model_name, section_idx=section_idx
         )
 
@@ -432,14 +437,22 @@ class SubSourceTracerNode(BaseNode):
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
         current_inputs = self._pre_handle(inputs, session, context)
-        research_trace_source_switch = current_inputs.get("research_trace_source_switch", False)
+        research_trace_source_switch = current_inputs.get("research_trace_source_switch", True)
+        generated_citation_switch = current_inputs.get("generated_citation_switch", True)
 
         if research_trace_source_switch is False:
             logger.info(f"{self.log_prefix} research_trace_source_switch is False, skip trace source.")
             return self._skip_trace_source_handle(inputs, session, context, current_inputs)
 
         source_tracer = SourceTracer(current_inputs)
-        await source_tracer.research_trace_source()
+        # 细粒度开关关闭时，仍保留原文已有引用，只跳过基于搜索结果生成新增引用。
+        if generated_citation_switch is not False:
+            await source_tracer.research_trace_source()
+        else:
+            logger.info(
+                f"{self.log_prefix} source_tracer_generated_citation_switch is False, "
+                "skip generated citations and keep origin citations only."
+            )
         source_tracer_result_dict = source_tracer.add_source_to_report()
 
         modified_report = source_tracer_result_dict.get("modified_report", "")

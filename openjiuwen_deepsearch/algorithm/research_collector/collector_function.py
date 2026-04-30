@@ -78,7 +78,6 @@ async def execute_tool(tool_call: dict, agent_input: dict, tool_dict: dict, step
             args["search_engine_name"] = local_search_engine_name
         elif tool_name == "web_search_tool":
             args["search_engine_name"] = web_search_engine_name
-
         result = await tool_dict[tool_name].invoke(args)
         tool_result = json.dumps(result, ensure_ascii=False, indent=4)
         processed_results = process_tool_result(tool_name, tool_result, agent_input)
@@ -248,10 +247,15 @@ def process_local_search_common(agent_input: dict, tool_content: Any) -> (list, 
         for item in tool_result:
             knowledge_base_id = item.get("knowledge_base_id", "")
             file_id = item.get("file_id", "")
+            source_title = (
+                item.get("title")
+                or item.get("document_name")
+                or file_id
+            )
             result = {
                 "type": "text",
                 "url": f"localdataset://result//{knowledge_base_id}//{file_id}",
-                "title": item.get("document_name", "")[:MAX_SEARCH_CONTENT_LENGTH],
+                "title": str(source_title)[:MAX_SEARCH_CONTENT_LENGTH],
                 "content": item.get("content", "")[:MAX_SEARCH_CONTENT_LENGTH],
                 "score": item.get("score", 0.0)
             }

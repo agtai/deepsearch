@@ -58,6 +58,7 @@ class DeepSearchRequest(BaseModel):
     workflow_human_in_the_loop: bool = Field(default=True, description="是否启用人机交互")
     outliner_max_section_num: int = Field(default=10, ge=1, le=15, description="最大规划章节数量，取值范围:[1,15]")
     source_tracer_research_trace_source_switch: bool = Field(default=True, description="溯源功能开关")
+    source_tracer_generated_citation_switch: bool = Field(default=True, description="新增引用生成开关")
     source_tracer_infer_switch: bool = Field(default=True, description="溯源推理功能开关")
     info_collector_search_method: Literal["web", "local", "all"] = Field(default="web",
                                                                          description="搜索方式："
@@ -74,7 +75,14 @@ class DeepSearchRequest(BaseModel):
     ] = Field(default="", description="中断反馈标识（可选）")
     outline_interaction_enabled: bool = Field(default=False, description="大纲交互开关")
     outline_interaction_max_rounds: int = Field(default=3, ge=1, le=100, description="大纲交互最大轮次")
-    search_mode: Literal["research", "search"] = Field(default="research", description="生成研究报告还是生成答案")
+    search_mode: Literal["research", "search", "react"] = Field(
+        default="research",
+        description="research: 报告; search: DeepSearch; react: 简单 ReAct",
+    )
+    enable_question_router: bool = Field(
+        default=False,
+        description="search 模式下先经 LLM 路由：0→react，1→search（DeepSearch）",
+    )
     execution_method: Literal["parallel", "dependency_driving"] = Field(default="parallel",
                                                                          description="执行方法："
                                                                                      "parallel: 并行工作流执行"
@@ -86,3 +94,4 @@ class DeepSearchRequest(BaseModel):
     tools: List[RuntimeApiToolRequest] = Field(default_factory=list, description="前端传入的 API 工具列表")
     vlm_chart_generator_enable: bool = Field(default=False, description="vlm迭代生成图开关")
     vlm_chart_generator_max_iterations: int = Field(default=1, ge=0, le=3, description="vlm迭代生成图最大迭代次数，0表示不进行迭代")
+    agent_llm_timeouts: dict[str, int] = Field(default_factory=dict, description="按 agent 配置的 LLM 总超时时间")

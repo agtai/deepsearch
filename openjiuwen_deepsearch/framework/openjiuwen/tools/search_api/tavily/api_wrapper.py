@@ -2,7 +2,8 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
 
 import json
-from typing import Optional, Generic, TypeVar, List, Dict, Union
+import os
+from typing import Any, Generic, TypeVar, List, Dict, Union, Optional
 import httpx
 import requests
 
@@ -16,27 +17,44 @@ from openjiuwen_deepsearch.common.common_constants import (
 T = TypeVar("T")
 
 
-class TavilySearchOptions(BaseModel):
-    """Configuration options for Tavily search."""
-
-    max_results: Optional[int] = 5
-    search_depth: Optional[str] = "advanced"
-    include_domains: Optional[List[str]] = None
-    exclude_domains: Optional[List[str]] = None
-    include_answer: Optional[bool] = False
-    include_raw_content: Optional[bool] = False
-    include_images: Optional[bool] = False
-
-
 class TavilySearchAPIWrapper(BaseModel, Generic[T]):
     """Wrapper class for Tavily Search API"""
 
     search_api_key: bytearray = None
     search_url: SecretStr = None
     max_web_search_results: int = 5
-    extension: dict = None
+    extension: Optional[dict] = None
+
+    # Tavily search options
+    topic: str = "general"
+    search_depth: str = "advanced"
+    include_domains: Optional[List[str]] = None
+    exclude_domains: Optional[List[str]] = None
+    include_answer: bool = False
+    include_raw_content: bool = False
+    include_images: bool = False
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
+
+    def model_post_init(self, __context: Any) -> None:
+        """Apply engine-specific options from ``extension``"""
+        ext = self.extension
+        if not ext:
+            return
+        if "topic" in ext:
+            self.topic = ext["topic"]
+        if "search_depth" in ext:
+            self.search_depth = ext["search_depth"]
+        if "include_domains" in ext:
+            self.include_domains = ext["include_domains"]
+        if "exclude_domains" in ext:
+            self.exclude_domains = ext["exclude_domains"]
+        if "include_answer" in ext:
+            self.include_answer = ext["include_answer"]
+        if "include_raw_content" in ext:
+            self.include_raw_content = ext["include_raw_content"]
+        if "include_images" in ext:
+            self.include_images = ext["include_images"]
 
     @staticmethod
     async def _execute_async_http_request(
@@ -55,24 +73,13 @@ class TavilySearchAPIWrapper(BaseModel, Generic[T]):
             response_text = api_response.text
             return json.loads(response_text)
 
-    def raw_search_results(
-        self,
-        query: str,
-        options: Optional[TavilySearchOptions] = None,
-    ) -> Dict:
+    def raw_search_results(self, query: str) -> Dict:
         """Run query through Tavily Search API and return raw result."""
 
         # Build API endpoint URL
         api_url = f"{self.search_url.get_secret_value()}/search"
 
-        # Prepare request parameters
-        if options is None:
-            options = TavilySearchOptions()
-
-        params = self._build_search_params(
-            query=query,
-            options=options,
-        )
+        params = self._build_search_params(query=query)
 
         # Configure SSL verification
         verify = self._get_ssl_verify_config()
@@ -84,47 +91,21 @@ class TavilySearchAPIWrapper(BaseModel, Generic[T]):
         # Return parsed JSON response
         return response.json()
 
-    def results(
-        self,
-        query: str,
-        options: Optional[TavilySearchOptions] = None,
-    ) -> List[Dict]:
+    def results(self, query: str) -> List[Dict]:
         """Run query through Tavily Search API and return cleaned result"""
 
-        if options is None:
-            options = TavilySearchOptions()
-
-        # Use default max_results from instance if not explicitly provided
-        if options.max_results == 5:  # Default value in TavilySearchOptions
-            options.max_results = self.max_web_search_results
-
-        # Call raw search with options
-        raw_data = self.raw_search_results(
-            query=query,
-            options=options,
-        )
+        raw_data = self.raw_search_results(query=query)
 
         # Extract and clean results from response
         search_results = raw_data.get("results", [])
         return self.clean_results(search_results)
 
-    async def raw_search_results_async(
-        self,
-        query: str,
-        options: Optional[TavilySearchOptions] = None,
-    ) -> Dict:
+    async def raw_search_results_async(self, query: str) -> Dict:
         """Run query through Tavily Search API asynchronously."""
 
-        # Prepare request data outside inner function
         request_url = f"{self.search_url.get_secret_value()}/search"
 
-        if options is None:
-            options = TavilySearchOptions()
-
-        request_params = self._build_search_params(
-            query=query,
-            options=options,
-        )
+        request_params = self._build_search_params(query=query)
 
         ssl_verify_flag = self._get_ssl_verify_config()
 
@@ -132,25 +113,10 @@ class TavilySearchAPIWrapper(BaseModel, Generic[T]):
             request_url, request_params, ssl_verify_flag
         )
 
-    async def aresults(
-        self,
-        query: str,
-        options: Optional[TavilySearchOptions] = None,
-    ) -> List[Dict]:
+    async def aresults(self, query: str) -> List[Dict]:
         """Run query through Tavily Search API asynchronously and return cleaned result."""
 
-        if options is None:
-            options = TavilySearchOptions()
-
-        # Use default max_results from instance if not explicitly provided
-        if options.max_results == 5:  # Default value in TavilySearchOptions
-            options.max_results = self.max_web_search_results
-
-        # Call async raw search with options
-        raw_data = await self.raw_search_results_async(
-            query=query,
-            options=options,
-        )
+        raw_data = await self.raw_search_results_async(query=query)
 
         # Extract and clean results from response
         search_results = raw_data.get("results", [])
@@ -177,22 +143,19 @@ class TavilySearchAPIWrapper(BaseModel, Generic[T]):
 
         return cleaned_results
 
-    def _build_search_params(
-        self,
-        query: str,
-        options: TavilySearchOptions,
-    ) -> Dict:
+    def _build_search_params(self, query: str) -> Dict:
         """Build parameters for Tavily API request."""
         return {
             "api_key": self.search_api_key.decode("utf-8"),
             "query": query,
-            "max_results": options.max_results,
-            "search_depth": options.search_depth,
-            "include_domains": [] if options.include_domains is None else options.include_domains,
-            "exclude_domains": [] if options.exclude_domains is None else options.exclude_domains,
-            "include_answer": options.include_answer,
-            "include_raw_content": options.include_raw_content,
-            "include_images": options.include_images,
+            "max_results": self.max_web_search_results,
+            "topic": self.topic,
+            "search_depth": self.search_depth,
+            "include_domains": [] if self.include_domains is None else self.include_domains,
+            "exclude_domains": [] if self.exclude_domains is None else self.exclude_domains,
+            "include_answer": self.include_answer,
+            "include_raw_content": self.include_raw_content,
+            "include_images": self.include_images,
         }
 
     def _get_ssl_verify_config(self) -> Union[str, bool]:

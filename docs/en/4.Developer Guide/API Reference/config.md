@@ -100,6 +100,7 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 - **outline_interaction_enabled** (bool, optional): Whether to enable outline interaction. Default value: `True`.
 - **outline_interaction_max_rounds** (int, optional): Maximum number of outline interaction rounds. Range: `[1, 100]`. Default value: `3`.
 - **source_tracer_research_trace_source_switch** (bool, optional): Whether to enable citation tracing. Default value: `True`.
+- **source_tracer_generated_citation_switch** (bool, optional): Whether to generate new citations from search results. When disabled, the system keeps only citations already present in the original report. Default value: `True`.
 - **source_tracer_infer_switch** (bool, optional): Whether to enable provenance reasoning. Default value: `True`.
 - **llm_config** (Dict[Literal["general", "plan_understanding", "info_collecting", "writing_checking"], LLMConfig], optional): LLM model configuration. Default value: `dict()`.
 - **info_collector_search_method** (Literal["web", "local", "all"], optional): Search method. `web` means web augmentation search, `local` means local search tool, and `all` means hybrid web + local search. Default value: `"web"`.
@@ -114,6 +115,13 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 - **api_tools_config** (`ApiToolsConfig`): runtime HTTP API tools injected for function calling outside built-in tools.
 - **vlm_chart_generator_enable** (bool, optional): VLM iterative chart generation toggle; mutually exclusive with `visualization_enable`.
 - **vlm_chart_generator_max_iterations** (int, optional): Max iterations for VLM chart optimization. Default `1`, range 0–3. `0` means no optimization; higher values increase latency.
+- **agent_llm_timeouts** (`Dict[str, int]`, optional): business-layer wall-clock timeout rules for full LLM calls, matched by exact `agent_name`, then node-level prefix key, then `default`. The feature is active only when the dict is non-empty and contains `default`; a matched value of `0` disables the outer wall-clock timeout for that rule. Default value: `dict()`.
+
+**Notes**:
+
+- `DeepSearchRequest.agent_llm_timeouts` is passed through into `AgentConfig.agent_llm_timeouts` and then merged into runtime session config.
+- This setting controls the outer business-layer timeout for the whole streaming call; it does not replace provider/request-level timeout handling.
+- For the current configurable `agent_name` / key list, see the `AgentLlmName` definition in `openjiuwen_deepsearch/utils/constants_utils/node_constants.py`; `default` is the fallback rule.
 
 **Example**:
 
@@ -252,7 +260,12 @@ class openjiuwen_deepsearch.config.config.ServiceConfig()
 - **stats_info_search** (bool, optional): Whether to collect search tool call statistics. Default value: `False`.
 
 ### LLM timeout parameter
-- **llm_timeout** (int, optional): LLM call timeout in seconds. Default value: `300`.
+- **llm_timeout** (int, optional): provider/request-level LLM call timeout in seconds. Default value: `300`.
+
+**Notes**:
+
+- `service_config.llm_timeout` is still passed to the underlying LLM client.
+- If `agent_llm_timeouts` is also configured, DeepSearch adds an outer wall-clock timeout around the whole streaming call; when that outer timeout is hit, it raises `LLM_WALL_CLOCK_TIMEOUT` (`211204`).
 
 ### Debug parameters
 - **node_debug_enable** (bool, optional): Whether to enable formatted node debug logs. Default value: `False`.

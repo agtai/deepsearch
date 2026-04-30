@@ -18,7 +18,7 @@ from openjiuwen_deepsearch.config.config import Config
 from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import llm_context
 from openjiuwen_deepsearch.utils.common_utils.llm_utils import ainvoke_llm_with_stats, normalize_json_output
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
-from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
+from openjiuwen_deepsearch.utils.constants_utils.node_constants import AgentLlmName
 
 logger = logging.getLogger(__name__)
 MAX_LLM_RETRY_TIMES = 3
@@ -571,12 +571,20 @@ class CitationVerifyResearch:
                 "source", "unknown source")
             if "unknown" in self.datas[idx]["source"]:
                 self.datas[idx]["source"] = handle_datas[idx]["domain"]
-            self.datas[idx]["score"] = ordered_result.get("score", 0)
+            if self.datas[idx].get("is_vlm_chart", False):
+                # vlm迭代生成图的图表溯源分数使用vlm模型的图表打分，如果没有经历vlm迭代优化，则使用溯源模块的打分
+                self.datas[idx]["score"] = max(self.datas[idx]["score"], 
+                                               ordered_result.get("score", 0))
+            else:
+                self.datas[idx]["score"] = ordered_result.get("score", 0)
             if self.datas[idx]["score"] < 0.85:
                 self.datas[idx]["valid"] = False
                 self.datas[idx]["invalid_reason"] = "score lower than threshold"
                 continue
             if not ordered_result.get("marked_citation_content", []):
+                if self.datas[idx].get("is_vlm_chart", False):
+                    # vlm图表由于是用llm生成的图表描述去匹配高亮引用的，如果匹配不到也要显示图表的溯源
+                    continue
                 self.datas[idx]["valid"] = False
                 self.datas[idx]["invalid_reason"] = "marked citation content empty"
                 continue
@@ -656,7 +664,7 @@ class CitationVerifyResearch:
         """
         llm = llm_context.get().get(self.llm_model)
         response = await ainvoke_llm_with_stats(llm, user_prompt,
-                                                agent_name=NodeId.SOURCE_TRACER.value + "_extract_messages")
+                                                agent_name=AgentLlmName.SOURCE_TRACER_EXTRACT_MESSAGES.value)
         if not isinstance(response, dict):
             if LogManager.is_sensitive():
                 logger.warning(f'[CITATION VERIFY] LLM return non-dict type: {type(response)}')

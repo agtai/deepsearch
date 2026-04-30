@@ -34,7 +34,9 @@ def validate_run_agent_params(
     """
     校验 run agent 入参
     """
-    validate_not_empty_field("message", message)
+    allow_empty_message_for_accept = interrupt_feedback == "accepted" and message == ""
+    if not allow_empty_message_for_accept:
+        validate_not_empty_field("message", message)
     validate_str_field("message", message)
 
     validate_not_empty_field("conversation_id", conversation_id)

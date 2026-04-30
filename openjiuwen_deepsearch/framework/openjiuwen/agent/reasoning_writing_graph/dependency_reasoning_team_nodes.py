@@ -84,7 +84,6 @@ class DependencyPlanReasoningNode(BasePlanReasoningNode):
         current_inputs["plan_background_knowledge"] = session.get_global_state(
             "section_context.plan_background_knowledge"
         )
-
         return current_inputs
 
     def _post_handle(self, inputs: Input, algorithm_output: dict, session: Session, context: ModelContext):
@@ -207,7 +206,6 @@ class DependencyInfoCollectorNode(InfoCollectorNode):
             parent=inner_session,
             session_id=uuid.uuid4().hex,
             state=InMemoryState(),
-            callback_manager=inner_session.callback_manager() if inner_session else None,
         )
 
         if inner_session and inner_session.stream_writer_manager():
