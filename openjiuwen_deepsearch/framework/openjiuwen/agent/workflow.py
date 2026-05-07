@@ -130,6 +130,7 @@ from openjiuwen_deepsearch.utils.log_utils.log_interface import record_interface
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
 from openjiuwen_deepsearch.utils.log_utils.log_metrics import TIME_LOGGER_TAG, metrics_logger
 from openjiuwen_deepsearch.utils.rate_limiter_utils.qps_limiter import qps_rate_limiter
+from openjiuwen_deepsearch.utils.run_telemetry import emit, emit_messages_updated
 from openjiuwen_deepsearch.utils.validation_utils.field_validation import (
     validate_agent_required_field,
     validate_vlm_chart_generator_field,
@@ -1673,6 +1674,18 @@ class SimpleReactSearchAgent(BaseAgent):
             log_dir = os.path.join(base_log_dir, f"result_{conversation_id}")
             os.makedirs(log_dir, exist_ok=True)
 
+            emit(
+                "react_run_started",
+                {
+                    "conversation_id": conversation_id,
+                    "tool_map": per_question_params.tool_map,
+                    "model_name": general.model_name,
+                    "log_dir": "***" if LogManager.is_sensitive() else log_dir,
+                },
+                source="workflow.SimpleReactSearchAgent",
+                action_id=None,
+            )
+
             max_steps = 1000
             # _run_llm_via_ainvoke reads top-level model_name; agent_config nests it under llm_config.
             llm_invoke_cfg = {
@@ -1717,6 +1730,30 @@ class SimpleReactSearchAgent(BaseAgent):
                 else:
                     resp_content = raw if isinstance(raw, str) else str(raw)
                     tool_calls = []
+
+                n_tools = len(tool_calls) if isinstance(tool_calls, list) else 0
+                tool_names: list[str] = []
+                if isinstance(tool_calls, list) and not LogManager.is_sensitive():
+                    for tc in tool_calls:
+                        if not isinstance(tc, dict):
+                            continue
+                        nm = tc.get("name") or (
+                            (tc.get("function") or {}).get("name") if isinstance(tc.get("function"), dict) else None
+                        )
+                        if nm:
+                            tool_names.append(str(nm))
+                emit(
+                    "react_llm_turn",
+                    {
+                        "conversation_id": conversation_id,
+                        "step": _step,
+                        "tool_call_count": n_tools,
+                        "tool_names": tool_names[:16],
+                        "finished_after_turn": n_tools == 0,
+                    },
+                    source="workflow.SimpleReactSearchAgent",
+                    action_id=None,
+                )
 
                 if not tool_calls:
                     prediction = (resp_content or "").strip() or None
@@ -1787,6 +1824,17 @@ class SimpleReactSearchAgent(BaseAgent):
                         }
                     )
 
+
+            emit_messages_updated(
+                source="workflow.SimpleReactSearchAgent",
+                messages=messages,
+                action_id=None,
+                extra={
+                    "conversation_id": conversation_id,
+                    "phase": "final",
+                    "agent": "simple_react_search",
+                },
+            )
 
             result = _save_and_return_search_final_result(
                 SaveSearchFinalResultConfig(

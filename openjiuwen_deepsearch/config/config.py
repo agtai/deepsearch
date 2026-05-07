@@ -316,9 +316,6 @@ class AgentConfig(BaseModel):
     web_search_max_qps: float = Field(default=0, description="联网增强引擎最大 QPS，0 表示不限流，支持浮点数如 0.5 表示每 2 秒 1 个请求")
     api_tools_config: ApiToolsConfig = Field(default_factory=ApiToolsConfig, description="API tools config")
 
-    # 联网增强引擎 QPS 流控配置
-    web_search_max_qps: float = Field(default=0, description="联网增强引擎最大 QPS，0 表示不限流，支持浮点数如 0.5 表示每 2 秒 1 个请求")
-
     # 用户反馈局部优化参数
     user_feedback_processor_enable: bool = Field(default=False, description="是否启用用户反馈优化功能")
     user_feedback_processor_max_interactions: int = Field(default=100, ge=1, le=100, description="最大交互次数")

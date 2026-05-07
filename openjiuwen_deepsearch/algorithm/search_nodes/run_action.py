@@ -591,6 +591,7 @@ def parse_and_apply_llm_result(parse_config: ParseAndApplyLLMResultConfig):
 
     elif mode == "answer":
         failed_patches: List[dict] = []
+        answer = None
         if patch_obj and patch_obj.get("answer", "") and "new_state" in patch_obj:
             answer = patch_obj.get("answer")
             try:
@@ -650,7 +651,11 @@ def parse_and_apply_llm_result(parse_config: ParseAndApplyLLMResultConfig):
 
         return (
             mode,
-            {"new_states": patch_obj, "answer": answer, "messages": messages},
+            {
+                "new_states": patch_obj if isinstance(patch_obj, dict) else {},
+                "answer": answer if answer is not None else "",
+                "messages": messages,
+            },
             parse_config.config,
         )
     messages.append({"role": "user", "content": _get_parse_error("no_output")})

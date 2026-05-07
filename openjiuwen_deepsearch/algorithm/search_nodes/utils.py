@@ -7,7 +7,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel
 
@@ -17,6 +17,7 @@ from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import (
     SearchFinalResult,
 )
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
+from openjiuwen_deepsearch.utils.run_telemetry import emit, runtime_correlation_from
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +144,7 @@ def _save_result(
     action: Action | dict,
     result_to_save: Result | dict,
     time_taken: float,
+    runtime: Any = None,
 ) -> dict:
     id_ = datetime.now(tz=timezone.utc).strftime("%Y%m%d%H%M%S%f")[:-3]
     action = to_dict_safe(action)
@@ -199,6 +201,53 @@ def _save_result(
             logger.warning(log_msg)
         else:
             logger.info(log_msg)
+        num_new_states = 0
+        new_state_ids: List[str] = []
+        if not saved_from_error_dict:
+            ns = getattr(result_to_save, "new_states", None) or []
+            num_new_states = len(ns)
+            for s in ns:
+                if hasattr(s, "id"):
+                    new_state_ids.append(str(s.id))
+                elif isinstance(s, dict):
+                    new_state_ids.append(str(s.get("id", "")))
+        has_answer = bool(
+            (not saved_from_error_dict)
+            and getattr(result_to_save, "found_answer", None)
+        )
+        if saved_from_error_dict:
+            result_outcome: str = "fail"
+        elif has_answer:
+            result_outcome = "answer"
+        elif num_new_states > 0:
+            result_outcome = "new_states"
+        else:
+            result_outcome = "empty_patch"
+        answer_preview: Optional[str] = None
+        if has_answer and not LogManager.is_sensitive():
+            fa = getattr(result_to_save, "found_answer", None)
+            if isinstance(fa, str):
+                answer_preview = fa[:500] + ("…" if len(fa) > 500 else "")
+            elif fa is not None:
+                answer_preview = str(fa)[:500]
+        emit_payload: Dict[str, Any] = {
+            "result_file": result_file_name,
+            "action_execution_result": _action_execution_result,
+            "result_outcome": result_outcome,
+            "num_new_states": num_new_states,
+            "new_state_ids": new_state_ids,
+            "has_answer": has_answer,
+            "saved_from_error": saved_from_error_dict,
+            **runtime_correlation_from(runtime),
+        }
+        if answer_preview is not None:
+            emit_payload["answer_preview"] = answer_preview
+        emit(
+            "action_result_saved",
+            emit_payload,
+            source="search_nodes._save_result",
+            action_id=action.get("id"),
+        )
     return config
 
 
@@ -259,4 +308,14 @@ def _save_and_return_search_final_result(
             result_dict = final_result.model_dump()
 
             json.dump(to_json_safe(result_dict), f, indent=2, ensure_ascii=False)
+    emit(
+        "search_final_result",
+        {
+            "termination": str(save_config.termination),
+            "completion_time_sec": completion_time,
+            "has_prediction": save_config.prediction is not None,
+        },
+        source="search_nodes.search_final_result",
+        action_id=None,
+    )
     return final_result

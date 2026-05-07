@@ -100,8 +100,24 @@ from openjiuwen_deepsearch.utils.debug_utils.node_debug import (
     add_debug_log_wrapper,
 )
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
+from openjiuwen_deepsearch.utils.run_telemetry import (
+    emit,
+    emit_messages_updated,
+    emit_state_created,
+    runtime_correlation_from,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _state_id_for_telemetry(state) -> str:
+    if state is None:
+        return ""
+    if hasattr(state, "id"):
+        return str(state.id)
+    if isinstance(state, dict):
+        return str(state.get("id", ""))
+    return ""
 
 
 def _normalize_workflow_llm_config(raw: object) -> dict:
@@ -1948,6 +1964,14 @@ class InitializeStateNode(BaseNode):
             }
         )
 
+        emit_state_created(
+            source="initialize_state_node",
+            origin="initial",
+            states=[to_dict_safe(init_state)],
+            runtime=session,
+            action_id=None,
+        )
+
         logger.info("[InitializeStateNode] End InitializeStateNode.")
         return None
 
@@ -2062,6 +2086,34 @@ class FindActionSpaceNode(BaseNode):
                 }
             )
 
+            sid = _state_id_for_telemetry(state)
+            sensitive = LogManager.is_sensitive()
+            action_rows = []
+            for action in actions:
+                aid = str(action.state.id) if action.state is not None else sid
+                action_rows.append(
+                    {
+                        "action_id": action.id,
+                        "state_id": aid,
+                        "proposal_direction": (
+                            "***" if sensitive else action.proposal.direction
+                        ),
+                        "score": action.proposal.score,
+                    }
+                )
+            emit(
+                "action_proposals_created",
+                {
+                    "success": True,
+                    "state_id": sid,
+                    "num_actions": len(actions),
+                    "actions": action_rows,
+                    **runtime_correlation_from(session),
+                },
+                source="find_action_space_node",
+                action_id=None,
+            )
+
             id_ = datetime.now(tz=timezone.utc).strftime("%Y%m%d%H%M%S%f")[:-3]
             action_file = os.path.join(log_dir, "Action", f"action_{id_}_{uuid.uuid4().hex}.json")
             payload = {
@@ -2082,10 +2134,36 @@ class FindActionSpaceNode(BaseNode):
                     indent=2,
                     ensure_ascii=False,
                 )
+            creation_messages = algorithm_output.get("messages")
+            if creation_messages:
+                emit_messages_updated(
+                    source="find_action_space_node",
+                    messages=creation_messages,
+                    runtime=session,
+                    action_id=None,
+                    extra={
+                        "phase": "action_creation",
+                        "success": True,
+                        "num_actions": len(actions),
+                    },
+                )
             logger.info("[FindActionSpaceNode] End FindActionSpaceNode.")
             return actions
         else:
             error = algorithm_output.get("error", "Unknown error")
+            emit(
+                "action_proposals_created",
+                {
+                    "success": False,
+                    "state_id": _state_id_for_telemetry(state),
+                    "num_actions": 0,
+                    "actions": [],
+                    "error": "*" if LogManager.is_sensitive() else error,
+                    **runtime_correlation_from(session),
+                },
+                source="find_action_space_node",
+                action_id=None,
+            )
             id_ = datetime.now(tz=timezone.utc).strftime("%Y%m%d%H%M%S%f")[:-3]
             action_file = os.path.join(log_dir, "Action", f"action_{id_}_{uuid.uuid4().hex}.json")
             payload = {
@@ -2103,6 +2181,19 @@ class FindActionSpaceNode(BaseNode):
                     f,
                     indent=2,
                     ensure_ascii=False,
+                )
+            fail_messages = algorithm_output.get("messages")
+            if fail_messages:
+                emit_messages_updated(
+                    source="find_action_space_node",
+                    messages=fail_messages,
+                    runtime=session,
+                    action_id=None,
+                    extra={
+                        "phase": "action_creation",
+                        "success": False,
+                        "error": error,
+                    },
                 )
             logger.error("[FindActionSpaceNode] End FindActionSpaceNode with error.")
             return None
@@ -2290,6 +2381,12 @@ class RunActionNode(BaseNode):
                 # delete_tool_responses / delete_tool_input_and_responses: carries cleaned messages.
                 if "messages" in algorithm_output and "config" not in algorithm_output:
                     session.update_global_state({"messages": algorithm_output["messages"]})
+                emit_messages_updated(
+                    source="run_action_node_context_retry",
+                    messages=session.get_global_state("messages"),
+                    runtime=session,
+                    extra={"kind": "context_limit"},
+                )
                 return self._post_handle(
                     inputs,
                     dict(next_node=NodeId.RUN_ACTION.value, success=True),
@@ -2373,6 +2470,20 @@ class RunActionNode(BaseNode):
         if isinstance(data, Result):
             session.update_global_state({"result": data})
             session.update_global_state({"messages": data.messages})
+            if data.new_states:
+                emit_state_created(
+                    source="run_action_node",
+                    origin="action_patch",
+                    states=[to_dict_safe(ns) for ns in data.new_states],
+                    runtime=session,
+                    extra={"run_action_mode": mode},
+                )
+            emit_messages_updated(
+                source="run_action_node",
+                messages=data.messages,
+                runtime=session,
+                extra={"mode": mode, "phase": "result"},
+            )
             if "answer" in mode:
                 if validate_answer:
                     return dict(next_node=NodeId.VALIDATE_NEW_STATE.value)
@@ -2386,6 +2497,12 @@ class RunActionNode(BaseNode):
 
         messages = data.get("messages", [])
         session.update_global_state({"messages": messages})
+        emit_messages_updated(
+            source="run_action_node",
+            messages=messages,
+            runtime=session,
+            extra={"mode": mode, "phase": "llm_turn"},
+        )
 
         if mode is None:
             return dict(next_node=NodeId.RUN_ACTION.value)
@@ -2547,6 +2664,13 @@ class ToolNode(BaseNode):
         )
         if new_found_evidence_ids:
             session.update_global_state({"new_found_evidence_ids": new_found_evidence_ids})
+
+        emit_messages_updated(
+            source="tool_node",
+            messages=messages,
+            runtime=session,
+            extra={"tools_executed": True},
+        )
 
         logger.info("[ToolNode] End ToolNode.")
         return dict(next_node=NodeId.RUN_ACTION.value)
