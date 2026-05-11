@@ -33,7 +33,7 @@ agent_config["execution_method"] = "parallel"
 ---
 
 openJiuwen-DeepSearch 当前可以为全部模块配置四个模型：
-- **plan_understanding:** 该模型旨在能理解用户意图，生成任务规划步骤，减少幻觉，配置在Outliner、Planner模块
+- **plan_understanding:** 该模型旨在能理解用户意图，生成任务规划步骤，减少幻觉，配置在IntentRecognition、Outliner、Planner模块。
 - **info_collecting:** 该模型用于信息收集各个步骤，配置在InfoCollector
 - **writing_checking:** 该模型用于准确生成报告及插入图文，配置在Sub_reporter
 - **general:** 该模型为通用模型，综合能力较强，所有模块都可调用该模型 
@@ -320,7 +320,7 @@ async for chunk in agent.run(message=message, conversation_id=conversation_id, a
 
 ## 用户查询意图交互（Clarification Interaction）
 
-在规划预备阶段，系统会根据用户的原始查询自动生成若干延伸问题，引导用户提供更多背景信息，以便系统更准确地理解研究目标。
+在规划预备阶段，系统会根据用户的原始查询生成 `research_query`，再依据 `research_query` 自动生成若干延伸问题，引导用户提供更多背景信息，以便系统更准确地理解研究目标。
 
 当配置参数：
 
@@ -335,9 +335,10 @@ agent_config["workflow_human_in_the_loop"] = True
 ### 工作流程
 
 1. 用户提交原始查询
-2. 系统提出补充问题
-3. 系统中断流程等待用户回答
-4. 用户反馈后系统恢复流程并继续执行 DeepResearch
+2. 系统根据用户原始查询，意图识别后生成 `research_query`
+3. 系统根据 `research_query` 提出补充问题
+4. 系统中断流程等待用户回答
+5. 用户反馈后系统恢复流程并继续执行 DeepResearch
 
 ---
 

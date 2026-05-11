@@ -33,7 +33,7 @@ agent_config["execution_method"] = "parallel"
 
 DeepSearch can assign up to four logical models:
 
-- **plan_understanding** — intent and planning (Outliner, Planner); reduces hallucinations.
+- **plan_understanding** — intent and planning (IntentRecognition, Outliner, Planner); reduces hallucinations.
 - **info_collecting** — information gathering (InfoCollector).
 - **writing_checking** — report body and rich content (Sub-reporter).
 - **general** — default for any stage without a specific model (**required**).
@@ -258,6 +258,8 @@ Supported stages:
 
 ## Clarification
 
+Before planning, the system recognizes intent from the original user query, generates `research_query`, and then uses `research_query` to create follow-up questions that help collect more context and understand the research goal more accurately.
+
 Set:
 
 ```python
@@ -266,7 +268,7 @@ agent_config["workflow_human_in_the_loop"] = True
 
 (Default is on in many deployments.)
 
-Flow: user asks → system asks follow-ups → interrupt → user answers → resume.
+Flow: user asks → system generates `research_query` after intent recognition → system asks follow-ups based on `research_query` → interrupt → user answers → resume.
 
 ### Feedback channels
 

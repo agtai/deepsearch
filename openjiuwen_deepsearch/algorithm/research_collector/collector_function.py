@@ -5,11 +5,48 @@ import json
 import logging
 from typing import Any
 
+from Crypto.Util.number import inverse
+
 from openjiuwen_deepsearch.common.common_constants import MAX_URL_LENGTH, MAX_SEARCH_CONTENT_LENGTH
 from openjiuwen_deepsearch.framework.openjiuwen.tools import build_runtime_api_search_payload
+from openjiuwen_deepsearch.utils.common_utils.url_utils import extract_domain_from_url, normalize_domains
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
 
 logger = logging.getLogger(__name__)
+
+
+def _get_exclude_domains(agent_input: dict) -> list[str]:
+    """从 agent_input 的 research_intent 中获取需要排除的域名."""
+    research_intent = agent_input.get("research_intent") or {}
+    if isinstance(research_intent, dict):
+        return normalize_domains(research_intent.get("exclude_domains"))
+    return normalize_domains(getattr(research_intent, "exclude_domains", []))
+
+
+def _is_domain_match(domain: str, target_domain: str) -> bool:
+    """判断 domain 是否命中指定域名或其子域名."""
+    if not domain or not target_domain:
+        return False
+    return domain == target_domain or domain.endswith(f".{target_domain}")
+
+
+def filter_search_results_by_exclude_domains(items: list, exclude_domains: list[str]) -> list:
+    """按 exclude_domains 过滤搜索结果."""
+    normalized_exclude_domains = normalize_domains(exclude_domains)
+    if not normalized_exclude_domains:
+        return items
+
+    filtered_items = []
+    for item in items:
+        if not isinstance(item, dict):
+            filtered_items.append(item)
+            continue
+        item_url = item.get("url") or item.get("link") or ""
+        item_domain = extract_domain_from_url(item_url)
+        if item_domain and any(_is_domain_match(item_domain, domain) for domain in normalized_exclude_domains):
+            continue
+        filtered_items.append(item)
+    return filtered_items
 
 
 async def process_tool_call(response, agent_input: dict, tool_dict: dict, step_info: dict) -> dict:
@@ -172,6 +209,7 @@ def process_google_search_result(agent_input: dict, tool_content: Any) -> (list,
     tool_result = []
     try:
         tool_result = tool_content if isinstance(tool_content, list) else []
+        tool_result = filter_search_results_by_exclude_domains(tool_result, _get_exclude_domains(agent_input))
         added_records = []
         for item in tool_result:
             if not isinstance(item, dict):
@@ -203,6 +241,7 @@ def process_common_search_result(agent_input: dict, tool_content: Any) -> (list,
     tool_result = []
     try:
         tool_result = tool_content if isinstance(tool_content, list) else []
+        tool_result = filter_search_results_by_exclude_domains(tool_result, _get_exclude_domains(agent_input))
         added_records = []
         for item in tool_result:
             new_item = {

@@ -147,6 +147,7 @@ class TestInfoCollectorNode:
             "web_search_engine_name": SearchEngine.PETAL.value,
             "local_search_engine_name": LocalSearch.OPENAPI.value,
             "api_tools_config": {},
+            "research_intent": {},
         }
         assert result == expected_state
 

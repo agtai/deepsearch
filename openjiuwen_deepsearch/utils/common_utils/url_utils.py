@@ -4,6 +4,7 @@
 import ipaddress
 import os
 import re
+from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 from openjiuwen_deepsearch.common.exception import CustomValueException
@@ -39,6 +40,43 @@ def normalize_domain(domain: str) -> str:
         normalized = re.sub(pattern, replacement, normalized)
 
     return normalized
+
+
+def normalize_domains(domains: Any) -> list[str]:
+    """归一化域名列表."""
+    if not domains:
+        return []
+    if isinstance(domains, str):
+        domains = [domains]
+    if not isinstance(domains, (list, tuple, set)):
+        return []
+
+    normalized_domains = []
+    seen = set()
+    for domain in domains:
+        domain_str = str(domain).strip().lower()
+        parsed = urlparse(domain_str if "://" in domain_str else f"//{domain_str}")
+        domain_str = parsed.netloc or parsed.path
+        domain_str = domain_str.split("@")[-1].split(":")[0].strip(".")
+        if domain_str.startswith("www."):
+            domain_str = domain_str[4:]
+        if not domain_str or domain_str in seen:
+            continue
+        seen.add(domain_str)
+        normalized_domains.append(domain_str)
+    return normalized_domains
+
+
+def extract_domain_from_url(url: Any) -> str:
+    """从 URL 中提取域名."""
+    url_str = str(url or "").strip().lower()
+    if not url_str:
+        return ""
+    parsed = urlparse(url_str if "://" in url_str else f"//{url_str}")
+    domain = (parsed.netloc or "").split("@")[-1].split(":")[0].strip(".")
+    if domain.startswith("www."):
+        domain = domain[4:]
+    return domain
 
 
 def normalize_path(path: str) -> str:

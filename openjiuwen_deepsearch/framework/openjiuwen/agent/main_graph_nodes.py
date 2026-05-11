@@ -1,14 +1,14 @@
 # -*- coding: UTF-8 -*-
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
-import copy
 import asyncio
+import copy
 import json
 import logging
 import os
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Any
 
 from openjiuwen.core.common.constants.constant import INTERACTIVE_INPUT
 from openjiuwen.core.context_engine.base import ModelContext
@@ -19,6 +19,7 @@ from openjiuwen.core.workflow.components.flow.start_comp import Start
 
 from openjiuwen_deepsearch.algorithm.chart_generation.vlm_chart_generator import VLMChartGenerator
 from openjiuwen_deepsearch.algorithm.query_understanding.interpreter import query_interpreter
+from openjiuwen_deepsearch.algorithm.query_understanding.intent_recognition import recognize_report_intent
 from openjiuwen_deepsearch.algorithm.query_understanding.outliner import Outliner
 from openjiuwen_deepsearch.algorithm.query_understanding.router import classify_query, web_search_for_query
 from openjiuwen_deepsearch.algorithm.report.config import ReportFormat, ReportStyle
@@ -82,6 +83,7 @@ from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import (
     ValidationResult,
 )
 from openjiuwen_deepsearch.framework.openjiuwen.llm.llm_adapter import adapt_llm_model_name
+from openjiuwen_deepsearch.framework.openjiuwen.tools.web_search import apply_web_search_domain_constraints
 from openjiuwen_deepsearch.utils.common_utils.llm_utils import (
     get_effective_workflow_llm_usage,
     save_workflow_llm_usage_to_session,
@@ -151,10 +153,12 @@ class StartNode(Start):
         """
 
         # 初始化search_context
+        original_query = inputs.get("query", "")
         search_context = SearchContext(
-            query=inputs.get("query", ""),
+            original_query=original_query,
+            research_query=original_query,
             session_id=inputs.get("thread_id", ""),
-            messages=[Message(role="user", content=inputs.get("query", ""))],
+            messages=[Message(role="user", content=original_query)],
             search_mode=inputs.get("search_mode", "research"),
             report_template=inputs.get("report_template", ""),
         )
@@ -214,6 +218,67 @@ class StartNode(Start):
         session.update_global_state({"config": merge_config})
 
 
+class IntentRecognitionNode(BaseNode):
+    """
+    报告意图识别节点：从原始 query 中拆分研究主题和报告生成约束。
+    """
+
+    def __init__(self):
+        super().__init__()
+
+    def _pre_handle(self, inputs: Input, session: Session, context: ModelContext):
+        logger.info("[IntentRecognitionNode] Start IntentRecognitionNode.")
+        return dict(
+            original_query=session.get_global_state("search_context.original_query") or "",
+            messages=session.get_global_state("search_context.messages") or [],
+            llm_model_name=adapt_llm_model_name(session, NodeId.INTENT_RECOGNITION.value),
+        )
+
+    async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
+        current_inputs = self._pre_handle(inputs, session, context)
+        intent_result = await recognize_report_intent(current_inputs)
+        return self._post_handle(inputs, intent_result, session, context)
+
+    def _post_handle(self, inputs: Input, algorithm_output: Any, session: Session, context: ModelContext):
+        original_q = algorithm_output.original_query
+        research_q = (algorithm_output.research_query or "").strip() or original_q
+
+        session.update_global_state({
+            "search_context.original_query": original_q,
+            "search_context.research_query": research_q,
+            "search_context.research_intent": algorithm_output.research_intent.model_dump(),
+        })
+        web_search_engine_config = session.get_global_state("config.web_search_engine_config")
+        web_search_engine_name = web_search_engine_config.search_engine_name if web_search_engine_config else ""
+        apply_web_search_domain_constraints(
+            search_engine_name=web_search_engine_name,
+            include_domains=algorithm_output.research_intent.include_domains,
+            exclude_domains=algorithm_output.research_intent.exclude_domains,
+        )
+
+        messages = list(session.get_global_state("search_context.messages") or [])
+        if messages:
+            first = messages[0]
+            if isinstance(first, dict):
+                messages[0] = {**first, "content": research_q}
+            else:
+                messages[0] = Message(
+                    role=getattr(first, "role", "user"),
+                    content=research_q,
+                    name=getattr(first, "name", None),
+                ).model_dump(exclude_none=True)
+            session.update_global_state({"search_context.messages": messages})
+
+        add_debug_log_wrapper(session, NodeDebugData(
+            NodeId.INTENT_RECOGNITION.value,
+            0,
+            NodeType.MAIN.value,
+            output_content=algorithm_output.model_dump_json(),
+        ))
+        logger.info("[IntentRecognitionNode] End IntentRecognitionNode.")
+        return dict(next_node=NodeId.ENTRY.value)
+
+
 class EntryNode(BaseNode):
 
     def __init__(self):
@@ -224,7 +289,7 @@ class EntryNode(BaseNode):
 
         messages = session.get_global_state("search_context.messages")
         llm_model_name = adapt_llm_model_name(session, NodeId.ENTRY.value)
-        query = session.get_global_state("search_context.query")
+        query = session.get_global_state("search_context.research_query")
         web_search_engine_config = session.get_global_state("config.web_search_engine_config")
         web_search_engine_name = web_search_engine_config.search_engine_name if web_search_engine_config else "petal"
 
@@ -414,7 +479,7 @@ class ReporterNode(BaseNode):
             current_report=current_report,
             language=session.get_global_state("search_context.language") or CHINESE,
             report_task=report_task,
-            user_query=session.get_global_state("search_context.query"),
+            user_query=session.get_global_state("search_context.research_query"),
             llm_model_name=llm_model_name,
             visualization_enable=visualization_enable,
         )
@@ -549,7 +614,7 @@ class GenerateQuestionsNode(BaseNode):
     def _pre_handle(self, inputs: Input, session: Session, context: ModelContext):
         logger.info(f"[GenerateQuestionsNode] Start GenerateQuestionsNode.")
         language = session.get_global_state("search_context.language")
-        query = session.get_global_state("search_context.query")
+        query = session.get_global_state("search_context.research_query")
         entry_search_results = session.get_global_state("search_context.entry_search_results") or []
         max_gen_question_retry_num = session.get_global_state("config.workflow_max_gen_question_retry_num")
         llm_model_name = adapt_llm_model_name(session, NodeId.GENERATE_QUESTIONS.value)

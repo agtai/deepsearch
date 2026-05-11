@@ -62,6 +62,7 @@ class InfoRetrievalNode(BaseNode):
             web_search_engine_name=web_search_engine_name,
             local_search_engine_name=local_search_engine_name,
             api_tools_config=session.get_global_state("config.api_tools_config") or {},
+            research_intent=session.get_global_state("search_context.research_intent") or {},
         )
         return state
 
@@ -80,6 +81,7 @@ class InfoRetrievalNode(BaseNode):
                 "web_search_engine_name": state.get("web_search_engine_name", None),
                 "local_search_engine_name": state.get("local_search_engine_name", None),
                 "api_tools_config": state.get("api_tools_config", {}),
+                "research_intent": state.get("research_intent", {}),
             }
             sub_task = self._collector_main(sub_state)
             tasks.append(sub_task)
@@ -145,6 +147,7 @@ class InfoRetrievalNode(BaseNode):
             "web_page_search_record": [],
             "local_text_search_record": [],
             "other_tool_record": [],
+            "research_intent": state.get("research_intent", {}),
         }
 
         tool_list, tool_dict = self._prepare_collector_tool(state)

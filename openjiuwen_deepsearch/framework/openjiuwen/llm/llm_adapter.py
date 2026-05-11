@@ -25,6 +25,7 @@ class LlmConfigCategory(enum.Enum):
 
 
 NODE_LLM_MAPPING = {
+    NodeId.INTENT_RECOGNITION.value: LlmConfigCategory.PLAN_UNDERSTANDING.value,
     NodeId.OUTLINE.value: LlmConfigCategory.PLAN_UNDERSTANDING.value,
     NodeId.PLAN_REASONING.value: LlmConfigCategory.PLAN_UNDERSTANDING.value,
     NodeId.INFO_COLLECTOR.value: LlmConfigCategory.INFO_COLLECTING.value,

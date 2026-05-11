@@ -6,7 +6,8 @@ from openjiuwen_deepsearch.algorithm.research_collector.collector_function impor
     execute_tool, process_tool_result, web_search_jiuwen, \
     process_tavily_search_result, process_google_search_result, \
     process_common_search_result, process_local_search_result, \
-    process_local_search_common, remove_duplicate_items, create_tool_message
+    process_local_search_common, remove_duplicate_items, create_tool_message, \
+    filter_search_results_by_exclude_domains
 
 MODULE_PATH = "openjiuwen_deepsearch.algorithm.research_collector.collector_function"
 
@@ -470,6 +471,34 @@ class TestSearchResultProcessing:
         assert len(result) == 1
         assert result[0]["title"] == "Common Result"
         assert "web_page_search_record" in modified_input
+
+    def test_filter_search_results_by_exclude_domains(self):
+        """测试按排除域名过滤搜索结果"""
+        items = [
+            {"title": "Keep", "url": "https://keep.com/a", "content": "keep"},
+            {"title": "Drop", "url": "https://sub.blocked.com/a", "content": "drop"},
+            {"title": "No Url", "content": "keep"},
+        ]
+
+        result = filter_search_results_by_exclude_domains(items, ["blocked.com"])
+
+        assert [item.get("title") for item in result] == ["Keep", "No Url"]
+
+    def test_process_google_search_result_filters_exclude_domains(self):
+        """测试Google搜索结果按排除域名过滤"""
+        agent_input = {
+            "web_page_search_record": [],
+            "research_intent": {"exclude_domains": ["blocked.com"]},
+        }
+        tool_content = [
+            {"title": "Keep", "link": "http://keep.com", "snippet": "Snippet"},
+            {"title": "Drop", "link": "http://blocked.com", "snippet": "Snippet"},
+        ]
+
+        result, modified_input = process_google_search_result(agent_input, tool_content)
+
+        assert [item.get("title") for item in result] == ["Keep"]
+        assert [item.get("title") for item in modified_input["web_page_search_record"]] == ["Keep"]
 
 
 class TestRemoveDuplicateItems:

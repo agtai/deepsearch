@@ -10,6 +10,7 @@ class NodeId(enum.Enum):
 
     # research 相关
     ENTRY = "entry"
+    INTENT_RECOGNITION = "intent_recognition"
     GENERATE_QUESTIONS = "generate_questions"
     FEEDBACK_HANDLER = "feedback_handler"
     OUTLINE = "outline"
@@ -74,6 +75,7 @@ class AgentLlmName(enum.Enum):
     COLLECTOR_SUMMARY = NodeId.COLLECTOR_SUMMARY.value
 
     ENTRY = NodeId.ENTRY.value
+    INTENT_RECOGNITION = NodeId.INTENT_RECOGNITION.value
     GENERATE_QUESTIONS = NodeId.GENERATE_QUESTIONS.value
     OUTLINE = NodeId.OUTLINE.value
     PLAN_REASONING = NodeId.PLAN_REASONING.value
