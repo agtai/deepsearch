@@ -178,6 +178,40 @@ def web_search_jiuwen(agent_input: dict, tool_content: Any) -> (list, dict):
     return tool_result, agent_input
 
 
+def _first_non_empty(item: dict, keys: tuple[str, ...]) -> str:
+    """Return the first non-empty string value from a search result row."""
+    for key in keys:
+        value = item.get(key)
+        if value is None:
+            continue
+        value = str(value).strip()
+        if value:
+            return value
+    return ""
+
+
+def _normalize_web_search_item(item: Any) -> dict | None:
+    """Normalize common web search result field aliases."""
+    if not isinstance(item, dict):
+        return None
+
+    url = _first_non_empty(item, ("url", "link", "source_url"))
+    if not url:
+        return None
+
+    title = _first_non_empty(item, ("title", "name")) or url
+    content = _first_non_empty(
+        item,
+        ("content", "raw_content", "snippet", "summary", "answer"),
+    )
+    return {
+        "type": "page",
+        "title": title[:MAX_SEARCH_CONTENT_LENGTH],
+        "url": url[:MAX_URL_LENGTH],
+        "content": content[:MAX_SEARCH_CONTENT_LENGTH],
+    }
+
+
 def process_tavily_search_result(agent_input: dict, tool_content: Any) -> (list, dict):
     """Tavily搜索工具结果处理方法"""
     original_records = agent_input.get("web_page_search_record", [])
@@ -188,7 +222,9 @@ def process_tavily_search_result(agent_input: dict, tool_content: Any) -> (list,
         tool_result = tool_content if isinstance(tool_content, list) else []
         added_records = []
         for item in tool_result:
-            added_records.append(item)
+            new_item = _normalize_web_search_item(item)
+            if new_item is not None:
+                added_records.append(new_item)
         combined_records = original_records + added_records
         agent_input["web_page_search_record"] = remove_duplicate_items(combined_records)
     except Exception as e:
@@ -212,14 +248,9 @@ def process_google_search_result(agent_input: dict, tool_content: Any) -> (list,
         tool_result = filter_search_results_by_exclude_domains(tool_result, _get_exclude_domains(agent_input))
         added_records = []
         for item in tool_result:
-            if not isinstance(item, dict):
+            new_item = _normalize_web_search_item(item)
+            if new_item is None:
                 continue
-            new_item = {
-                "type": "page",
-                "title": item.get("title", "")[:MAX_SEARCH_CONTENT_LENGTH],
-                "url": item.get("link", "")[:MAX_URL_LENGTH],
-                "content": item.get("snippet", "")[:MAX_SEARCH_CONTENT_LENGTH]
-            }
             added_records.append(new_item)
         combined_records = original_records + added_records
         agent_input["web_page_search_record"] = remove_duplicate_items(combined_records)
@@ -244,13 +275,9 @@ def process_common_search_result(agent_input: dict, tool_content: Any) -> (list,
         tool_result = filter_search_results_by_exclude_domains(tool_result, _get_exclude_domains(agent_input))
         added_records = []
         for item in tool_result:
-            new_item = {
-                "type": "page",
-                "title": item.get("title", "")[:MAX_SEARCH_CONTENT_LENGTH],
-                "url": item.get("url", "")[:MAX_URL_LENGTH],
-                "content": item.get("content", "")[:MAX_SEARCH_CONTENT_LENGTH]
-            }
-            added_records.append(new_item)
+            new_item = _normalize_web_search_item(item)
+            if new_item is not None:
+                added_records.append(new_item)
         combined_records = original_records + added_records
         agent_input["web_page_search_record"] = remove_duplicate_items(combined_records)
     except Exception as e:

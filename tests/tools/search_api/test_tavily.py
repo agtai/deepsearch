@@ -70,6 +70,30 @@ class TestTavilySearchAPIWrapper:
 
     @patch("openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.requests.post")
     @patch("openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.SslUtils.get_ssl_config")
+    def test_raw_search_results_uses_default_url_when_empty(self, mock_get_ssl_config, mock_post):
+        """Tavily should use its public default endpoint when search_url is empty."""
+        from openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper import (
+            TavilySearchAPIWrapper,
+        )
+
+        mock_get_ssl_config.return_value = (False, None)
+        mock_response = Mock()
+        mock_response.json.return_value = {"results": []}
+        mock_response.raise_for_status = Mock()
+        mock_post.return_value = mock_response
+
+        wrapper = TavilySearchAPIWrapper(
+            search_api_key=bytearray(b"fake_api_key"),
+            search_url="",
+            max_web_search_results=3,
+        )
+
+        wrapper.raw_search_results(query="test query")
+
+        assert mock_post.call_args[0][0] == "https://api.tavily.com/search"
+
+    @patch("openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.requests.post")
+    @patch("openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper.SslUtils.get_ssl_config")
     def test_results(self, mock_get_ssl_config, mock_post):
         """测试 results 方法"""
         from openjiuwen_deepsearch.framework.openjiuwen.tools.search_api.tavily.api_wrapper import (

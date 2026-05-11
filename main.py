@@ -37,6 +37,15 @@ ResultExporter.init(results_dir="./output/results")
 
 logger = logging.getLogger(__name__)
 
+RESEARCH_ENGINES_ALLOWING_EMPTY_SEARCH_URL = {
+    "tavily",
+    "google",
+    "bocha",
+    "jina",
+    "perplexity",
+    "serper",
+}
+
 
 async def run_jiuwen_workflow(query: str, agent_config: dict, report_template: str):
     """
@@ -182,6 +191,15 @@ def _missing_required_args(args: argparse.Namespace, arg_names: list[str]) -> li
     return missing
 
 
+def _missing_research_web_args(args: argparse.Namespace) -> list[str]:
+    """Return missing research web args while respecting engine defaults."""
+    required_args = ["web_search_engine_name", "web_search_api_key"]
+    engine_name = (args.web_search_engine_name or "").strip().lower()
+    if engine_name not in RESEARCH_ENGINES_ALLOWING_EMPTY_SEARCH_URL:
+        required_args.append("web_search_url")
+    return _missing_required_args(args, required_args)
+
+
 def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     """根据 mode / search_mode 执行条件化参数校验。"""
     missing_llm_args = _missing_required_args(
@@ -210,10 +228,7 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
         parser.error("--vlm_chart_generator_enable 仅支持 --search_mode research")
 
     if args.mode in ("query", "all") and args.search_mode == "research":
-        missing_research_web_args = _missing_required_args(
-            args,
-            ["web_search_engine_name", "web_search_api_key", "web_search_url"],
-        )
+        missing_research_web_args = _missing_research_web_args(args)
         if missing_research_web_args:
             parser.error(f"research 模式必须提供以下参数: {', '.join(missing_research_web_args)}")
 

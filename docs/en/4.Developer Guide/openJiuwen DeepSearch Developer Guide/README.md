@@ -68,12 +68,29 @@ Supported backends (OpenAI-compatible):
 Supported engines (set `web_search_engine_config.search_engine_name`):
 
 - `google`
+- `serper`
 - `tavily`
 - `xunfei` (iFlytek)
 - `petal` (Petal AI web augmentation)
+- `bocha`
+- `jina`
+- `perplexity`
 - `custom`
 
-> Register with the vendor for `search_api_key` and `search_url`.
+Integration notes:
+
+- `jina` uses the built-in direct HTTP wrapper. When `search_url=""`, the runtime falls back to `https://s.jina.ai`. Provider-specific query options such as `gl`, `hl`, `location`, and `page` are carried through `extension`.
+- `bocha` and `perplexity` use the harness `web_tools` adapter layer. They support `extension.timeout_seconds` and `extension.fetch_webpage`. `search_url` is only honored when the underlying provider supports URL override in `web_tools`.
+- `serper` is exposed as a dedicated engine name so server-side configuration can use `serper`, while research-mode `web_search_tool` still reuses the Google/Serper wrapper internally.
+- Public engines may keep `search_url` empty and rely on built-in defaults or provider defaults.
+
+Search results are also bounded before they reach the collector LLM path:
+
+- Prefetched webpage bodies from the harness-based adapters are truncated to `MAX_COLLECTOR_DOC_CONTENT_LENGTH`.
+- `InfoRetrievalNode._structure_result` applies the same bound again before passing `contents` into `run_doc_evaluation`.
+- Collector-side normalization stores web results in a stable `title` / `url` / `content` / `type` shape and accepts aliases such as `link`, `source_url`, `snippet`, `summary`, and `answer`.
+
+> Register with the vendor for `search_api_key`. For public engines such as Jina, `search_url` can be left empty to use the built-in default endpoint; provide it only when you need a vendor-specific or privately deployed URL.
 
 ## TLS / SSL
 

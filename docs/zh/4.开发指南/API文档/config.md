@@ -55,11 +55,21 @@ class openjiuwen_deepsearch.config.config.WebSearchEngineConfig()
 
 **字段**：
 
-- **search_engine_name**(Literal["tavily", "google", "xunfei", "petal", "custom"], 可选)：联网增强引擎名称。默认值：`"tavily"`。
+- **search_engine_name**(Literal["tavily", "google", "xunfei", "petal", "custom", "bocha", "jina", "perplexity", "serper"], 可选)：联网增强引擎名称。默认值：`"tavily"`。
 - **search_api_key**(bytearray, 可选)：联网增强引擎调用密钥。默认值：`bytearray("", encoding="utf-8")`。
-- **search_url**(str, 可选)：联网增强引擎调用地址。默认值：`""`。
+- **search_url**(str, 可选)：联网增强引擎调用地址。默认值：`""`。对于支持默认公网地址的引擎，可留空由系统自动回退。
 - **max_web_search_results**(int, 可选)：最大搜索结果数量，取值范围：[1, 10]。默认值：`5`。
 - **extension**(dict, 可选)：联网增强引擎扩展配置项，根据具体联网增强引擎接口设置。默认值：`{}`。
+
+**内置引擎说明**：
+
+- `google` / `serper`：复用 GoogleSearchAPIWrapper。
+- `tavily`：使用 TavilySearchAPIWrapper。
+- `xunfei`：使用讯飞搜索 Wrapper。
+- `petal`：使用小艺联网增强 Wrapper。
+- `bocha` / `perplexity`：使用 harness `web_tools` 适配层。
+- `jina`：使用直接 HTTP 调用的 JinaSearchAPIWrapper。
+- `custom`：通过 `CustomWebSearchConfig` 动态加载。
 
 **样例**：
 
@@ -91,7 +101,41 @@ tavily
 ... )
 >>> print(web_search_config.search_engine_name, web_search_config.extension["include_domains"])
 tavily ["www.sz.gov.cn", "www.pku.edu.cn"]
+
+>>> # 样例4：配置 jina，使用默认 search_url 并携带搜索区域参数
+>>> web_search_config = WebSearchEngineConfig(
+...     search_engine_name="jina",
+...     search_api_key=bytearray("your_jina_key", encoding="utf-8"),
+...     search_url="",
+...     extension={
+...         "gl": "us",
+...         "hl": "en",
+...         "location": "San Francisco",
+...         "page": 2
+...     }
+... )
+>>> print(web_search_config.search_engine_name, web_search_config.search_url)
+jina
+
+>>> # 样例5：配置 bocha，使用 harness 扩展参数
+>>> web_search_config = WebSearchEngineConfig(
+...     search_engine_name="bocha",
+...     search_api_key=bytearray("your_bocha_key", encoding="utf-8"),
+...     extension={
+...         "timeout_seconds": 30,
+...         "fetch_webpage": True
+...     }
+... )
+>>> print(web_search_config.search_engine_name, web_search_config.extension["timeout_seconds"])
+bocha 30
 ```
+
+**补充说明**：
+
+- `jina` 的 `search_url` 为空时，会自动回退到 `https://s.jina.ai`。
+- `bocha`、`perplexity` 通过 harness `web_tools` 适配层访问搜索能力，仅当底层 provider 支持地址覆盖时，`search_url` 才会生效。
+- `web_search_tool` 返回结果进入 Collector 前会统一归一化为 `title`、`url`、`content`、`type` 等字段；字段别名如 `link`、`source_url`、`snippet`、`summary`、`answer` 会在 Collector 中兼容处理。
+- 预抓取网页正文以及最终进入 `run_doc_evaluation` 的内容都会按 `MAX_COLLECTOR_DOC_CONTENT_LENGTH` 进行裁剪，以限制网页搜索结果对后续评估链路的上下文占用。
 
 ## class openjiuwen_deepsearch.config.config.EmbedModelConfig
 ```python

@@ -14,6 +14,9 @@ from openjiuwen_deepsearch.framework.openjiuwen.tools.search_api import (
     TavilySearchAPIWrapper,
     GoogleSearchAPIWrapper,
     PetalSearchAPIWrapper,
+    BochaSearchAPIWrapper,
+    JinaSearchAPIWrapper,
+    PerplexitySearchAPIWrapper,
     load_external_search_tools
 )
 from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import web_search_context
@@ -29,6 +32,10 @@ search_engine_mapping = {
     SearchEngine.GOOGLE.value: GoogleSearchAPIWrapper,
     SearchEngine.XUNFEI.value: XunfeiSearchAPIWrapper,
     SearchEngine.PETAL.value: PetalSearchAPIWrapper,
+    SearchEngine.BOCHA.value: BochaSearchAPIWrapper,
+    SearchEngine.JINA.value: JinaSearchAPIWrapper,
+    SearchEngine.PERPLEXITY.value: PerplexitySearchAPIWrapper,
+    SearchEngine.SERPER.value: GoogleSearchAPIWrapper,
 }
 
 

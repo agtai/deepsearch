@@ -26,7 +26,17 @@ class LLMConfig(BaseModel):
 
 
 class WebSearchEngineConfig(BaseModel):
-    search_engine_name: Literal["tavily", "google", "xunfei", "petal", "custom"] = Field(default="tavily",
+    search_engine_name: Literal[
+        "tavily",
+        "google",
+        "xunfei",
+        "petal",
+        "custom",
+        "bocha",
+        "jina",
+        "perplexity",
+        "serper",
+    ] = Field(default="tavily",
                                                                                          description="联网增强引擎名称")
     search_api_key: bytearray = Field(default=bytearray("", encoding="utf-8"), description="联网增强引擎调用密钥")
     search_url: str = Field(default="", description="联网增强引擎调用地址")

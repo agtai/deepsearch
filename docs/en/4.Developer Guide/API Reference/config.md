@@ -39,11 +39,50 @@ class openjiuwen_deepsearch.config.config.WebSearchEngineConfig()
 
 **Fields**
 
-- **search_engine_name** (`Literal["tavily","google","xunfei","petal","custom"]`, optional): Engine id. Default `"tavily"`.
+- **search_engine_name** (`Literal["tavily","google","xunfei","petal","custom","bocha","jina","perplexity","serper"]`, optional): Engine id. Default `"tavily"`.
 - **search_api_key** (bytearray, optional): API key. Default empty.
-- **search_url** (str, optional): Endpoint URL. Default `""`.
+- **search_url** (str, optional): Endpoint URL. Default `""`. Public engines may leave this empty and use built-in defaults.
 - **max_web_search_results** (int, optional): Max hits, 1–10. Default `5`.
 - **extension** (dict, optional): Engine-specific options. Default `{}`.
+
+**Built-in engine notes**
+
+- `google` / `serper`: routed to the Google/Serper wrapper.
+- `tavily`: Tavily wrapper.
+- `xunfei`: iFlytek wrapper.
+- `petal`: Petal web augmentation wrapper.
+- `bocha` / `perplexity`: harness `web_tools` adapter wrappers.
+- `jina`: direct HTTP wrapper for Jina Search.
+- `custom`: dynamically loaded external search tool.
+
+**Examples**
+
+```python
+>>> from openjiuwen_deepsearch.config.config import WebSearchEngineConfig
+>>> web_search_config = WebSearchEngineConfig(
+...     search_engine_name="jina",
+...     search_api_key=bytearray("your_jina_key", encoding="utf-8"),
+...     search_url="",
+...     extension={
+...         "gl": "us",
+...         "hl": "en",
+...         "location": "San Francisco",
+...         "page": 2,
+...     },
+... )
+>>> web_search_config = WebSearchEngineConfig(
+...     search_engine_name="bocha",
+...     search_api_key=bytearray("your_bocha_key", encoding="utf-8"),
+...     extension={"timeout_seconds": 30, "fetch_webpage": True},
+... )
+```
+
+**Notes**
+
+- `jina` falls back to `https://s.jina.ai` when `search_url` is empty.
+- `bocha` and `perplexity` honor `search_url` only when the underlying harness provider supports URL override.
+- Search results are normalized before collector-side storage so aliases like `link`, `source_url`, `snippet`, `summary`, and `answer` are mapped into the common `title` / `url` / `content` / `type` shape.
+- Prefetched webpage content and the later collector evaluation input are both bounded by `MAX_COLLECTOR_DOC_CONTENT_LENGTH` to prevent oversized search payloads from reaching downstream LLM evaluation unchanged.
 
 ## `EmbedModelConfig`
 ```python

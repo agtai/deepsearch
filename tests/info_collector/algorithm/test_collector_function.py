@@ -1,6 +1,7 @@
 import pytest
 import json
 from unittest.mock import Mock, AsyncMock, patch
+from openjiuwen_deepsearch.common.common_constants import MAX_SEARCH_CONTENT_LENGTH
 from openjiuwen_deepsearch.algorithm.research_collector.collector_function import \
     process_tool_call, check_agent_input, handle_single_tool_call, \
     execute_tool, process_tool_result, web_search_jiuwen, \
@@ -444,6 +445,31 @@ class TestSearchResultProcessing:
             assert "web_page_search_record" in modified_input
             mock_remove_dup.assert_called_once()
 
+    def test_process_tavily_search_result_normalizes_records(self):
+        """Tavily records stored for later LLM prompts should use the search content limit."""
+        tool_content = [
+            {
+                "title": "Tavily title",
+                "url": "http://tavily.com",
+                "content": "C" * (MAX_SEARCH_CONTENT_LENGTH + 1),
+                "raw_content": "raw content should not be persisted",
+                "score": 0.8,
+            }
+        ]
+
+        result, modified_input = process_tavily_search_result(
+            self.agent_input, tool_content
+        )
+
+        assert result == tool_content
+        added_record = modified_input["web_page_search_record"][-1]
+        assert added_record == {
+            "type": "page",
+            "title": "Tavily title",
+            "url": "http://tavily.com",
+            "content": "C" * MAX_SEARCH_CONTENT_LENGTH,
+        }
+
     def test_process_google_search_result(self):
         """测试Google搜索结果处理"""
         tool_content = [
@@ -500,6 +526,43 @@ class TestSearchResultProcessing:
         assert [item.get("title") for item in result] == ["Keep"]
         assert [item.get("title") for item in modified_input["web_page_search_record"]] == ["Keep"]
 
+
+    def test_process_common_search_result_field_aliases_and_invalid_items(self):
+        """Common search processor should normalize aliases and skip invalid rows."""
+        tool_content = [
+            {
+                "name": "Alias title",
+                "link": "https://alias.example.com",
+                "raw_content": "Raw body",
+            },
+            "Error when run web search",
+            {
+                "title": "Summary title",
+                "source_url": "https://summary.example.com",
+                "summary": "Summary body",
+            },
+            {"title": "Missing URL"},
+        ]
+
+        result, modified_input = process_common_search_result(
+            self.agent_input, tool_content
+        )
+
+        assert result == tool_content
+        assert modified_input["web_page_search_record"][-2:] == [
+            {
+                "type": "page",
+                "title": "Alias title",
+                "url": "https://alias.example.com",
+                "content": "Raw body",
+            },
+            {
+                "type": "page",
+                "title": "Summary title",
+                "url": "https://summary.example.com",
+                "content": "Summary body",
+            },
+        ]
 
 class TestRemoveDuplicateItems:
     """测试 remove_duplicate_items 函数"""
