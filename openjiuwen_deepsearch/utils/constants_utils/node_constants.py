@@ -111,6 +111,8 @@ class AgentLlmName(enum.Enum):
     USER_FEEDBACK_PROCESSOR_SUPPLEMENTARY_SEARCH_REWRITE_SELECTED_AND_RELATED = (
         "user_feedback_processor_supplementary_search_rewrite_selected_and_related"
     )
+    USER_FEEDBACK_PROCESSOR_NEW_TASK_ASSESSMENT = "user_feedback_processor_new_task_assessment"
+    USER_FEEDBACK_PROCESSOR_NEW_TASK_REWRITE_SECTION = "user_feedback_processor_new_task_rewrite_section"
 
     VLM_CHART_GENERATOR = NodeId.VLM_CHART_GENERATOR.value
     VLM_CHART_GENERATOR_FIND_INSERT_POINT = "vlm_chart_generator_find_inserPoint"

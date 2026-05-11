@@ -49,6 +49,10 @@ from openjiuwen_deepsearch.algorithm.source_tracer_infer.infer import SourceTrac
 from openjiuwen_deepsearch.algorithm.user_feedback_processor.user_feedback_processor import (
     UserFeedbackProcessor,
 )
+from openjiuwen_deepsearch.algorithm.user_feedback_processor.history import (
+    build_current_outline_update,
+    build_rewrite_history_update,
+)
 from openjiuwen_deepsearch.common.common_constants import (
     CHINESE,
     ENGLISH,
@@ -1524,66 +1528,44 @@ class UserFeedbackProcessorNode(BaseNode):
         if "new_report" not in algorithm_output:
             return dict(next_node=next_node)
 
+        current_final_result = session.get_global_state("search_context.final_result") or {}
+        current_report_content = current_final_result.get("response_content", "") or ""
         new_report = algorithm_output["new_report"]
         session.update_global_state({"search_context.final_result.response_content": new_report})
-        rewritten_text = algorithm_output["rewritten_text"]
-        rewritten_start_offset = algorithm_output["rewritten_start_offset"]
-        rewritten_end_offset = algorithm_output["rewritten_end_offset"]
         feedback = algorithm_output["feedback"]
-        selected_text_clean = algorithm_output.get("original_text_clean", feedback.get("selected_text"))
+        updated_outline = build_current_outline_update(
+            current_outline=session.get_global_state("search_context.current_outline"),
+            action_result=algorithm_output,
+        )
+        if updated_outline is not None:
+            session.update_global_state({"search_context.current_outline": updated_outline})
 
         # 记录每次局部改写的关键信息，便于问题排查和后续审计。
         history = session.get_global_state("search_context.rewrite_history") or []
-        is_sync = algorithm_output.get("sync_only", False)
-        current_final_result = session.get_global_state("search_context.final_result") or {}
-        current_report_content = current_final_result.get("response_content", "") or ""
-        if is_sync and new_report == current_report_content:
+        updated_history = build_rewrite_history_update(
+            history=history,
+            feedback=feedback,
+            action_result=algorithm_output,
+            current_report_content=current_report_content,
+        )
+        if updated_history is None:
             logger.info("[UserFeedbackProcessorNode] Rewrite completed, loop back for next interaction.")
             return dict(next_node=next_node)
+        session.update_global_state({"search_context.rewrite_history": updated_history})
 
-        history_item = {
-            "action": feedback.get("action"),
-            "rewrite_scope": feedback.get("rewrite_scope"),
-            "selected_text": feedback.get("selected_text"),
-            "selected_text_clean": selected_text_clean,
-            "original_start_offset": algorithm_output["original_start_offset"],
-            "original_end_offset": algorithm_output["original_end_offset"],
-            "rewritten_text": rewritten_text,
-            "rewritten_start_offset": rewritten_start_offset,
-            "rewritten_end_offset": rewritten_end_offset,
-            "user_instruction": feedback.get("user_instruction", ""),
-        }
-        if "section_start_offset" in algorithm_output:
-            history_item["section_start_offset"] = algorithm_output.get("section_start_offset")
-        if "section_end_offset" in algorithm_output:
-            history_item["section_end_offset"] = algorithm_output.get("section_end_offset")
-        if "collector_summary" in algorithm_output:
-            history_item["collector_summary"] = algorithm_output.get("collector_summary", "")
-        history.append(history_item)
-        if is_sync:
-            non_sync_history = [item for item in history if item.get("action") != "sync"]
-            sync_history = [item for item in history if item.get("action") == "sync"]
-            history = non_sync_history + sync_history[-10:]
-        session.update_global_state({"search_context.rewrite_history": history})
-
-        if not is_sync:
-            add_debug_log_wrapper(
-                session,
-                NodeDebugData(
-                    NodeId.USER_FEEDBACK_PROCESSOR.value,
-                    0,
-                    NodeType.MAIN.value,
-                    output_content=json.dumps(
-                        {
-                            "selected_text": feedback.get("selected_text"),
-                            "rewritten_text": rewritten_text,
-                            "rewritten_start_offset": rewritten_start_offset,
-                            "rewritten_end_offset": rewritten_end_offset,
-                        },
-                        ensure_ascii=False,
-                    ),
-                ),
-            )
+        if not algorithm_output.get("sync_only", False):
+            add_debug_log_wrapper(session, NodeDebugData(
+                NodeId.USER_FEEDBACK_PROCESSOR.value, 0, NodeType.MAIN.value,
+                output_content=json.dumps(
+                    {
+                        "selected_text": feedback.get("selected_text"),
+                        "rewritten_text": algorithm_output["rewritten_text"],
+                        "rewritten_start_offset": algorithm_output["rewritten_start_offset"],
+                        "rewritten_end_offset": algorithm_output["rewritten_end_offset"],
+                    },
+                    ensure_ascii=False,
+                )
+            ))
 
         logger.info("[UserFeedbackProcessorNode] Rewrite completed, loop back for next interaction.")
         return dict(next_node=next_node)
