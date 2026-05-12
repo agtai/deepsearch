@@ -1,9 +1,16 @@
+import json
 from unittest.mock import Mock, AsyncMock, patch
 
 import pytest
 
 from openjiuwen_deepsearch.algorithm.query_understanding.planner import Planner, PlannerResult, create_plan_tool
 from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import Plan, StepType
+
+
+async def _make_async_iter(chunks: list):
+    """Helper function to create an async iterator from a list of chunks."""
+    for chunk in chunks:
+        yield chunk
 
 # 定义测试数据
 test_data = {
@@ -204,7 +211,10 @@ class TestPlanner:
             ]
         }
         mock_http_response = Mock()
-        mock_http_response.json.return_value = {
+        mock_http_response.headers = {}
+        mock_http_response.encoding = "utf-8"
+        mock_http_response.raise_for_status = Mock()
+        json_data = json.dumps({
             "code": 0,
             "message": "ok",
             "data": {
@@ -214,12 +224,17 @@ class TestPlanner:
                 "is_research_completed": True,
                 "steps": [],
             }
-        }
-        mock_http_response.raise_for_status = Mock()
+        }).encode("utf-8")
+        mock_http_response.aiter_bytes = Mock(return_value=_make_async_iter([json_data]))
+        
+        mock_stream_cm = AsyncMock()
+        mock_stream_cm.__aenter__ = AsyncMock(return_value=mock_http_response)
+        mock_stream_cm.__aexit__ = AsyncMock(return_value=None)
+        
         mock_client = AsyncMock()
-        mock_client.request.return_value = mock_http_response
-        mock_client.__aenter__.return_value = mock_client
-        mock_client.__aexit__.return_value = None
+        mock_client.stream.return_value = mock_stream_cm
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
 
         with patch(
                 'openjiuwen_deepsearch.algorithm.query_understanding.planner.ainvoke_llm_with_stats',

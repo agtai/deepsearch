@@ -137,10 +137,10 @@ class TavilySearchAPIWrapper(BaseModel, Generic[T]):
                 "score": result.get("score", 0.0),
             }
 
-            # Add raw_content if present
+            # Add raw_content if present, with length limit to prevent resource consumption
             raw_content = result.get("raw_content")
             if raw_content:
-                cleaned_result["raw_content"] = raw_content
+                cleaned_result["raw_content"] = raw_content[:MAX_SEARCH_CONTENT_LENGTH]
             cleaned_results.append(cleaned_result)
 
         return cleaned_results
