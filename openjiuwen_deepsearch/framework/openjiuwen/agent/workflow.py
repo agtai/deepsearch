@@ -31,6 +31,7 @@ from openjiuwen_deepsearch.algorithm.search_agent.deepsearch_agent import (
     parse_and_validate_init_state_result,
     parse_and_validate_state_creation_result,
 )
+from openjiuwen_deepsearch.algorithm.search_nodes.utils import anonymize_config_for_logging
 from openjiuwen_deepsearch.algorithm.search_nodes.llm_utils import _run_llm_via_ainvoke
 from openjiuwen_deepsearch.algorithm.search_nodes.run_action import (
     _parse_one_native_tool_call,
@@ -1294,7 +1295,7 @@ class DeepSearchAgent(BaseAgent):
                 self.total_output_tokens += state_result.get("total_output_tokens", 0)
 
                 result: Result | None = state_result.get("result")
-                config = state_result.get("config", {})
+                config = anonymize_config_for_logging(copy.deepcopy(state_result.get("config", {})))
                 self.fail_count += config.get("fail_count", self.fail_count)
 
                 self.action_pool.record_completed(completed_action, result)
@@ -1527,7 +1528,6 @@ class DeepSearchAgent(BaseAgent):
             for _, llm_config in llm_configs.items():
                 llm_obj = create_llm_obj(llm_config)
                 all_llms[llm_config.model_name] = llm_obj
-
             general_cfg = llm_configs[LlmConfigCategory.GENERAL.value]
             init_llm_map = self.search_config.init_state_agent.llm_config
             init_llm = init_llm_map.get("general") if init_llm_map else None

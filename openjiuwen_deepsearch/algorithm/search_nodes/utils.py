@@ -1,3 +1,4 @@
+import copy
 import json
 import logging
 import os
@@ -42,6 +43,72 @@ def to_dict_safe(obj: Any) -> Any:
         return obj
     if hasattr(obj, "model_dump") and callable(getattr(obj, "model_dump")):
         return obj.model_dump()
+    return obj
+
+
+_SENSITIVE_HEADER_NAMES = frozenset(
+    {
+        "authorization",
+        "proxy-authorization",
+        "x-api-key",
+        "api-key",
+        "x-auth-token",
+        "x-goog-api-key",
+    }
+)
+
+
+def _is_sensitive_config_key(name: str) -> bool:
+    lk = name.lower()
+    if lk in (
+        "api_key",
+        "apikey",
+        "token",
+        "password",
+        "passwd",
+        "secret",
+        "client_secret",
+        "consumer_secret",
+        "private_key",
+        "authorization",
+    ):
+        return True
+    if lk.endswith("_api_key") or lk.endswith("_apikey"):
+        return True
+    if lk.endswith("_token") and not lk.endswith("_tokens"):
+        return True
+    if "api_key" in lk:
+        return True
+    return False
+
+
+def anonymize_config_for_logging(obj: Any) -> Any:
+    """Deep-copy ``obj`` and replace credential-like values for logs / persisted SearchFinalResult."""
+    if obj is None:
+        return None
+    if isinstance(obj, (bytes, bytearray)):
+        return "***"
+    if isinstance(obj, dict):
+        name_raw = obj.get("name")
+        if isinstance(name_raw, str) and name_raw.lower() in _SENSITIVE_HEADER_NAMES and "value" in obj:
+            out: Dict[str, Any] = {}
+            for k, v in obj.items():
+                if k == "value":
+                    out[k] = "***"
+                else:
+                    out[k] = anonymize_config_for_logging(v)
+            return out
+        out = {}
+        for k, v in obj.items():
+            ks = k if isinstance(k, str) else str(k)
+            if _is_sensitive_config_key(ks):
+                out[ks] = "***"
+            else:
+                out[ks] = anonymize_config_for_logging(v)
+        return out
+    if isinstance(obj, (list, tuple)):
+        seq = [anonymize_config_for_logging(x) for x in obj]
+        return type(obj)(seq) if isinstance(obj, tuple) else seq
     return obj
 
 
@@ -284,7 +351,8 @@ def _save_and_return_search_final_result(
     save_config: SaveSearchFinalResultConfig,
 ) -> SearchFinalResult:
     params = save_config.params or {}
-    config = save_config.config or {}
+    raw_config = save_config.config or {}
+    config = anonymize_config_for_logging(copy.deepcopy(raw_config))
     retrieved_evidence_ids = save_config.retrieved_evidence_ids or []
     completion_time = time.time() - params.get("start_time", 0)
 

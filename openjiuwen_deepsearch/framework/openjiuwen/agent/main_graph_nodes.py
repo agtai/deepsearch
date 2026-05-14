@@ -18,6 +18,7 @@ from openjiuwen.core.workflow.components.flow.end_comp import End
 from openjiuwen.core.workflow.components.flow.start_comp import Start
 
 from openjiuwen_deepsearch.algorithm.chart_generation.vlm_chart_generator import VLMChartGenerator
+from openjiuwen_deepsearch.algorithm.search_nodes.utils import anonymize_config_for_logging
 from openjiuwen_deepsearch.algorithm.query_understanding.interpreter import query_interpreter
 from openjiuwen_deepsearch.algorithm.query_understanding.intent_recognition import recognize_report_intent
 from openjiuwen_deepsearch.algorithm.query_understanding.outliner import Outliner
@@ -1910,7 +1911,7 @@ class SearchEndNode(End):
             config = session.get_global_state("config") or {}
             payload = {
                 "result": result,
-                "config": config,
+                "config": anonymize_config_for_logging(copy.deepcopy(config)),
                 "total_input_tokens": total_input_tokens,
                 "total_output_tokens": total_output_tokens,
             }
