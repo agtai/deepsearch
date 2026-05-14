@@ -217,13 +217,6 @@ When **`tool_map == "retrieve"`**, point the agent at Milvus + the embedding HTT
 | `embedder_base_url` | str | `""` | Embeddings URL, e.g. `http://localhost:11450/v1/embeddings` |
 | `embedder_timeout` | int | `100` | HTTP timeout (seconds) |
 
-**Supported embedding models** (same as **`RemoteQwenEmbedder`** in `openjiuwen_deepsearch/algorithm/search_tools/retrieval/embedder.py`):
-
-- `qwen3-embedding-0.6b` — 1024 dims  
-- `qwen3-embedding-8b` — 4096 dims  
-
-Other names fail at init unless you extend **`_model2embed_dim`** and **`_model2query_instruction`** in the embedder.
-
 **Retriever `mode`**
 
 - **`dense`**: vector similarity only  
@@ -466,7 +459,7 @@ Steps at a glance:
 #### Quick path
 
 1. Run Milvus per the official guide: [Milvus standalone (Docker)](https://milvus.io/docs/install_standalone-docker.md).  
-2. Run an **OpenAI-compatible embeddings** HTTP service. **Only** **`qwen3-embedding-0.6b`** and **`qwen3-embedding-8b`** are supported today (see **`RemoteQwenEmbedder`** in `openjiuwen_deepsearch/algorithm/search_tools/retrieval/embedder.py`).  
+2. Run an **OpenAI-compatible embeddings** HTTP service. **Only** **`qwen3-embedding-0.6b`** and **`qwen3-embedding-8b`** are supported today (see **`OpenJiuwenAPIEmbedder`** in `openjiuwen_deepsearch/algorithm/search_tools/retrieval/embedder.py`).  
 3. Configure **`openjiuwen_deepsearch/algorithm/search_index/create_browsecompplus_index.py`** via **environment variables or module-level constants** (the script prefers **`_env(...)`**; defaults exist for many fields — **set `EMBED_API_URL` and `EMBED_API_KEY` before production runs**).  
 4. Run:
 
@@ -523,7 +516,7 @@ uv run -m openjiuwen_deepsearch.algorithm.search_index.create_browsecompplus_ind
 The script:
 
 1. Connects to Milvus (default **`MILVUS_URI=http://localhost:19530`**, plus **`MILVUS_TOKEN`**, etc.) and selects / creates the database  
-2. Builds **`RemoteQwenEmbedder`** (`api_url`, `api_token`, `timeout`)  
+2. Builds **`OpenJiuwenAPIEmbedder`** (`api_url`, `api_token`, `timeout`)  
 3. Loads **`DATA_LOCATION`** JSONL  
 4. Chunks with **`BrowseCompChunker`** (**`TokenizerChunker`**, up to **2048** tokens per chunk)  
 5. Embeds in batches and writes dense + BM25 sparse rows into **`MILVUS_COLLECTION_NAME`**
@@ -557,7 +550,7 @@ Aligned with the current script:
 
 1. **Milvus client** — **`MilvusClient(uri=MILVUS_URI, token=MILVUS_TOKEN, database=...)`**  
 2. **Database** — create **`MILVUS_DB_NAME`** if missing; **`using_database`**  
-3. **Embedder** — require **`EMBED_API_URL`** / **`EMBED_API_KEY`**; **`RemoteQwenEmbedder(...)`**; timeout falls back to **60s** if **`EMBED_TIMEOUT ≤ 0`**; tokenizer from **`HUGGINGFACE_MODEL_NAME`** for **`BrowseCompChunker`**  
+3. **Embedder** — require **`EMBED_API_URL`** / **`EMBED_API_KEY`**; **`OpenJiuwenAPIEmbedder(...)`**; timeout falls back to **60s** if **`EMBED_TIMEOUT ≤ 0`**; tokenizer from **`HUGGINGFACE_MODEL_NAME`** for **`BrowseCompChunker`**  
 4. **Load JSONL** — **`read_jsonl`**, build **`doc_id2doc`**, query-id maps, …  
 5. **Schema** — **`setup_milvus_collection()`**: PK **`id`**, dense **`embedding`**, **`content`**, sparse **`content_sparse`**, BM25 function, **`AUTOINDEX` + COSINE** for dense, **`SPARSE_INVERTED_INDEX`** for sparse  
 6. **Index** — **`BrowseCompChunker`** + **`index_documents_milvus()`** calling **`encoder_model.encode()`**  

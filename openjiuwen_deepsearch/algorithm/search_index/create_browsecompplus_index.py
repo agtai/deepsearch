@@ -17,7 +17,8 @@ from openjiuwen_deepsearch.algorithm.search_index.index_utils import (
 )
 from openjiuwen_deepsearch.algorithm.search_index.tokenizer_chunker import TokenizerChunker
 from openjiuwen_deepsearch.algorithm.search_tools.retrieval.embedder import (
-    RemoteQwenEmbedder,
+    AbstractEmbedder,
+    OpenJiuwenAPIEmbedder,
 )
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
@@ -284,7 +285,7 @@ class IndexDocumentsConfig:
     input_docs: list[dict]
     milvus_client: MilvusClient
     collection_name: str
-    encoder_model: RemoteQwenEmbedder
+    encoder_model: AbstractEmbedder
     chunk_splitter: BrowseCompChunker | None = None
     doc_id2gold_query_id: dict[str, list[str]] | None = None
     doc_id2evidence_query_id: dict[str, list[str]] | None = None
@@ -448,7 +449,7 @@ if __name__ == "__main__":
             " 示例：EMBED_API_URL = 'http://localhost:11450/v1/embeddings'"
         )
     timeout = EMBED_TIMEOUT if EMBED_TIMEOUT and EMBED_TIMEOUT > 0 else 60
-    model = RemoteQwenEmbedder(
+    model = OpenJiuwenAPIEmbedder(
         pretrained_model=EMBED_MODEL_NAME,
         api_token=EMBED_API_KEY,
         api_url=EMBED_API_URL,

@@ -7,7 +7,7 @@ from openjiuwen_deepsearch.algorithm.search_tools.retrieval.base_retriever impor
     RetrieveConfig,
 )
 from openjiuwen_deepsearch.algorithm.search_tools.retrieval.embedder import (
-    RemoteQwenEmbedder,
+    OpenJiuwenAPIEmbedder,
 )
 from openjiuwen_deepsearch.algorithm.search_tools.retrieval.retriever import (
     BrowsecompPlusMilvusRetriever,
@@ -59,7 +59,7 @@ class RetrieveBrowsecompPlus(Retrieve):
         embedder_api_key = config.get("embedder_api_key")
         embedder_base_url = config.get("embedder_base_url")
         embedder_timeout = config.get("embedder_timeout")
-        embedder = RemoteQwenEmbedder(
+        embedder = OpenJiuwenAPIEmbedder(
             pretrained_model=embedder_model_name,
             api_token=embedder_api_key,
             api_url=embedder_base_url,

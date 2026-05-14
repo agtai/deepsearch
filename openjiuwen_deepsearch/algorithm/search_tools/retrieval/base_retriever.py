@@ -6,7 +6,7 @@ from typing import List, Optional, Tuple
 from pymilvus import MilvusClient
 
 from openjiuwen_deepsearch.algorithm.search_tools.retrieval.embedder import (
-    RemoteQwenEmbedder,
+    AbstractEmbedder,
 )
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
@@ -31,7 +31,7 @@ class BaseRetriever(ABC):
         milvus_port: str,
         database_name: str,
         collection_name: str,
-        embedder: RemoteQwenEmbedder,
+        embedder: AbstractEmbedder,
         vector_field: str = "embedding",
         text_field: str = "content",
         sparse_field: str = "content_sparse",

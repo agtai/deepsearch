@@ -238,12 +238,6 @@ AgentConfig 下与 Search 相关的主要包括：
 
 **说明**：retrieve 模式下，`embedder_model_name`、`embedder_api_key`、`embedder_base_url`、`embedder_timeout` 需在配置中正确填写，否则创建检索工具时会报错。
 
-**支持的 Embedding 模型**（与 `openjiuwen_deepsearch/algorithm/search_tools/retrieval/embedder.py` 中 `RemoteQwenEmbedder` 一致）：
-* `qwen3-embedding-0.6b`（向量维度 1024）
-* `qwen3-embedding-8b`（向量维度 4096）
-
-使用其他模型名会在初始化时报错；若需支持更多模型，需在 embedder 中扩展 `_model2embed_dim` 与 `_model2query_instruction`。
-
 
 **检索模式说明**：
 - `dense`: 密集检索（向量相似度）
@@ -505,9 +499,6 @@ python -m main \
 1. 按照官方文档部署 Milvus：  
    [https://milvus.io/docs/install_standalone-docker.md](https://milvus.io/docs/install_standalone-docker.md)
 
-2. 部署 **Embedding 服务**，并暴露兼容 OpenAI Embeddings 的 API。  
-   **当前仅支持以下两个模型**：`qwen3-embedding-0.6b`、`qwen3-embedding-8b`（与 `openjiuwen_deepsearch/algorithm/search_tools/retrieval/embedder.py` 中 `RemoteQwenEmbedder` 一致）。
-
 3. 在 **`openjiuwen_deepsearch/algorithm/search_index/create_browsecompplus_index.py`** 中通过**环境变量或文件顶部常量**配置（脚本优先读环境变量，未设置时用文件内默认值；**生产索引前务必显式设置 Embedding 的 URL 与 Key**）：
    * **必须可用**：`EMBED_API_URL`、`EMBED_API_KEY`（为空则运行时报错）
    * **常用可选**：`DATA_LOCATION`、`MILVUS_URI`、`MILVUS_TOKEN`、`MILVUS_DB_NAME`、`MILVUS_COLLECTION_NAME`、`EMBED_MODEL_NAME`、`EMBED_TIMEOUT`、`BATCH_SIZE` 等（见下方配置说明）
@@ -577,7 +568,7 @@ uv run -m openjiuwen_deepsearch.algorithm.search_index.create_browsecompplus_ind
 该脚本会执行以下操作：
 
 1. 连接 Milvus（默认 `MILVUS_URI`=`http://localhost:19530`，可与 `MILVUS_TOKEN` 等一并配置），按需创建数据库并切换
-2. 使用 **`RemoteQwenEmbedder`**（仅支持 `qwen3-embedding-0.6b`、`qwen3-embedding-8b`）初始化 Embedding 模型，需配置 `api_url`、`api_token`、`timeout`
+2. 使用 **`OpenJiuwenAPIEmbedder`**（仅支持 `qwen3-embedding-0.6b`、`qwen3-embedding-8b`）初始化 Embedding 模型，需配置 `api_url`、`api_token`、`timeout`
 3. 加载 `DATA_LOCATION` 指定的 JSONL 文件（如 `browsecompplus.jsonl`）
 4. 使用 `BrowseCompChunker`（基于 `TokenizerChunker`，最大 2048 token）对文档切块
 5. 批量调用 Embedding API 生成向量，并将文本块与 BM25 稀疏向量写入 Milvus 集合（集合名由 `MILVUS_COLLECTION_NAME` 指定）
@@ -617,7 +608,7 @@ uv run -m openjiuwen_deepsearch.algorithm.search_index.create_browsecompplus_ind
 
 3. **Embedding 模型初始化**  
    * 校验 `EMBED_API_URL`、`EMBED_API_KEY` 已填写（未填写则报错）。
-   * 使用 `RemoteQwenEmbedder(pretrained_model=EMBED_MODEL_NAME, api_token=EMBED_API_KEY, api_url=EMBED_API_URL, timeout=...)` 创建编码器；若 `EMBED_TIMEOUT` 未设置或 ≤0，则使用 60 秒。  
+   * 使用 `OpenJiuwenAPIEmbedder(pretrained_model=EMBED_MODEL_NAME, api_token=EMBED_API_KEY, api_url=EMBED_API_URL, timeout=...)` 创建编码器；若 `EMBED_TIMEOUT` 未设置或 ≤0，则使用 60 秒。  
    * **当前仅支持** `qwen3-embedding-0.6b`、`qwen3-embedding-8b`。
    * 使用 `HUGGINGFACE_MODEL_NAME` 加载本地 tokenizer（如 `Qwen/Qwen3-Embedding-8B`），用于 `BrowseCompChunker` 的 token 统计与切分。
 
