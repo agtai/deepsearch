@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+import logging
 from typing import List, Optional, Tuple
 
 from pymilvus import MilvusClient
@@ -7,6 +8,10 @@ from pymilvus import MilvusClient
 from openjiuwen_deepsearch.algorithm.search_tools.retrieval.embedder import (
     RemoteQwenEmbedder,
 )
+from openjiuwen_deepsearch.common.exception import CustomValueException
+from openjiuwen_deepsearch.common.status_code import StatusCode
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -36,17 +41,25 @@ class BaseRetriever(ABC):
         client: MilvusClient = None,
     ):
         self.embedder = embedder
-        self.client = MilvusClient(
+        self.client = client or MilvusClient(
             uri=f"http://{milvus_host}:{milvus_port}",
         )
 
         if database_name and database_name != "default":
             if database_name not in self.client.list_databases():
-                self.client.create_database(database_name)
+                error_msg = f"[RETRIEVER] Milvus database '{database_name}' does not exist."
+                logger.error(error_msg)
+                raise CustomValueException(
+                    StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
+                    StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(e=error_msg))
             self.client.use_database(database_name)
 
         if collection_name not in self.client.list_collections():
-            self.client.create_collection(collection_name)
+            error_msg = f"[RETRIEVER] Milvus collection '{collection_name}' does not exist."
+            logger.error(error_msg)
+            raise CustomValueException(
+                StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
+                StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(e=error_msg))
         self.client.load_collection(collection_name)
 
         self.vector_field = vector_field
