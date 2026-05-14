@@ -842,12 +842,13 @@ class Reporter:
         return True
 
     async def _add_sub_report_transaction(self, current_inputs: dict):
-        logger.debug(
-            "%s [_generate_sub_report_transaction] Starting section_idx: %s, current_inputs: %s",
-            EFFECT_SUB_REPORT_TAG,
-            current_inputs.get("section_idx", 1),
-            current_inputs,
-        )
+        if not LogManager.is_sensitive():
+            logger.debug(
+                "%s [_generate_sub_report_transaction] Starting section_idx: %s, current_inputs: %s",
+                EFFECT_SUB_REPORT_TAG,
+                current_inputs.get("section_idx", 1),
+                current_inputs,
+            )
         summary_prev = current_inputs.get("summary_prev", "")
         summary_next = current_inputs.get("summary_next", "")
         if not summary_prev and not summary_next:
@@ -871,7 +872,7 @@ class Reporter:
                 ),
             )
 
-            if LogManager.is_sensitive():
+            if not LogManager.is_sensitive():
                 logger.debug(
                     "%s [_generate_sub_report_transaction] section_idx: %s llm_input is %s",
                     EFFECT_SUB_REPORT_TAG,
@@ -886,7 +887,7 @@ class Reporter:
                     messages=llm_input,
                     agent_name=AgentLlmName.REPORTER_TRANSACTION.value,
                 )
-                if LogManager.is_sensitive():
+                if not LogManager.is_sensitive():
                     logger.debug(
                         "%s [_generate_sub_report_transaction] section_idx: %s llm_output is %s",
                         EFFECT_SUB_REPORT_TAG,
@@ -1916,12 +1917,13 @@ class Reporter:
 
     async def _generate_sub_report_summary(self, current_inputs: dict):
         """generate sub report summary"""
-        logger.debug(
-            "%s [_generate_sub_report_summary] Starting section_idx: %s, current_inputs: %s",
-            EFFECT_SUB_REPORT_TAG,
-            current_inputs.get("section_idx", 1),
-            current_inputs,
-        )
+        if not LogManager.is_sensitive():
+            logger.debug(
+                "%s [_generate_sub_report_summary] Starting section_idx: %s, current_inputs: %s",
+                EFFECT_SUB_REPORT_TAG,
+                current_inputs.get("section_idx", 1),
+                current_inputs,
+            )
         sub_report_content = current_inputs.get("sub_report_content", "")
         if not sub_report_content:
             logger.warning(
@@ -1962,7 +1964,7 @@ class Reporter:
                     messages=llm_input,
                     agent_name=AgentLlmName.SUB_REPORTER_SUMMARY.value,
                 )
-                if LogManager.is_sensitive():
+                if not LogManager.is_sensitive():
                     logger.debug(
                         "%s [_generate_sub_report_summary] section_idx: %s llm_output is %s",
                         EFFECT_SUB_REPORT_TAG,

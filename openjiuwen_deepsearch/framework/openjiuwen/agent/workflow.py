@@ -113,7 +113,7 @@ from openjiuwen_deepsearch.utils.common_utils.llm_utils import (
     is_workflow_llm_usage_empty,
     pop_workflow_llm_usage,
 )
-from openjiuwen_deepsearch.utils.common_utils.security_utils import zero_secret
+from openjiuwen_deepsearch.utils.common_utils.security_utils import ensure_safe_directory, zero_secret
 from openjiuwen_deepsearch.utils.common_utils.stream_utils import (
     MessageType,
     StreamEvent,
@@ -1682,8 +1682,10 @@ class SimpleReactSearchAgent(BaseAgent):
             tool_exec_config_base = dict(sc_dict)
 
             base_log_dir = LogManager.get_log_dir() or "./output/logs"
-            log_dir = os.path.join(base_log_dir, f"result_{conversation_id}")
-            os.makedirs(log_dir, exist_ok=True)
+            log_dir = ensure_safe_directory(
+                os.path.join(base_log_dir, f"result_{conversation_id}"),
+                base_log_dir,
+            )
 
             emit(
                 "react_run_started",

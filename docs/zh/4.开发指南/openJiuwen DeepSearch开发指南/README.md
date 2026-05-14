@@ -192,6 +192,8 @@ async for chunk in agent.run(message=message, conversation_id=str(uuid.uuid4()),
  - 功能概述是对目标研究报告的具体内容的进一步描述。
  - 是否核心章节是对目标研究报告的当前章节是否关键章节的标识，核心章节为系统重点撰写的章节。
 
+模板文件通过 `generate_template` 上传时，base64 解码后的原始文件大小上限为 `50 MB`；规范化后的 Markdown 内容大小上限为 `5 MB`。
+
 以下是模板文件实例：
 ```markdown
 # 企业基本情况
@@ -274,6 +276,8 @@ async for chunk in agent.run(message=message, conversation_id=conversation_id, a
 当配置参数`agent_config`中，开启遵从模板模式时，用户同时输入已准备好的样例报告文件内容，系统可以先根据用户提供的样例报告文件，提取出模板内容，再遵从模板内容要求，进行研究报告生成。
 
 用户提供的样例报告文件，与期望生成研究报告遵循相同模板。样例报告文件格式支持markdown、docx、pdf、html。
+
+样例报告通过 `generate_template` 上传时，base64 解码后的原始文件大小上限为 `50 MB`；若为 PDF，最多支持 `512` 页；若为 DOCX，解压后的总大小上限为 `50 MB`，且 `word/document.xml` 大小上限为 `8 MB`；解析后的 Markdown 内容大小上限为 `5 MB`。
 
 与上一小节“根据用户查询和用户已有模板生成研究报告”不同的是，`DeepresearchAgent` 的 `generate_template` 函数中，入参 `is_template` 应取值为 `False`，表示用户提供的是样例报告文件。
 

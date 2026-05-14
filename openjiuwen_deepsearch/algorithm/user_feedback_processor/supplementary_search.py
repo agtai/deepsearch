@@ -21,6 +21,7 @@ from openjiuwen_deepsearch.framework.openjiuwen.agent.collector_graph.collector_
 )
 from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import Plan, Step, StepType
 from openjiuwen_deepsearch.utils.constants_utils.node_constants import AgentLlmName
+from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
 
 logger = logging.getLogger(__name__)
 
@@ -179,8 +180,14 @@ class SupplementarySearcher(UserFeedbackPromptInvoker):
 
         # 获取原始选区文本用于返回
         original_sel = report_content[feedback["start_offset"]:feedback["end_offset"]]
-        logger.debug("[SupplementarySearcher] original_text: %s", original_sel)
-        logger.debug("[SupplementarySearcher] rewritten_text: %s", rewritten_selected)
+        logger.debug(
+            "[SupplementarySearcher] original_len=%s, rewritten_len=%s",
+            len(original_sel),
+            len(rewritten_selected),
+        )
+        if not LogManager.is_sensitive():
+            logger.debug("[SupplementarySearcher] original_text: %s", original_sel)
+            logger.debug("[SupplementarySearcher] rewritten_text: %s", rewritten_selected)
         return {
             "new_report": new_report,
             "original_text": original_sel,

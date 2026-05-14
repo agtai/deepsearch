@@ -256,3 +256,37 @@ class TestPlanner:
         assert result.response_messages[1]["name"] == "runtime_plan_tool"
         assert tool_name in tool_names
         assert "runtime_plan_tool" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_generate_plan_rejects_steps_exceeding_max_step_num(self, setup_planner, mock_llm):
+        """planner should fail when the model returns more steps than allowed."""
+        excessive_response = {
+            **functioncall_response,
+            "tool_calls": [
+                {
+                    **functioncall_response["tool_calls"][0],
+                    "args": {
+                        **functioncall_response["tool_calls"][0]["args"],
+                        "steps": [
+                            {
+                                "description": f"Description {idx}",
+                                "title": f"Step {idx}",
+                                "type": "info_collecting"
+                            }
+                            for idx in range(3)
+                        ],
+                    },
+                }
+            ],
+        }
+
+        with patch(
+                'openjiuwen_deepsearch.algorithm.query_understanding.planner.ainvoke_llm_with_stats',
+                new_callable=AsyncMock,
+                return_value=excessive_response
+        ):
+            result = await setup_planner.generate_plan({**test_data, "max_step_num": 2})
+
+        assert result.plan_success is False
+        assert result.plan is None
+        assert "steps" in result.error_msg.lower()

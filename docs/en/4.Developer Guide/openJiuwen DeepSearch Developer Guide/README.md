@@ -187,6 +187,8 @@ async for chunk in agent.run(message=message, conversation_id=conversation_id, a
 
 Enable template-following in `agent_config`. The template describes top-level sections, subsections, functional notes, and whether a section is “core.”
 
+When uploaded through `generate_template`, the decoded Markdown template file must be no larger than `50 MB`, and the normalized Markdown output is capped at `5 MB`.
+
 Example template (Markdown):
 
 ```markdown
@@ -259,6 +261,8 @@ async for chunk in agent.run(
 ---
 
 Same as above but upload a sample report (Markdown, DOCX, PDF, HTML) and set `is_template=False` in `generate_template`. The service extracts a template, then you call `run` with `report_template=user_template_content` as in the previous section.
+
+For uploaded sample reports, the decoded source file must be no larger than `50 MB`. PDFs support up to `512` pages. For DOCX, the uncompressed package must stay within `50 MB`, and `word/document.xml` must stay within `8 MB`. The parsed Markdown output is capped at `5 MB`.
 
 # Human-in-the-loop (HITL)
 
