@@ -155,12 +155,142 @@ Same surface as **`BaseAgent.run`**. Validates with `validate_run_agent_params` 
 - **`"search_fetch"`**: `WebFetch` + `WebSearch` (uses `jina_api_key`, `serper_api_key` on **`agent_config`**).
 - **`"retrieve"`**: `RetrieveBrowsecompPlus` (Milvus / embedder fields from **`search_workflow_milvus_config`**).
 
+### `MilvusConfig` (`search_workflow_milvus_config`)
+
+`MilvusConfig` is used when `tool_map="retrieve"` to configure the Milvus-backed retrieval source and embedding endpoint used by DeepSearch search-mode actions.
+
+**Supported fields (meaning and defaults):**
+- **`milvus_host`** (`str`, default `"localhost"`): Milvus host address.
+- **`milvus_port`** (`int`, default `19530`): Milvus service port.
+- **`database_name`** (`str`, default `"deepsearch_benchmarks"`): Milvus database name.
+- **`collection_name`** (`str`, default `"browsecompplus_with_bm25"`): collection to query.
+- **`embedder_model_name`** (`str`, default `"qwen3-embedding-8b"`): embedding model name (currently supported: `qwen3-embedding-0.6b`, `qwen3-embedding-8b`).
+- **`embedder_api_key`** (`bytearray`, default empty): embedding service API key.
+- **`embedder_base_url`** (`str`, default `""`): embedding endpoint URL (for example `http://localhost:11450/v1/embeddings`).
+- **`embedder_timeout`** (`int`, default `100`): embedding request timeout in seconds.
+- **`model_config`** (`dict`, optional): extra model config fields to pass through to the embedder.
+
+**Usage notes**:
+- If the index is created by `create_browsecompplus_index.py` (openjiuwen_deepsearch/algorithm/search_index/create_browsecompplus_index.py), then the default milvus settings from the above MilvusConfig can be used without changes.
+
+- If the index is built using “Sync to Deepsearch” option from openJiuwen studio, then the `collection_name` should be set to "ds_kb_{kb_id}_chunks" and `database_name` should be set to "default".
+
+
+**Basic usage example (DeepSearch Agent API + Milvus retrieve mode):**
+```python
+import asyncio
+import copy
+import uuid
+from openjiuwen_deepsearch.config.config import Config
+from openjiuwen_deepsearch.framework.openjiuwen.agent.agent_factory import AgentFactory
+
+
+async def main():
+    agent_config = Config().agent_config.model_dump()
+    agent_config["search_mode"] = "search"
+    agent_config["workflow_human_in_the_loop"] = False
+    agent_config["search_workflow_per_question_params"]["tool_map"] = "retrieve"
+
+    agent_config["llm_config"]["general"] = {
+        "model_name": "<YOUR_LLM_MODEL_NAME>",
+        "model_type": "<YOUR_LLM_MODEL_TYPE>",
+        "base_url": "<YOUR_LLM_BASE_URL>",
+        "api_key": bytearray("<YOUR_LLM_API_KEY>", encoding="utf-8"),
+        "hyper_parameters": {"temperature": 0.2, "top_p": 1.0},
+        "extension": {},
+    }
+
+    agent_config["search_workflow_milvus_config"] = {
+        "milvus_host": "127.0.0.1",
+        "milvus_port": 19530,
+        "database_name": "deepsearch_benchmarks",
+        "collection_name": "browsecompplus_with_bm25",
+        "embedder_model_name": "qwen3-embedding-8b",
+        "embedder_api_key": bytearray("<YOUR_EMBEDDER_API_KEY>", encoding="utf-8"),
+        "embedder_base_url": "http://localhost:11450/v1/embeddings",
+        "embedder_timeout": 100,
+    }
+
+    agent = AgentFactory().create_agent(copy.deepcopy(agent_config))
+    async for _ in agent.run(
+        message="Your question",
+        conversation_id=str(uuid.uuid4()),
+        report_template="",
+        interrupt_feedback="",
+        agent_config=agent_config,
+    ):
+        pass
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### `SearchWorkflowConfig` (`service_config.search_workflow`)
+
+`SearchWorkflowConfig` controls DeepSearch search sub-workflow behavior (state initialization, action generation, state creation, and validation policies). In `run(...)`, it is parsed from `agent_config["service_config"]["search_workflow"]`; if parsing fails, defaults are used.
+
+**Supported fields (meaning and defaults):**
+
+- **`action_sampling`** (`ActionSamplingConfig`, default `ActionSamplingConfig()`)
+  - `depth_weight` (`bool`, default `True`): whether to use depth-based weighting.
+  - `promote_unique_states` (`bool`, default `False`): whether to promote unique states.
+  - `random_sample` (`bool`, default `False`): whether to sample actions randomly.
+
+- **`init_state_agent`** (`InitStateAgentConfig`, default `InitStateAgentConfig()`)
+  - `max_tries` (`int`, default `10`): max retries for init-state generation.
+  - `llm_config` (`dict`, default `{}`): phase-specific LLM config mapping.
+
+- **`find_action_agent`** (`FindActionAgentConfig`, default `FindActionAgentConfig()`)
+  - `llm_config` (`dict`, default `{}`): phase-specific LLM config mapping.
+  - `action_proposals_limit` (`int`, default `5`): max action proposals per round.
+  - `action_pool_depleted_strategy` (`"simple_retry" | "dependent_retry"`, default `"dependent_retry"`): strategy when action pool is depleted.
+
+- **`state_creation_agent`** (`StateCreationAgentConfig`, default `StateCreationAgentConfig()`)
+  - `log_fetch` (`bool`, default `False`): whether to log fetch operations.
+  - `log_search` (`bool`, default `False`): whether to log search operations.
+  - `web_fetch_log_file` (`str`, default `"gnosis/tool_log/web_fetch_log.jsonl"`): fetch log path.
+  - `web_search_log_file` (`str`, default `"gnosis/tool_log/web_search_log.jsonl"`): search log path.
+  - `use_candidate_strength` (`bool`, default `True`): whether to use candidate-strength scoring.
+  - `discovered_clues_mode` (`"report" | "blacklist"`, default `"blacklist"`): discovered-clues handling mode.
+  - `max_llm_calls_per_run` (`int`, default `100`): max LLM calls in one state-creation run.
+  - `context_limit_reached_strategy` (`"fail" | "reduced_retrieval_request" | "delete_tool_responses" | "delete_tool_input_and_responses"`, default `"reduced_retrieval_request"`): strategy when context limit is hit.
+  - `llm_config` (`dict`, default `{}`): phase-specific LLM config mapping.
+  - `retrieval_settings` (`RetrievalSettingsConfig`, default `RetrievalSettingsConfig()`)
+    - `retrieval_prompt` (`"retrieve" | "retrieve_given_multihop_query"`, default `"retrieve"`)
+    - `top_k` (`int`, default `3`)
+    - `top_k_multiply_factor` (`int`, default `5`)
+    - `add_instruction` (`bool`, default `True`)
+    - `mode` (`"dense" | "sparse" | "hybrid"`, default `"hybrid"`)
+  - `validator_agent` (`ValidatorAgentConfig`, default `ValidatorAgentConfig()`)
+    - `validate_new_states` (`bool`, default `False`)
+    - `validate_answer` (`bool`, default `False`)
+    - `llm_config` (`dict`, default `{}`)
+
 Other values for **`tool_map`** raise **`CustomValueException`**.
 
 **Optional keys** removed before **`AgentConfig`** validation:
 
 - **`service_config`** (`dict`): nested **`search_workflow`** is validated as **`SearchWorkflowConfig`**.
 - **`gold_answer`** (`str | None`): optional benchmark label; forwarded into the final payload.
+`gold_answer` is an optional string field that can be included in the `agent_config` passed to `run(...)`. It is not used by the agent during execution but is attached to the final `SearchFinalResult` for evaluation purposes, allowing comparison between the predicted answer and a reference answer.
+
+**Basic usage example**:
+```python
+from openjiuwen_deepsearch.config.config import Config
+
+agent_config = Config().agent_config.model_dump()
+agent_config["gold_answer"] = "The president was John Doe."
+
+async for chunk in agent.run(
+    message="Who was the president ...?",
+    conversation_id="demo-conversation-id",
+    report_template="",
+    interrupt_feedback="",
+    agent_config=agent_config,
+):
+    ...
+```
 
 **Parameters**:
 - **message** (`str`): User question (**`query`** for the internal loop).
@@ -234,7 +364,18 @@ if __name__ == "__main__":
 ```
 
 **Yields**:
-- One JSON string (UTF-8, `ensure_ascii=False`) per run: serialized **`SearchFinalResult`** (or dict-safe fallback). Fields match the Pydantic model in `openjiuwen_deepsearch.framework.openjiuwen.agent.search_context` (**`question`**, **`termination`**, **`completion_time`**, **`current_date_time`**, **`prediction`**, **`gold_answer`**, **`messages`**, **`config`**, **`retrieved_evidence_ids`**).
+- One JSON string (UTF-8, `ensure_ascii=False`) per run: serialized **`SearchFinalResult`** (or dict-safe fallback).
+
+**`SearchFinalResult` field meanings**:
+- **`question`**: Original user query handled by this run.
+- **`termination`**: Stop reason (for example `answer`, `time_limit`, `actions_explored_limit`, `fail_limit`, `action_pool_depleted`, etc.).
+- **`completion_time`**: Total runtime in seconds for this run.
+- **`current_date_time`**: UTC timestamp string when final result is produced (`YYYYMMDDHHMMSSmmm`).
+- **`prediction`**: Final predicted answer text (or `null` when none found).
+- **`gold_answer`**: Optional benchmark/reference answer passed through for evaluation comparison.
+- **`messages`**: Final message history snapshot used by the search/react execution path.
+- **`config`**: Extra run metadata attached at finalization time (for example agent marker).
+- **`retrieved_evidence_ids`**: Aggregated evidence/document IDs collected during tool execution.
 
 **Raises**:
 - **`CustomValueException`**: invalid run params, missing **`general`** LLM config, invalid **`tool_map`**, or init-state workflow failure after retries.
@@ -256,279 +397,3 @@ Runs the **`state_creation`** subgraph for one **`Action`** under the given sema
 - Session / research models in [`search_context`](./search_context.md); **`SearchFinalResult`** lives in the same Python module for search-mode payloads.
 
 ---
-
-## Telemetry Backend API
-
-The telemetry backend is implemented by `server.telemetry_event_server` and runs as a FastAPI app (default: `http://127.0.0.1:8089`). It supports telemetry ingestion, background DeepSearch run execution, run cancellation, and JSONL log reads.
-
-### Starting the backend server
-
-Run the this command from project root:
-
-```bash
-uv run python -m server.telemetry_event_server
-```
-
-
-### `GET /health`
-Lightweight liveness endpoint (plain text response).
-
-**Response**:
-- `200 OK`, body is plain text:
-  - `ok; append JSONL to <path>` when file logging is enabled.
-  - `ok (no JSONL file)` when `--no-jsonl` is used.
-
-**Example output**:
-```text
-ok; append JSONL to /Users/dev/deepsearch/output/telemetry_logs/telemetry.jsonl
-```
-
-### `GET /`
-Root liveness endpoint; same behavior as `GET /health`.
-
-**Response**:
-- `200 OK` plain text.
-
-**Example output**:
-```text
-ok; append JSONL to /Users/dev/deepsearch/output/telemetry_logs/telemetry.jsonl
-```
-
-### `POST /events`
-Telemetry ingest endpoint (path configurable via `--path`, default `/events`).
-
-Accepts one JSON object per request and appends it as one JSONL line when file logging is enabled.
-
-**Request body**:
-- JSON object (commonly includes fields from telemetry emitter such as `event`, `run_id`, `seq`, `ts`, `payload`).
-- Empty body is accepted and treated as `{}`.
-
-**Response**:
-- `204 No Content` on success.
-- `400 Bad Request` if body is invalid JSON or not a JSON object.
-
-**Example request body (well-formed event JSON)**:
-```json
-{
-  "event": "run_started",
-  "run_id": "f23e4567-e89b-12d3-a456-426614174000",
-  "seq": 1,
-  "ts": "2026-05-07T13:15:01.123Z",
-  "source": "main.run_jiuwen_workflow",
-  "action_id": null,
-  "payload": {
-    "query": "Who was the president of the former country whose capital is known as the white city?",
-    "search_mode": "search"
-  }
-}
-```
-
-**Example output (success)**:
-```text
-HTTP/1.1 204 No Content
-```
-
-**Example output (invalid body)**:
-```json
-{
-  "detail": "Bad Request"
-}
-```
-
-### `POST /runs`
-Starts a background DeepSearch graph run (`search` or `react`, not `research`) via `main.run_jiuwen_workflow`.
-
-**Request body** (`CreateSearchRunRequest`):
-- `query` (`str`, required): user question.
-- `llm` (`object`, required): includes required `model_name`, `base_url`, `api_key`.
-- `search_mode` (`"search" | "react"`, default `"search"`).
-- `enable_question_router` (`bool`, default from `Config().agent_config`).
-- `run_id` (`str | null`, optional): if omitted, server generates UUID.
-- `conversation_id` (`str | null`, optional): if omitted, server generates UUID (API lifecycle correlation id).
-- `tool_map` (`"search_fetch" | "retrieve"`, default from `PerQuestionParams`).
-- `jina_api_key` / `serper_api_key` (required when `tool_map="search_fetch"`).
-- `milvus` (`object`, optional): Milvus/embedder settings; embedder key/base URL required when `tool_map="retrieve"`.
-- `search_workflow_per_question_params` (`object`, optional): shallow overrides validated against `PerQuestionParams`.
-
-**Response**:
-- `201 Created` with JSON:
-  - `run_id`: actual run id.
-  - `status`: `"started"`.
-  - `conversation_id`: API lifecycle conversation id.
-
-**Errors**:
-- `409 Conflict`: `run_id` already in progress.
-- `422 Unprocessable Entity`: validation error (e.g., missing required tool keys, invalid per-question overrides).
-
-**Example request body**:
-```json
-{
-  "search_mode": "search",
-  "enable_question_router": true,
-  "run_id": "f23e4567-e89b-12d3-a456-426614174000",
-  "query": "Who was the president of the former country whose capital is known as the white city?",
-  "conversation_id": "53e6d4e4-65bd-49ad-9a67-a0b6138df111",
-  "llm": {
-    "model_name": "gpt-4o-mini",
-    "model_type": "openai",
-    "base_url": "https://api.openai.com/v1",
-    "api_key": "sk-***",
-    "hyper_parameters": {
-      "temperature": 0.2,
-      "top_p": 1.0
-    },
-    "extension": {}
-  },
-  "tool_map": "search_fetch",
-  "jina_api_key": "jina_***",
-  "serper_api_key": "serper_***",
-  "search_workflow_per_question_params": {
-    "time_limit": 300,
-    "max_workers": 2
-  }
-}
-```
-
-**Example output (201)**:
-```json
-{
-  "run_id": "f23e4567-e89b-12d3-a456-426614174000",
-  "status": "started",
-  "conversation_id": "53e6d4e4-65bd-49ad-9a67-a0b6138df111"
-}
-```
-
-**Example output (409)**:
-```json
-{
-  "detail": "run_id already in progress"
-}
-```
-
-### `POST /runs/{run_id}/cancel`
-Cancels an in-flight run.
-
-**Path params**:
-- `run_id` (`str`): run identifier to cancel.
-
-**Response**:
-- `204 No Content` when cancellation signal is accepted.
-- `404 Not Found` if run is unknown or already finished.
-
-**Example output (204)**:
-```text
-HTTP/1.1 204 No Content
-```
-
-**Example output (404)**:
-```json
-{
-  "detail": "unknown or finished run_id"
-}
-```
-
-### `GET /telemetry/recent`
-Returns the last N telemetry events from JSONL (optionally filtered by `run_id`).
-
-**Query params**:
-- `n` (`int`, required): number of events to return; clamped to `[1, 10000]`.
-- `run_id` (`str`, optional): filter events for one run.
-
-**Response**:
-- `200 OK` JSON:
-  - `items`: list of telemetry event objects.
-  - `count`: number of returned items.
-
-**Example output**:
-```json
-{
-  "items": [
-    {
-      "event": "run_started",
-      "run_id": "f23e4567-e89b-12d3-a456-426614174000",
-      "seq": 1,
-      "ts": "2026-05-07T13:15:01.123Z",
-      "source": "main.run_jiuwen_workflow",
-      "action_id": null,
-      "payload": {
-        "query": "Who was the president of the former country whose capital is known as the white city?",
-        "search_mode": "search"
-      }
-    },
-    {
-      "event": "node_completed",
-      "run_id": "f23e4567-e89b-12d3-a456-426614174000",
-      "seq": 2,
-      "ts": "2026-05-07T13:15:04.008Z",
-      "source": "openjiuwen.agent.main_nodes",
-      "action_id": "9f203ecb-4465-44ca-9f67-7c6a3f3021e1",
-      "payload": {
-        "node_name": "find_action",
-        "duration_ms": 612,
-        "proposals_count": 2
-      }
-    },
-    {
-      "event": "run_completed",
-      "run_id": "f23e4567-e89b-12d3-a456-426614174000",
-      "seq": 3,
-      "ts": "2026-05-07T13:15:12.334Z",
-      "source": "server.telemetry_event_server._run_search_workflow",
-      "action_id": null,
-      "payload": {
-        "conversation_id": "53e6d4e4-65bd-49ad-9a67-a0b6138df111"
-      }
-    }
-  ],
-  "count": 3
-}
-```
-
-### `GET /telemetry/range`
-Returns telemetry events by `run_id` and inclusive sequence range.
-
-**Query params**:
-- `run_id` (`str`, required).
-- `start_seq` (`int`, required).
-- `end_seq` (`int`, required, must be `>= start_seq`).
-
-**Response**:
-- `200 OK` JSON:
-  - `items`: matching telemetry events.
-  - `count`: number of returned items.
-
-**Errors**:
-- `422 Unprocessable Entity` when `start_seq > end_seq`.
-
-**Example output (`run_id=f23e4567-e89b-12d3-a456-426614174000&start_seq=2&end_seq=3`)**:
-```json
-{
-  "items": [
-    {
-      "event": "node_completed",
-      "run_id": "f23e4567-e89b-12d3-a456-426614174000",
-      "seq": 2,
-      "ts": "2026-05-07T13:15:04.008Z",
-      "source": "openjiuwen.agent.main_nodes",
-      "action_id": "9f203ecb-4465-44ca-9f67-7c6a3f3021e1",
-      "payload": {
-        "node_name": "find_action",
-        "duration_ms": 612,
-        "proposals_count": 2
-      }
-    },
-    {
-      "event": "run_completed",
-      "run_id": "f23e4567-e89b-12d3-a456-426614174000",
-      "seq": 3,
-      "ts": "2026-05-07T13:15:12.334Z",
-      "source": "server.telemetry_event_server._run_search_workflow",
-      "action_id": null,
-      "payload": {
-        "conversation_id": "53e6d4e4-65bd-49ad-9a67-a0b6138df111"
-      }
-    }
-  ],
-  "count": 2
-}
-```

@@ -14,6 +14,10 @@ class openjiuwen_deepsearch.config.config.LLMConfig()
 - **api_key**(bytearray, 可选)：模型调用密钥。默认值：`bytearray("", encoding="utf-8")`。
 - **hyper_parameters**(dict, 可选)：模型调用超参数设置，根据具体模型接口设置。默认值：`{}`。
 - **extension**(dict, 可选)：模型扩展配置项，根据具体模型接口设置。默认值：`{}`。
+- **model_config**(ConfigDict，内部配置)：Pydantic 模型配置；`arbitrary_types_allowed=True`。
+- **timeout**(int, 可选)：请求超时时间（秒）。默认值：`600`。
+- **max_tries**(int, 可选)：单次调用最大重试次数。默认值：`4`。
+- **append_think_tags_to_messages**(bool, 可选)：是否在消息中追加 think 标签。默认值：`False`。
 
 **样例**：
 
@@ -60,6 +64,7 @@ class openjiuwen_deepsearch.config.config.WebSearchEngineConfig()
 - **search_url**(str, 可选)：联网增强引擎调用地址。默认值：`""`。对于支持默认公网地址的引擎，可留空由系统自动回退。
 - **max_web_search_results**(int, 可选)：最大搜索结果数量，取值范围：[1, 10]。默认值：`5`。
 - **extension**(dict, 可选)：联网增强引擎扩展配置项，根据具体联网增强引擎接口设置。默认值：`{}`。
+- **model_config**(ConfigDict，内部配置)：Pydantic 模型配置；`arbitrary_types_allowed=True`。
 
 **内置引擎说明**：
 
@@ -151,6 +156,7 @@ class openjiuwen_deepsearch.config.config.EmbedModelConfig()
 - **max_batch_size**(int, 必填)：最大批次大小。
 - **timeout**(int, 可选)：请求超时时间。默认值：`60`。
 - **max_retries**(int, 可选)：最大重试次数。默认值：`3`。
+- **model_config**(ConfigDict，内部配置)：Pydantic 模型配置；`arbitrary_types_allowed=True`。
 
 ## class openjiuwen_deepsearch.config.config.VectorStoreConfig
 ```python
@@ -196,6 +202,7 @@ class openjiuwen_deepsearch.config.config.LocalSearchEngineConfig()
 - **source**(Literal["KooSearch", "LakeSearch"], 可选)：知识库来源。默认值：`"KooSearch"`。
 - **extension**(dict, 可选)：本地搜索引擎扩展配置项，根据具体搜索引擎接口设置。默认值：`{}`。
 - **knowledge_base_configs**(List[NativeKnowledgeBaseConfig], 可选)：原生本地知识库配置。默认值：`[]`。
+- **model_config**(ConfigDict，内部配置)：Pydantic 模型配置；`arbitrary_types_allowed=True`。
 
 **样例**：
 
@@ -303,6 +310,13 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 - **local_search_engine_config**(LocalSearchEngineConfig, 可选)：本地搜索引擎配置。默认值：`LocalSearchEngineConfig()`。
 - **custom_web_search_config**(CustomWebSearchConfig, 可选)：自定义联网增强引擎配置。默认值：`CustomWebSearchConfig()`。
 - **custom_local_search_config**(CustomLocalSearchConfig, 可选)：自定义本地搜索配置。默认值：`CustomLocalSearchConfig()`。
+- **search_mode**(Literal["research", "search", "react"], 可选)：运行模式。`research`：研究报告主流程，`search`：DeepSearch 图流程，`react`：简单 ReAct + 与 search 相同工具。默认值：`"research"`。
+- **enable_question_router**(bool, 可选)：当为 `True` 且 `search_mode="search"` 时，先经 LLM 路由简单问题到 `react`、复杂问题到 DeepSearch。默认值：`False`。
+- **search_workflow_per_question_params**(PerQuestionParams, 可选)：search/react 单问题控制参数（时间、并发、工具映射、上限等）。默认值：`PerQuestionParams()`。
+- **search_workflow_milvus_config**(MilvusConfig, 可选)：`retrieve` 工具路径使用的 Milvus/Embedding 配置。默认值：`MilvusConfig()`。
+- **jina_api_key**(bytearray, 可选)：`search_fetch` 路径使用的 Jina API Key。默认值：`bytearray("", encoding="utf-8")`。
+- **serper_api_key**(bytearray, 可选)：`search_fetch` 路径使用的 Serper API Key。默认值：`bytearray("", encoding="utf-8")`。
+- **model_config**(ConfigDict，内部配置)：Pydantic 模型配置；`arbitrary_types_allowed=True`。
 - **web_search_max_qps**(float, 可选)：联网增强引擎最大 QPS，0 表示不限流，支持浮点数如 0.5 表示每 2 秒 1 个请求。默认值：`0`。
 - **user_feedback_processor_enable**(bool, 可选)：是否启用报告生成后的局部优化能力。默认值：`False`。
 - **user_feedback_processor_max_interactions**(int, 可选)：局部优化最大交互次数。默认值：`100`,可设置范围为1~100。
