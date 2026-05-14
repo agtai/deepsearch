@@ -2,6 +2,7 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
 
 import ipaddress
+import logging
 import os
 import re
 from typing import Any
@@ -10,6 +11,85 @@ from urllib.parse import urlparse, urlunparse
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
 from openjiuwen_deepsearch.common.common_constants import MAX_URL_LENGTH
+
+logger = logging.getLogger(__name__)
+
+# 安全相关的URL scheme白名单
+SAFE_URL_SCHEMES = frozenset(['http', 'https'])
+
+
+def validate_and_sanitize_url(url: str) -> str:
+    """
+    验证URL并确保只允许安全的scheme (http/https)
+
+    Args:
+        url: 待验证的URL
+
+    Returns:
+        str: 安全的URL，若scheme不合法则返回空字符串
+    """
+    if not url:
+        return ""
+
+    # 解析URL获取scheme
+    url_stripped = url.strip()
+
+    # 检查是否以合法scheme开头
+    # 格式: scheme://...
+    scheme_match = re.match(r'^([a-zA-Z][a-zA-Z0-9+.-]*)://', url_stripped)
+
+    if scheme_match:
+        scheme = scheme_match.group(1).lower()
+        if scheme not in SAFE_URL_SCHEMES:
+            logger.warning(
+                f"URL scheme '{scheme}' is not allowed, URL blocked: "
+                f"{url_stripped[:100]}"
+            )
+            return ""
+        return url_stripped
+    else:
+        # 没有scheme的相对路径或不完整URL，视为不安全
+        logger.warning(
+            f"URL without valid scheme blocked: {url_stripped[:100]}"
+        )
+        return ""
+
+
+def validate_url_scheme(url: str) -> tuple:
+    """
+    验证URL scheme是否在白名单中 (http/https)
+
+    Args:
+        url: 待验证的URL
+
+    Returns:
+        tuple: (safe_url, is_valid)
+            - safe_url: 验证后的URL，若scheme不合法则返回空字符串
+            - is_valid: True表示scheme合法，False表示不合法
+    """
+    if not url:
+        return "", False
+
+    url_stripped = url.strip()
+
+    # 检查是否以合法scheme开头
+    scheme_match = re.match(r'^([a-zA-Z][a-zA-Z0-9+.-]*)://', url_stripped)
+
+    if scheme_match:
+        scheme = scheme_match.group(1).lower()
+        if scheme not in SAFE_URL_SCHEMES:
+            logger.warning(
+                f"URL scheme '{scheme}' is not allowed, "
+                f"URL blocked: {url_stripped[:100]}"
+            )
+            return "", False
+        return url_stripped, True
+    else:
+        # 没有scheme的相对路径或不完整URL，视为不安全
+        logger.warning(
+            f"URL without valid scheme blocked: {url_stripped[:100]}"
+        )
+        return "", False
 
 
 def normalize_domain(domain: str) -> str:

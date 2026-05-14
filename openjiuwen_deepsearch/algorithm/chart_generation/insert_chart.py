@@ -9,92 +9,21 @@
 """
 
 import logging
-from typing import Dict, List, Any, Tuple
 import re
+from typing import Dict, List, Any, Tuple
 import copy
-import html
 
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
+from openjiuwen_deepsearch.utils.common_utils.text_utils import (
+    escape_html_text,
+    escape_markdown_link_text,
+)
+from openjiuwen_deepsearch.utils.common_utils.url_utils import (
+    validate_and_sanitize_url,
+)
 
 logger = logging.getLogger(__name__)
-
-
-# 安全相关的URL scheme白名单
-SAFE_URL_SCHEMES = frozenset(['http', 'https'])
-
-
-def escape_html_text(text: str) -> str:
-    """
-    对文本进行HTML转义，防止HTML/Markdown注入
-
-    Args:
-        text: 需要转义的文本
-
-    Returns:
-        str: 转义后的安全文本
-    """
-    if not text:
-        return ""
-    # 转义HTML特殊字符
-    return html.escape(text, quote=True)
-
-
-def escape_markdown_link_text(text: str) -> str:
-    """
-    对Markdown链接文本进行转义
-
-    Markdown链接格式: [text](url)
-    需要转义的特殊字符: [ ] ( ) \
-
-    Args:
-        text: 需要转义的链接文本
-
-    Returns:
-        str: 转义后的安全文本
-    """
-    if not text:
-        return ""
-    # Markdown链接文本中需要转义的字符
-    # 使用反斜杠转义
-    escaped = text.replace('\\', '\\\\')
-    escaped = escaped.replace('[', '\\[')
-    escaped = escaped.replace(']', '\\]')
-    escaped = escaped.replace('(', '\\(')
-    escaped = escaped.replace(')', '\\)')
-    return escaped
-
-
-def validate_and_sanitize_url(url: str) -> str:
-    """
-    验证URL并确保只允许安全的scheme (http/https)
-
-    Args:
-        url: 待验证的URL
-
-    Returns:
-        str: 安全的URL，若scheme不合法则返回空字符串
-    """
-    if not url:
-        return ""
-
-    # 解析URL获取scheme
-    url_stripped = url.strip()
-
-    # 检查是否以合法scheme开头
-    # 格式: scheme://...
-    scheme_match = re.match(r'^([a-zA-Z][a-zA-Z0-9+.-]*)://', url_stripped)
-
-    if scheme_match:
-        scheme = scheme_match.group(1).lower()
-        if scheme not in SAFE_URL_SCHEMES:
-            logger.warning(f"URL scheme '{scheme}' is not allowed, URL blocked: {url_stripped[:100]}")
-            return ""
-        return url_stripped
-    else:
-        # 没有scheme的相对路径或不完整URL，视为不安全
-        logger.warning(f"URL without valid scheme blocked: {url_stripped[:100]}")
-        return ""
 
 
 class InsertChartNode:
