@@ -87,14 +87,6 @@ class ChartGenerator:
         # 全局最大并发图表生成任务数（跨所有章节）
         self._max_global_concurrent_tasks = MAX_GLOBAL_CONCURRENT_CHART_TASKS
 
-        if self._vlm_max_iterations > 0 and not self._vlm_model:
-            error_msg = "使用VLM评估时，必须提供VLM模型名称"
-            logger.error(f"{self._log_prefix} {error_msg}")
-            raise CustomValueException(
-                StatusCode.CHART_VLM_GENERATION_ERROR.code,
-                StatusCode.CHART_VLM_GENERATION_ERROR.errmsg.format(e=error_msg),
-            )
-
         # 确保输出目录存在
         os.makedirs(self.output_dir, exist_ok=True)
 
@@ -281,6 +273,8 @@ class ChartGenerator:
             chart_base64 = result.get("chart_base64", "")
 
             if self._vlm_max_iterations == 0:
+                logger.info(f"Chart generated successfully: {figure_id},"
+                            f"chart title: {chart_title}, without iterations.")
                 return {"chart_base64": chart_base64, "score": 0}
 
             # ---------- Part 2: VLM评估反馈（可选） ----------
@@ -541,3 +535,11 @@ class ChartGenerator:
                 StatusCode.CHART_VLM_GENERATION_ERROR.code,
                 StatusCode.CHART_VLM_GENERATION_ERROR.errmsg.format(e=error_msg),
             ) from e
+
+    def set_vlm_name(self, model_name: str):
+        """修改vlm模型名称"""
+        self._vlm_model = model_name
+    
+    def set_vlm_iteration(self, iteration: int):
+        """修改vlm迭代优化最大次数"""
+        self._vlm_max_iterations = iteration

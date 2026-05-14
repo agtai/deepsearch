@@ -132,7 +132,7 @@ class InsertChartNode:
         # 在报告中插入图表占位符、描述和溯源信息
         if anchor_text in report_content:
             modified_content = report_content.replace(
-                anchor_text, anchor_text + "\n\n" + insertion, 1
+                anchor_text, anchor_text + "\n\n" + insertion + "\n", 1
             )
             logger.debug("%s Inserted chart placeholder %s after anchor text",
                         self._log_prefix, placeholder)

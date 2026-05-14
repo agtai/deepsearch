@@ -135,7 +135,6 @@ from openjiuwen_deepsearch.utils.rate_limiter_utils.qps_limiter import qps_rate_
 from openjiuwen_deepsearch.utils.run_telemetry import emit, emit_messages_updated
 from openjiuwen_deepsearch.utils.validation_utils.field_validation import (
     validate_agent_required_field,
-    validate_vlm_chart_generator_field,
 )
 from openjiuwen_deepsearch.utils.validation_utils.param_validation import (
     validate_generate_template_params,
@@ -194,7 +193,6 @@ class BaseAgent:
         try:
             validate_generate_template_params(file_name, file_stream, is_template)
             validate_agent_required_field(agent_config)
-            validate_vlm_chart_generator_field(agent_config)
             result = await TemplateGenerator.generate_template(
                 file_name=file_name, file_stream=file_stream, is_template=is_template, agent_config=agent_config
             )
@@ -527,7 +525,6 @@ class DeepresearchAgent(BaseAgent):
         """
         validate_run_agent_params(message, conversation_id, report_template, interrupt_feedback)
         validate_agent_required_field(agent_config)
-        validate_vlm_chart_generator_field(agent_config)
 
         start_time = time.time()
         llm_token = None

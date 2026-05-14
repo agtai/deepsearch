@@ -83,7 +83,8 @@ from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import (
     State,
     ValidationResult,
 )
-from openjiuwen_deepsearch.framework.openjiuwen.llm.llm_adapter import adapt_llm_model_name
+from openjiuwen_deepsearch.framework.openjiuwen.llm.llm_adapter import (adapt_llm_model_name, 
+                                                                        adapt_vlm_model_name)
 from openjiuwen_deepsearch.framework.openjiuwen.tools.web_search import apply_web_search_domain_constraints
 from openjiuwen_deepsearch.utils.common_utils.llm_utils import (
     get_effective_workflow_llm_usage,
@@ -1654,9 +1655,9 @@ class VLMChartGeneratorNode(BaseNode):
         vlm_chart_generator_max_iterations = session.get_global_state("config.vlm_chart_generator_max_iterations")
         # 使用多模态模型处理图表类数据
         if vlm_chart_generator_max_iterations > 0:
-            vlm_model_name = adapt_llm_model_name(session, NodeId.VLM_CHART_GENERATOR.value)
+            vlm_model_name = adapt_vlm_model_name(session, NodeId.VLM_CHART_GENERATOR.value)
         else:
-            # 不会进行vlm迭代
+            # 不使用迭代优化
             vlm_model_name = llm_model_name
 
         # 获取vlm输入数据
