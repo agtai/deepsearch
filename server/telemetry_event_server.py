@@ -360,8 +360,33 @@ def _append_jsonl_line(path: str, line: str) -> None:
             f.write(line + "\n")
 
 
+def _is_valid_telemetry_envelope(d: dict[str, Any]) -> bool:
+    """True if ``d`` matches the envelope shape from :func:`run_telemetry.emit`.
+
+    Rejects accidental POSTs (empty ``{}``, bare ``conversation_id`` / ``space_id``, and similar)
+    that would otherwise pollute JSONL and dilute ``/telemetry/recent`` results.
+    """
+    ev = d.get("event")
+    if not isinstance(ev, str) or not ev.strip():
+        return False
+    pl = d.get("payload")
+    if pl is not None and not isinstance(pl, dict):
+        return False
+    return True
+
+
+def _normalize_telemetry_row(d: dict[str, Any]) -> dict[str, Any]:
+    """Shallow copy with a dict ``payload`` (default ``{}``)."""
+    row = dict(d)
+    if "payload" not in row or row["payload"] is None:
+        row["payload"] = {}
+    elif not isinstance(row["payload"], dict):
+        row["payload"] = {}
+    return row
+
+
 def _read_all_parsed(path: str | None) -> list[dict[str, Any]]:
-    """Read JSONL from disk and return successfully parsed dict rows."""
+    """Read JSONL from disk and return parsed rows that pass :func:`_is_valid_telemetry_envelope`."""
     if not path or not Path(path).is_file():
         return []
     out: list[dict[str, Any]] = []
@@ -376,8 +401,10 @@ def _read_all_parsed(path: str | None) -> list[dict[str, Any]]:
                 except json.JSONDecodeError as e:
                     logger.warning("skip bad JSONL line: %s", e)
                     continue
-                if isinstance(d, dict):
-                    out.append(d)
+                if isinstance(d, dict) and _is_valid_telemetry_envelope(d):
+                    out.append(_normalize_telemetry_row(d))
+                elif isinstance(d, dict):
+                    logger.debug("skip non-telemetry JSONL row (missing or invalid event): %s", line[:200])
     return out
 
 
@@ -433,7 +460,9 @@ def _make_app() -> FastAPI:
             "Accepts a **JSON object** body (e.g. the same envelope that `openjiuwen_deepsearch.utils."
             "run_telemetry` posts: `event`, `run_id`, `seq`, `ts`, `payload`, …). "
             "The server optionally appends the serialized JSON (one line) to the configured JSONL file. "
-            "\n\n**Responses:** `204` on success; `400` if the body is not a JSON object or is invalid."
+            "\n\n**Responses:** `204` on success; `400` if the body is not a JSON object; `422` when JSONL "
+            "persistence is enabled and the body is not a valid telemetry envelope (non-empty `event`, "
+            "optional object `payload`)."
         ),
     )
     async def post_event(request: Request) -> Response:
@@ -450,7 +479,17 @@ def _make_app() -> FastAPI:
                 return Response(status_code=status.HTTP_400_BAD_REQUEST)
             body = parsed
         if st_ref.jsonl_path:
-            line = json.dumps(body, ensure_ascii=False)
+            if not _is_valid_telemetry_envelope(body):
+                logger.warning("invalid JSON body cannot be ingested: %s", body)
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        "JSONL persistence requires a telemetry envelope: non-empty string 'event', "
+                        "and optional object 'payload'. Bare correlation fields (e.g. only "
+                        "conversation_id / space_id) are not accepted."
+                    ),
+                )
+            line = json.dumps(_normalize_telemetry_row(body), ensure_ascii=False)
             logger.info(
                 "event=%s run_id=%s seq=%s", body.get("event"), body.get("run_id"), body.get("seq")
             )
