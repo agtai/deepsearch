@@ -288,28 +288,34 @@ def are_similar_urls(url1: str, url2: str, threshold: float = 0.9) -> bool:
         return False
 
 
-def _is_runtime_api_unsafe_url_relaxed() -> bool:
-    value = os.environ.get("RUNTIME_API_ALLOW_UNSAFE_URL", "").strip().lower()
+def _http_service_allow_unsafe_url(env_var: str) -> bool:
+    value = os.environ.get(env_var, "").strip().lower()
     return value in ("1", "true", "yes")
 
 
-def _unsafe_url_exception_detail(url: str, reason: str) -> str:
-    return f"runtime api url is not allowed ({reason}): {url!r}"
+def _is_runtime_api_unsafe_url_relaxed() -> bool:
+    return _http_service_allow_unsafe_url("RUNTIME_API_ALLOW_UNSAFE_URL")
 
 
-def validate_runtime_request_url(url: str) -> None:
-    """
-    Validate runtime API request URL to reduce SSRF risk.
-    Local debugging can bypass this check with RUNTIME_API_ALLOW_UNSAFE_URL.
-    """
-    if _is_runtime_api_unsafe_url_relaxed():
+def _unsafe_http_service_url_exception_detail(
+    url: str, reason: str, service_label: str
+) -> str:
+    return f"{service_label} is not allowed ({reason}): {url!r}"
+
+
+def _validate_http_url_for_ssrf(
+    url: str, *, relaxed: bool, service_label: str
+) -> None:
+    if relaxed:
         return
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise CustomValueException(
             StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
             StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(
-                e=_unsafe_url_exception_detail(url, "scheme must be http or https")
+                e=_unsafe_http_service_url_exception_detail(
+                    url, "scheme must be http or https", service_label
+                )
             ),
         )
     host = parsed.hostname
@@ -317,7 +323,9 @@ def validate_runtime_request_url(url: str) -> None:
         raise CustomValueException(
             StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
             StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(
-                e=_unsafe_url_exception_detail(url, "missing host")
+                e=_unsafe_http_service_url_exception_detail(
+                    url, "missing host", service_label
+                )
             ),
         )
     host_lower = host.lower()
@@ -325,7 +333,9 @@ def validate_runtime_request_url(url: str) -> None:
         raise CustomValueException(
             StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
             StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(
-                e=_unsafe_url_exception_detail(url, "localhost host is blocked")
+                e=_unsafe_http_service_url_exception_detail(
+                    url, "localhost host is blocked", service_label
+                )
             ),
         )
     try:
@@ -345,6 +355,33 @@ def validate_runtime_request_url(url: str) -> None:
         raise CustomValueException(
             StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
             StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(
-                e=_unsafe_url_exception_detail(url, "private or non-public IP")
+                e=_unsafe_http_service_url_exception_detail(
+                    url, "private or non-public IP", service_label
+                )
             ),
         )
+
+
+def validate_runtime_request_url(url: str) -> None:
+    """
+    Validate runtime API request URL to reduce SSRF risk.
+    Local debugging can bypass this check with RUNTIME_API_ALLOW_UNSAFE_URL.
+    """
+    _validate_http_url_for_ssrf(
+        url,
+        relaxed=_is_runtime_api_unsafe_url_relaxed(),
+        service_label="runtime api url",
+    )
+
+
+def validate_embedding_service_url(url: str) -> None:
+    """
+    Validate embedding HTTP service base URL to reduce SSRF risk.
+    Local debugging can bypass with EMBEDDING_SERVICE_ALLOW_UNSAFE_URL=1
+    (same accepted values as RUNTIME_API_ALLOW_UNSAFE_URL).
+    """
+    _validate_http_url_for_ssrf(
+        url,
+        relaxed=_http_service_allow_unsafe_url("EMBEDDING_SERVICE_ALLOW_UNSAFE_URL"),
+        service_label="embedding service url",
+    )

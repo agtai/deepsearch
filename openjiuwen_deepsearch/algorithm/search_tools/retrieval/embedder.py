@@ -10,6 +10,7 @@ from openjiuwen.core.retrieval.embedding.openai_embedding import OpenAIEmbedding
 from openjiuwen_deepsearch.algorithm.search_nodes.utils import strip_quotes
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
+from openjiuwen_deepsearch.utils.common_utils.url_utils import validate_embedding_service_url
 from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ class AbstractEmbedder(ABC):
         else:
             self._api_token = bytearray(api_token)
         self._api_url = strip_quotes(api_url)
+        validate_embedding_service_url(self._api_url)
         self.timeout = timeout
         
 
