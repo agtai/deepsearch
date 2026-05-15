@@ -137,6 +137,30 @@ def get_tool_definitions(retrieval_tool_only: bool = False) -> List[Dict[str, An
     return list(_SEARCH_FETCH_TOOLS)
 
 
+# Normalized names (lower, spaces/hyphens -> underscore) -> canonical function name from ``get_tool_definitions``.
+_NATIVE_TOOL_NAME_ALIASES: dict[str, str] = {
+    "web_search": "web_search",
+    "websearch": "web_search",
+    "web_fetch": "web_fetch",
+    "webfetch": "web_fetch",
+    "retrieve": "retrieve",
+}
+
+
+def resolve_native_tool_call_name(raw_name: str, retrieval_tool_only: bool) -> str | None:
+    """Map a model-supplied tool name to a canonical tool allowed for this mode.
+
+    Only names that appear in ``get_tool_definitions`` for the given mode are accepted.
+    Prevents prompt-injection style tool names from invoking unintended handlers.
+    """
+    key = (raw_name or "").strip().lower().replace(" ", "_").replace("-", "_")
+    canonical = _NATIVE_TOOL_NAME_ALIASES.get(key)
+    if not canonical:
+        return None
+    allowed = {spec["function"]["name"] for spec in get_tool_definitions(retrieval_tool_only=retrieval_tool_only)}
+    return canonical if canonical in allowed else None
+
+
 @dataclass
 class ParseAndApplyLLMResultConfig:
     config: Dict[str, Any]

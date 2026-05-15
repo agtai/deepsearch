@@ -1717,10 +1717,13 @@ class SimpleReactSearchAgent(BaseAgent):
             )
 
             max_steps = 1000
-            # _run_llm_via_ainvoke reads top-level model_name; agent_config nests it under llm_config.
+            # Only pass fields read by _run_llm_via_ainvoke — never the full agent_config (API keys, URLs).
             llm_invoke_cfg = {
-                **agent_config,
                 "model_name": general.model_name,
+                "max_tries": getattr(general, "max_tries", 4),
+                "append_think_tags_to_messages": getattr(
+                    general, "append_think_tags_to_messages", False
+                ),
             }
 
             messages: list[dict[str, Any]] = [
