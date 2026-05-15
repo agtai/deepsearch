@@ -1,6 +1,7 @@
 # -*- coding: UTF-8 -*-
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
 import asyncio
+import html
 from datetime import datetime, timezone
 from copy import deepcopy
 import json
@@ -9,6 +10,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from typing import Tuple, List, Dict
+from urllib.parse import urlparse
 
 from tenacity import (
     RetryError,
@@ -43,7 +45,7 @@ from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import llm_
 logger = logging.getLogger(__name__)
 
 EFFECT_SUB_REPORT_TAG = "### sub_report_tag ###"
-MAX_LOOP_ROUND = 99
+MAX_LOOP_ROUND = 10
 
 
 @dataclass
@@ -2359,7 +2361,8 @@ class Reporter:
                     "图表标题" if context.language == CHINESE else "Image Title"
                 )
             citation_text = f"[citation:{citation_index}]" if citation_index > 0 else ""
-            title_with_citation = f"{image_title}{citation_text}".strip()
+            safe_image_title = html.escape(image_title, quote=True)
+            title_with_citation = f"{safe_image_title}{citation_text}".strip()
             if title_with_citation:
                 block.append(
                     f'<div style="text-align: center;">{context.newline}{context.newline}'
@@ -2590,6 +2593,30 @@ def _replace_citations_and_classified_index(
 
 def _get_classified_infos(doc_infos: list, urls: list):
     """Get classified infos"""
+    def escape_markdown_text(value: object) -> str:
+        text = str(value or "")
+        text = re.sub(r"[\r\n\t]+", " ", text)
+        return re.sub(r"([\\`*_{}\[\]()#+\-.!|<>])", r"\\\1", text)
+
+    def format_reference_link(title_value: object, url_value: object) -> str:
+        title = escape_markdown_text(title_value)
+        url = str(url_value or "").strip()
+        if not url or any(ord(ch) < 32 or ord(ch) == 127 for ch in url):
+            escaped_url = escape_markdown_text(url)
+            return f"{title} ({escaped_url})" if title and escaped_url else title or escaped_url
+
+        parsed_url = urlparse(url)
+        scheme = parsed_url.scheme.lower()
+        is_allowed_url = scheme in {"http", "https", "localdataset"} and (
+            bool(parsed_url.netloc) if scheme in {"http", "https"} else bool(parsed_url.netloc or parsed_url.path)
+        )
+        if not is_allowed_url:
+            escaped_url = escape_markdown_text(url)
+            return f"{title} ({escaped_url})" if title and escaped_url else title or escaped_url
+
+        escaped_url = url.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+        return f"[{title}]({escaped_url})"
+
     if not doc_infos:
         logger.error(
             f"{EFFECT_SUB_REPORT_TAG} No classified infos found. can not get classified infos."
@@ -2607,7 +2634,9 @@ def _get_classified_infos(doc_infos: list, urls: list):
     for url in urls:
         item = doc_dict.get(url)
         if item:
-            classified_infos["references"].append(f"[{item['title']}]({item['url']})")
+            classified_infos["references"].append(
+                format_reference_link(item.get("title", ""), item.get("url", ""))
+            )
             classified_infos["core_content_list"].append(item.get("core_content", ""))
             classified_doc_infos.append(item)
     return classified_infos, classified_doc_infos

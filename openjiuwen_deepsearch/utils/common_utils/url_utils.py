@@ -5,6 +5,7 @@ import ipaddress
 import logging
 import os
 import re
+import socket
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
@@ -340,7 +341,53 @@ def _validate_http_url_for_ssrf(
         )
     try:
         ip = ipaddress.ip_address(host)
-    except ValueError:
+    except ValueError as host_parse_error:
+        try:
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            addr_info = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        except (ValueError, socket.gaierror) as error:
+            raise CustomValueException(
+                StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
+                StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(
+                    e=_unsafe_url_exception_detail(url, f"host resolution failed: {error}")
+                ),
+            ) from error
+
+        addresses = {entry[4][0] for entry in addr_info if entry[4]}
+        if not addresses:
+            raise CustomValueException(
+                StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
+                StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(
+                    e=_unsafe_url_exception_detail(url, "host resolution returned no addresses")
+                ),
+            ) from host_parse_error
+
+        for address in addresses:
+            try:
+                resolved_ip = ipaddress.ip_address(address)
+            except ValueError as error:
+                raise CustomValueException(
+                    StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
+                    StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(
+                        e=_unsafe_url_exception_detail(url, f"invalid resolved address: {address}")
+                    ),
+                ) from error
+
+            is_non_public_ip = any((
+                resolved_ip.is_private,
+                resolved_ip.is_loopback,
+                resolved_ip.is_link_local,
+                resolved_ip.is_multicast,
+                resolved_ip.is_reserved,
+                resolved_ip.is_unspecified,
+            ))
+            if is_non_public_ip:
+                raise CustomValueException(
+                    StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
+                    StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(
+                        e=_unsafe_url_exception_detail(url, "private or non-public IP")
+                    ),
+                ) from host_parse_error
         return
 
     is_non_public_ip = any((

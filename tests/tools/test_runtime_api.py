@@ -16,6 +16,14 @@ class DemoResponse(BaseModel):
     result: str
 
 
+@pytest.fixture(autouse=True)
+def bypass_runtime_url_validation(monkeypatch):
+    monkeypatch.setattr(
+        "openjiuwen_deepsearch.framework.openjiuwen.tools.runtime_api.runtime_api.validate_runtime_request_url",
+        lambda url: None,
+    )
+
+
 async def _make_async_iter(chunks: list):
     """Helper function to create an async iterator from a list of chunks."""
     for chunk in chunks:
