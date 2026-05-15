@@ -922,6 +922,24 @@ class DeepSearchAgent(BaseAgent):
 
         self.action_pool.log_dir = self.log_dir
 
+    def _subworkflow_context_inputs(self, workflow_name: str) -> dict[str, Any]:
+        """Build per-run config inputs for DeepSearch sub-workflows.
+
+        Sub-workflows are globally registered with fixed IDs, so runtime inputs must
+        carry the active request config to avoid stale model settings across runs.
+        """
+        agent_config = to_dict_safe(self.agent_config)
+        search_config = to_dict_safe(self.search_config)
+        if not isinstance(agent_config, dict):
+            agent_config = {}
+        if not isinstance(search_config, dict):
+            search_config = Config().service_config.search_workflow.model_dump()
+        return {
+            "workflow_name": workflow_name,
+            "agent_config": agent_config,
+            "search_config": search_config,
+        }
+
     def _build_init_state_workflow(self) -> Workflow:
         card = WorkflowCard(id="init_state", version="1", name="init_state")
         wf = Workflow(card=card)
@@ -931,7 +949,6 @@ class DeepSearchAgent(BaseAgent):
             component=SearchStartNode(),
             inputs_schema={
                 "workflow_name": "init_state_workflow",
-                "agent_config": to_dict_safe(self.agent_config),
             },
         )
 
@@ -951,7 +968,6 @@ class DeepSearchAgent(BaseAgent):
             component=SearchStartNode(),
             inputs_schema={
                 "workflow_name": "find_action_workflow",
-                "agent_config": to_dict_safe(self.agent_config),
             },
         )
 
@@ -969,7 +985,7 @@ class DeepSearchAgent(BaseAgent):
         wf.set_start_comp(
             start_comp_id=NodeId.START_NODE.value,
             component=SearchStartNode(),
-            inputs_schema={"workflow_name": "state_creation_workflow", "agent_config": to_dict_safe(self.agent_config)},
+            inputs_schema={"workflow_name": "state_creation_workflow"},
         )
 
         wf.add_workflow_comp(NodeId.TOOL.value, ToolNode())
@@ -1099,6 +1115,7 @@ class DeepSearchAgent(BaseAgent):
             return await Runner.run_workflow(
                 workflow="state_creation_1",
                 inputs={
+                    **self._subworkflow_context_inputs("state_creation_workflow"),
                     "action": to_dict_safe(action),
                     "tool_map": self.tool_map,
                     "retrieval_tool_only": "retrieve" in self.tool_map,
@@ -1123,6 +1140,7 @@ class DeepSearchAgent(BaseAgent):
             init_result: WorkflowOutput = await Runner.run_workflow(
                 workflow="init_state_1",
                 inputs={
+                    **self._subworkflow_context_inputs("init_state_workflow"),
                     "query": self.query,
                     "total_input_tokens": 0,
                     "total_output_tokens": 0,
@@ -1149,6 +1167,7 @@ class DeepSearchAgent(BaseAgent):
         actions_result: WorkflowOutput = await Runner.run_workflow(
             workflow="find_action_1",
             inputs={
+                **self._subworkflow_context_inputs("find_action_workflow"),
                 "state": init_state,
                 "query": self.query,
                 "result": None,
@@ -1260,6 +1279,7 @@ class DeepSearchAgent(BaseAgent):
                 actions_result = await Runner.run_workflow(
                     workflow="find_action_1",
                     inputs={
+                        **self._subworkflow_context_inputs("find_action_workflow"),
                         "state": init_state,
                         "query": self.query,
                         "result": retry_result,
