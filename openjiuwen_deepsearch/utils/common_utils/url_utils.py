@@ -349,7 +349,9 @@ def _validate_http_url_for_ssrf(
             raise CustomValueException(
                 StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
                 StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(
-                    e=_unsafe_url_exception_detail(url, f"host resolution failed: {error}")
+                    e=_unsafe_http_service_url_exception_detail(
+                        url, f"host resolution failed: {error}", service_label
+                    )
                 ),
             ) from error
 
@@ -358,7 +360,9 @@ def _validate_http_url_for_ssrf(
             raise CustomValueException(
                 StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
                 StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(
-                    e=_unsafe_url_exception_detail(url, "host resolution returned no addresses")
+                    e=_unsafe_http_service_url_exception_detail(
+                        url, "host resolution returned no addresses", service_label
+                    )
                 ),
             ) from host_parse_error
 
@@ -369,7 +373,9 @@ def _validate_http_url_for_ssrf(
                 raise CustomValueException(
                     StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
                     StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(
-                        e=_unsafe_url_exception_detail(url, f"invalid resolved address: {address}")
+                        e=_unsafe_http_service_url_exception_detail(
+                            url, f"invalid resolved address: {address}", service_label
+                        )
                     ),
                 ) from error
 
@@ -385,7 +391,9 @@ def _validate_http_url_for_ssrf(
                 raise CustomValueException(
                     StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
                     StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(
-                        e=_unsafe_url_exception_detail(url, "private or non-public IP")
+                        e=_unsafe_http_service_url_exception_detail(
+                            url, "private or non-public IP", service_label
+                        )
                     ),
                 ) from host_parse_error
         return

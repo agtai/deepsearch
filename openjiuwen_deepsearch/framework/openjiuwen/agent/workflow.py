@@ -144,6 +144,11 @@ from openjiuwen_deepsearch.utils.validation_utils.param_validation import (
 logger = logging.getLogger(__name__)
 
 
+def _redact_agent_config_for_workflow_inputs(agent_config: Any) -> dict:
+    """Build a redacted copy of agent_config for workflow logging boundaries."""
+    return anonymize_config_for_logging(copy.deepcopy(to_dict_safe(agent_config)))
+
+
 class BaseAgent:
     """
     base agent: agent基类
@@ -469,6 +474,7 @@ class DeepresearchAgent(BaseAgent):
         final_result_info = {}
         filter_dup_flag = False
         stream_query, is_report_feedback = self._prepare_stream_query(message, interrupt_feedback)
+        workflow_agent_config = _redact_agent_config_for_workflow_inputs(session_agent_config)
 
         async for chunk in Runner.run_agent_streaming(
             agent=self.agent,
@@ -479,7 +485,7 @@ class DeepresearchAgent(BaseAgent):
                 "report_template": decoded_template,
                 "interrupt_feedback": interrupt_feedback,
                 "resume_interaction": is_report_feedback,
-                "agent_config": session_agent_config,
+                "agent_config": workflow_agent_config,
             },
         ):
             if getattr(chunk, "type", "") == "__interaction__":

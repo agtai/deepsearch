@@ -241,6 +241,9 @@ class TestPlanner:
                 new_callable=AsyncMock,
                 return_value=custom_response
         ) as mock_invoke, patch(
+                'openjiuwen_deepsearch.framework.openjiuwen.tools.runtime_api.runtime_api.validate_runtime_request_url',
+                return_value=None
+        ), patch(
                 'openjiuwen_deepsearch.framework.openjiuwen.tools.runtime_api.runtime_api.httpx.AsyncClient',
                 return_value=mock_client
         ):
