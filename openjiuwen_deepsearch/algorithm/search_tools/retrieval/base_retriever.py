@@ -5,9 +5,7 @@ from typing import List, Optional, Tuple
 
 from pymilvus import MilvusClient
 
-from openjiuwen_deepsearch.algorithm.search_tools.retrieval.embedder import (
-    AbstractEmbedder,
-)
+from openjiuwen_deepsearch.algorithm.search_tools.retrieval.embedder import AbstractEmbedder
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
 
@@ -25,6 +23,17 @@ class RetrieveConfig:
 
 
 class BaseRetriever(ABC):
+    """Abstract retriever: maps ``RetrieveConfig`` to aggregated text and id lists."""
+
+    @abstractmethod
+    def retrieve(
+        self,
+        retrieve_config: RetrieveConfig,
+    ) -> Tuple[str, List[str]]:
+        pass
+
+
+class MilvusBaseRetriever(BaseRetriever):
     def __init__(
         self,
         milvus_host: str,
@@ -39,8 +48,22 @@ class BaseRetriever(ABC):
         id_field: str = "id",
         metric_type: str = "COSINE",
         client: MilvusClient = None,
+        connect_milvus: bool = True,
     ):
         self.embedder = embedder
+        self.vector_field = vector_field
+        self.text_field = text_field
+        self.title_field = title_field
+        self.id_field = id_field
+        self.metric_type = metric_type
+        self.collection_name = collection_name
+        self.database_name = database_name
+        self.sparse_field = sparse_field
+
+        if not connect_milvus:
+            self.client = client
+            return
+
         self.client = client or MilvusClient(
             uri=f"http://{milvus_host}:{milvus_port}",
         )
@@ -61,19 +84,3 @@ class BaseRetriever(ABC):
                 StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
                 StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(e=error_msg))
         self.client.load_collection(collection_name)
-
-        self.vector_field = vector_field
-        self.text_field = text_field
-        self.title_field = title_field
-        self.id_field = id_field
-        self.metric_type = metric_type
-        self.collection_name = collection_name
-        self.database_name = database_name
-        self.sparse_field = sparse_field
-
-    @abstractmethod
-    def retrieve(
-        self,
-        retrieve_config: RetrieveConfig,
-    ) -> Tuple[str, List[str]]:
-        pass

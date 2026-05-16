@@ -29,10 +29,13 @@ import urllib.request
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from enum import Enum
 from typing import Any, Dict, Iterator, List, Mapping, Optional
 
 logger = logging.getLogger(__name__)
+
+_MAX_JSON_SAFE_DEPTH = 48
 
 _lock = threading.Lock()
 _seq = 0
@@ -242,6 +245,40 @@ def _finalize_payload(
     return pl
 
 
+def _non_serializable_placeholder(obj: Any) -> str:
+    mod = getattr(type(obj), "__module__", "") or ""
+    name = type(obj).__name__
+    return f"<non-serializable {mod}.{name}>"
+
+
+def json_safe_for_telemetry(obj: Any, *, _depth: int = 0) -> Any:
+    """Recursively coerce ``obj`` to JSON-serializable data (no locks, clients, etc.)."""
+    if _depth > _MAX_JSON_SAFE_DEPTH:
+        return "<max depth exceeded>"
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
+    if isinstance(obj, (bytes, bytearray)):
+        return "***"
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Enum):
+        return json_safe_for_telemetry(obj.value, _depth=_depth + 1)
+    model_dump = getattr(obj, "model_dump", None)
+    if callable(model_dump):
+        return json_safe_for_telemetry(model_dump(), _depth=_depth + 1)
+    if isinstance(obj, dict):
+        return {
+            str(k): json_safe_for_telemetry(v, _depth=_depth + 1) for k, v in obj.items()
+        }
+    if isinstance(obj, (list, tuple, set)):
+        return [json_safe_for_telemetry(v, _depth=_depth + 1) for v in obj]
+    try:
+        json.dumps(obj)
+        return obj
+    except (TypeError, ValueError, OverflowError):
+        return _non_serializable_placeholder(obj)
+
+
 def _build_envelope(
     event: str, payload: Optional[Dict[str, Any]], cfg: RunTelemetryConfig
 ) -> Dict[str, Any]:
@@ -251,7 +288,7 @@ def _build_envelope(
         "seq": _next_seq(),
         "ts": datetime.now(tz=timezone.utc).isoformat(),
         "event": event,
-        "payload": payload or {},
+        "payload": json_safe_for_telemetry(payload or {}),
     }
 
 

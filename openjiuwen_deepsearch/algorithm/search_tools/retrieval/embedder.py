@@ -52,11 +52,11 @@ class AbstractEmbedder(ABC):
         )
 
         if isinstance(api_token, str):
-            self._api_token = bytearray(api_token.encode("utf-8"))
+            self.api_token = bytearray(api_token.encode("utf-8"))
         else:
-            self._api_token = bytearray(api_token)
-        self._api_url = strip_quotes(api_url)
-        validate_embedding_service_url(self._api_url)
+            self.api_token = bytearray(api_token)
+        self.api_url = strip_quotes(api_url)
+        validate_embedding_service_url(self.api_url)
         self.timeout = timeout
         
 
@@ -87,13 +87,13 @@ class OpenJiuwenAPIEmbedder(AbstractEmbedder):
     ):
         super().__init__(pretrained_model, api_token, api_url, timeout, model_dim)
 
-        token_str = strip_quotes(self._api_token.decode("utf-8"))
+        token_str = strip_quotes(self.api_token.decode("utf-8"))
         embed_config = EmbeddingConfig(
             model_name=self.model_name,
-            base_url=self._api_url,
+            base_url=self.api_url,
             api_key=token_str,
         )
-        embed_cls = self._jiuwen_embedding_class_for_url(self._api_url)
+        embed_cls = self.jiuwen_embedding_class_for_url(self.api_url)
         embed_kwargs: dict = {
             "config": embed_config,
             "timeout": timeout,
@@ -101,12 +101,12 @@ class OpenJiuwenAPIEmbedder(AbstractEmbedder):
         }
         if self.embed_dim > 0:
             embed_kwargs["dimension"] = self.embed_dim
-        self._embedder = embed_cls(**embed_kwargs)
+        self.embedder = embed_cls(**embed_kwargs)
 
         if self.embed_dim <= 0:
-            self.embed_dim = int(self._embedder.dimension)
+            self.embed_dim = int(self.embedder.dimension)
         elif self._user_provided_dim:
-            observed_dim = int(self._embedder.dimension)
+            observed_dim = int(self.embedder.dimension)
             if observed_dim != self.embed_dim:
                 raise CustomValueException(
                     StatusCode.PARAM_CHECK_ERROR_EMBED_DIMENSION_MODEL_MISMATCH.code,
@@ -128,7 +128,7 @@ class OpenJiuwenAPIEmbedder(AbstractEmbedder):
         if is_query:
             input_texts = [self.get_query_instruction(inp) for inp in input_texts]
         try:
-            embeddings = self._embedder.embed_documents_sync(input_texts)
+            embeddings = self.embedder.embed_documents_sync(input_texts)
         except Exception as e:
             detail = ""
             if not LogManager.is_sensitive():
@@ -157,7 +157,7 @@ class OpenJiuwenAPIEmbedder(AbstractEmbedder):
         return embeddings
 
     @classmethod
-    def _jiuwen_embedding_class_for_url(cls, api_url: str):
+    def jiuwen_embedding_class_for_url(cls, api_url: str):
         """DashScope native HTTP API vs OpenAI-compatible base URL (incl. DashScope compatible-mode)."""
         url = api_url.lower()
         if "dashscope.aliyuncs.com" in url and "compatible-mode" not in url:

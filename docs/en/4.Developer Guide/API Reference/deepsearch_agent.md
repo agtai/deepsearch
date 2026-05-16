@@ -153,7 +153,7 @@ async run(
 Same surface as **`BaseAgent.run`**. Validates with `validate_run_agent_params` and `validate_agent_required_field` (after stripping optional keys). Deep-copies **`agent_config`** into **`AgentConfig`**, sets up logging, **`SearchWorkflowConfig`** from `agent_config["service_config"]["search_workflow"]` (defaults on parse failure), **`per_question_params`**, **`WORKFLOW_EXECUTE_TIMEOUT`**, LLM context (requires `llm_config["general"]`), and tools from **`per_question_params.tool_map`**:
 
 - **`"search_fetch"`**: `WebFetch` + `WebSearch` (uses `jina_api_key`, `serper_api_key` on **`agent_config`**).
-- **`"retrieve"`**: `RetrieveBrowsecompPlus` (Milvus / embedder fields from **`search_workflow_milvus_config`**).
+- **`"retrieve"`**: `RetrieveTool` (Milvus / embedder fields from **`search_workflow_milvus_config`**).
 
 ### `MilvusConfig` (`search_workflow_milvus_config`)
 
@@ -168,12 +168,13 @@ Same surface as **`BaseAgent.run`**. Validates with `validate_run_agent_params` 
 - **`embedder_api_key`** (`bytearray`, default empty): embedding service API key.
 - **`embedder_base_url`** (`str`, default `""`): embedding endpoint URL (for example `http://localhost:11450/v1/embeddings`).
 - **`embedder_timeout`** (`int`, default `100`): embedding request timeout in seconds.
+- **`retriever_class`** (optional, default `None` → `KnowledgeBaseRetriever` on `RetrieveTool`): retriever implementation class, e.g. `BrowsecompPlusMilvusRetriever` for indexes built with `create_browsecompplus_index.py`.
 - **`model_config`** (`dict`, optional): extra model config fields to pass through to the embedder.
 
 **Usage notes**:
-- If the index is created by `create_browsecompplus_index.py` (openjiuwen_deepsearch/algorithm/search_index/create_browsecompplus_index.py), then the default milvus settings from the above MilvusConfig can be used without changes.
+- If the index is created by `create_browsecompplus_index.py` (openjiuwen_deepsearch/algorithm/search_index/create_browsecompplus_index.py), use the default milvus settings and set **`retriever_class`** to **`BrowsecompPlusMilvusRetriever`** (see example below).
 
-- If the index is built using “Sync to Deepsearch” option from openJiuwen studio, then the `collection_name` should be set to "ds_kb_{kb_id}_chunks" and `database_name` should be set to "default".
+- If the index is built using “Sync to Deepsearch” option from openJiuwen studio, set `collection_name` to `"ds_kb_{kb_id}_chunks"` and `database_name` to `"default"`; omit **`retriever_class`** to use **`KnowledgeBaseRetriever`**.
 
 
 **Basic usage example (DeepSearch Agent API + Milvus retrieve mode):**
@@ -181,6 +182,9 @@ Same surface as **`BaseAgent.run`**. Validates with `validate_run_agent_params` 
 import asyncio
 import copy
 import uuid
+from openjiuwen_deepsearch.algorithm.search_tools.retrieval.retriever import (
+    BrowsecompPlusMilvusRetriever,
+)
 from openjiuwen_deepsearch.config.config import Config
 from openjiuwen_deepsearch.framework.openjiuwen.agent.agent_factory import AgentFactory
 
@@ -209,6 +213,7 @@ async def main():
         "embedder_api_key": bytearray("<YOUR_EMBEDDER_API_KEY>", encoding="utf-8"),
         "embedder_base_url": "http://localhost:11450/v1/embeddings",
         "embedder_timeout": 100,
+        "retriever_class": BrowsecompPlusMilvusRetriever,
     }
 
     agent = AgentFactory().create_agent(copy.deepcopy(agent_config))

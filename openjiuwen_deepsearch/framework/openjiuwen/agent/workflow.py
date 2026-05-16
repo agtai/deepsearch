@@ -49,7 +49,7 @@ from openjiuwen_deepsearch.algorithm.search_nodes.utils import (
     to_dict_safe,
     to_json_safe,
 )
-from openjiuwen_deepsearch.algorithm.search_tools.retriever_tool import RetrieveBrowsecompPlus
+from openjiuwen_deepsearch.algorithm.search_tools.retriever_tool import RetrieveTool
 from openjiuwen_deepsearch.algorithm.search_tools.web_fetch_tool import WebFetch
 from openjiuwen_deepsearch.algorithm.search_tools.web_search_tool import WebSearch
 from openjiuwen_deepsearch.algorithm.user_feedback_processor.action_definitions import (
@@ -62,6 +62,7 @@ from openjiuwen_deepsearch.config.config import (
     CustomLocalSearchConfig,
     CustomWebSearchConfig,
     LocalSearchEngineConfig,
+    MilvusConfig,
     PerQuestionParams,
     SearchWorkflowConfig,
     WebSearchEngineConfig,
@@ -125,6 +126,7 @@ from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import (
     llm_context,
     local_search_context,
     session_context,
+    tool_context,
     web_search_context,
 )
 from openjiuwen_deepsearch.utils.log_utils.log_common import session_id_ctx
@@ -140,6 +142,26 @@ from openjiuwen_deepsearch.utils.validation_utils.param_validation import (
     validate_generate_template_params,
     validate_run_agent_params,
 )
+
+
+def _build_retrieve_tool(milvus_cfg: MilvusConfig) -> RetrieveTool:
+    kwargs = {}
+    if milvus_cfg.retriever_class is not None:
+        kwargs["retriever_class"] = milvus_cfg.retriever_class
+    return RetrieveTool(
+        {
+            "milvus_host": milvus_cfg.milvus_host,
+            "milvus_port": milvus_cfg.milvus_port,
+            "database_name": milvus_cfg.database_name,
+            "collection_name": milvus_cfg.collection_name,
+            "embedder_model_name": milvus_cfg.embedder_model_name,
+            "embedder_api_key": milvus_cfg.embedder_api_key,
+            "embedder_base_url": milvus_cfg.embedder_base_url,
+            "embedder_timeout": milvus_cfg.embedder_timeout,
+        },
+        **kwargs,
+    )
+
 
 logger = logging.getLogger(__name__)
 
@@ -1050,7 +1072,6 @@ class DeepSearchAgent(BaseAgent):
                 description="state_creation",
                 input_params={
                     "action": Action,
-                    "tool_map": dict,
                     "log_dir": str,
                     "fail_count": int,
                     "retrieval_tool_only": bool,
@@ -1076,7 +1097,6 @@ class DeepSearchAgent(BaseAgent):
             workflow_description="state_creation",
             input_schema={
                 "action": Action,
-                "tool_map": dict,
                 "log_dir": str,
                 "fail_count": int,
                 "retrieval_tool_only": bool,
@@ -1123,7 +1143,6 @@ class DeepSearchAgent(BaseAgent):
                 inputs={
                     **self._subworkflow_context_inputs("state_creation_workflow"),
                     "action": to_dict_safe(action),
-                    "tool_map": self.tool_map,
                     "retrieval_tool_only": "retrieve" in self.tool_map,
                     "total_input_tokens": self.total_input_tokens,
                     "total_output_tokens": self.total_output_tokens,
@@ -1318,7 +1337,7 @@ class DeepSearchAgent(BaseAgent):
                 self.total_output_tokens += state_result.get("total_output_tokens", 0)
 
                 result: Result | None = state_result.get("result")
-                config = anonymize_config_for_logging(copy.deepcopy(state_result.get("config", {})))
+                config = anonymize_config_for_logging(state_result.get("config", {}))
                 self.fail_count += config.get("fail_count", self.fail_count)
 
                 self.action_pool.record_completed(completed_action, result)
@@ -1510,16 +1529,26 @@ class DeepSearchAgent(BaseAgent):
         """
         validate_run_agent_params(message, conversation_id, report_template, interrupt_feedback)
 
-        agent_config_for_model = copy.deepcopy(agent_config)
+        if not isinstance(agent_config, dict):
+            raise CustomValueException(
+                StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.code,
+                StatusCode.PARAM_CHECK_ERROR_REQUEST_PARAM_ERROR.errmsg.format(
+                    e="agent_config must be a dict",
+                ),
+            )
+        # Shallow copy of the top-level mapping only; avoid ``copy.deepcopy`` on the raw dict
+        # so nested values that are not copyable (e.g. locks) cannot break the run entry path.
+        agent_config_for_model = dict(agent_config)
         service_config: Optional[dict] = agent_config_for_model.pop("service_config", None)
         gold_answer: str | None = agent_config_for_model.pop("gold_answer", None)
 
         validate_agent_required_field(agent_config_for_model)
 
         llm_token = None
+        tool_token = None
         try:
             session_agent_config = AgentConfig.model_validate(agent_config_for_model)
-            self.agent_config = copy.deepcopy(session_agent_config)
+            self.agent_config = session_agent_config.model_copy(deep=True)
             self.setup_log_directory(f"result_{conversation_id}")
             logger.info(f"[DeepSearchAgent] agent_config: {self.agent_config}")
 
@@ -1576,20 +1605,7 @@ class DeepSearchAgent(BaseAgent):
                 zero_secret(self.agent_config.serper_api_key)
             elif self.per_question_params.tool_map == "retrieve":
                 milvus_cfg = self.agent_config.search_workflow_milvus_config
-                tool_class.append(
-                    RetrieveBrowsecompPlus(
-                        {
-                            "milvus_host": milvus_cfg.milvus_host,
-                            "milvus_port": milvus_cfg.milvus_port,
-                            "database_name": milvus_cfg.database_name,
-                            "collection_name": milvus_cfg.collection_name,
-                            "embedder_model_name": milvus_cfg.embedder_model_name,
-                            "embedder_api_key": milvus_cfg.embedder_api_key,
-                            "embedder_base_url": milvus_cfg.embedder_base_url,
-                            "embedder_timeout": milvus_cfg.embedder_timeout,
-                        }
-                    )
-                )
+                tool_class.append(_build_retrieve_tool(milvus_cfg))
                 zero_secret(milvus_cfg.embedder_api_key)
             else:
                 raise CustomValueException(
@@ -1600,6 +1616,7 @@ class DeepSearchAgent(BaseAgent):
                 )
 
             self.tool_map = {tool.name: tool for tool in tool_class}
+            tool_token = tool_context.set(self.tool_map)
             self.query = message
             self.gold_answer = gold_answer
             self._build_agent()
@@ -1614,6 +1631,8 @@ class DeepSearchAgent(BaseAgent):
         finally:
             if llm_token is not None:
                 llm_context.reset(llm_token)
+            if tool_token is not None:
+                tool_context.reset(tool_token)
 
 
 class SimpleReactSearchAgent(BaseAgent):
@@ -1643,7 +1662,8 @@ class SimpleReactSearchAgent(BaseAgent):
             message, conversation_id, report_template, interrupt_feedback
         )
         validate_agent_required_field(agent_config)
-        session_agent_config = copy.deepcopy(AgentConfig.model_validate(agent_config))
+        _parsed_agent_cfg = AgentConfig.model_validate(agent_config)
+        session_agent_config = _parsed_agent_cfg.model_copy(deep=True)
         try:
             search_config = SearchWorkflowConfig.model_validate(
                 (service_config or {}).get("search_workflow", {})
@@ -1657,7 +1677,7 @@ class SimpleReactSearchAgent(BaseAgent):
                 error_code=StatusCode.LLM_CONFIG_NONE.code,
                 message=StatusCode.LLM_CONFIG_NONE.errmsg,
             )
-        llm_registry = {general.model_name: create_llm_obj(copy.deepcopy(general))}
+        llm_registry = {general.model_name: create_llm_obj(general.model_copy(deep=True))}
 
         llm_token = llm_context.set(llm_registry)
         try:
@@ -1673,20 +1693,7 @@ class SimpleReactSearchAgent(BaseAgent):
                 zero_secret(session_agent_config.serper_api_key)
             elif per_question_params.tool_map == "retrieve":
                 milvus_cfg = session_agent_config.search_workflow_milvus_config
-                tool_class = [
-                    RetrieveBrowsecompPlus(
-                        {
-                            "milvus_host": milvus_cfg.milvus_host,
-                            "milvus_port": milvus_cfg.milvus_port,
-                            "database_name": milvus_cfg.database_name,
-                            "collection_name": milvus_cfg.collection_name,
-                            "embedder_model_name": milvus_cfg.embedder_model_name,
-                            "embedder_api_key": milvus_cfg.embedder_api_key,
-                            "embedder_base_url": milvus_cfg.embedder_base_url,
-                            "embedder_timeout": milvus_cfg.embedder_timeout,
-                        }
-                    )
-                ]
+                tool_class = [_build_retrieve_tool(milvus_cfg)]
                 zero_secret(milvus_cfg.embedder_api_key)
             else:
                 raise CustomValueException(
@@ -1714,7 +1721,7 @@ class SimpleReactSearchAgent(BaseAgent):
                 "react_run_started",
                 {
                     "conversation_id": conversation_id,
-                    "tool_map": per_question_params.tool_map,
+                    "tool_map": {k: v.__class__.__name__ for k, v in per_question_params.tool_map.items()},
                     "model_name": general.model_name,
                     "log_dir": "***" if LogManager.is_sensitive() else log_dir,
                 },

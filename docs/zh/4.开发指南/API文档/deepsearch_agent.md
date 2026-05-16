@@ -40,7 +40,7 @@ async run(
 与 **`BaseAgent.run`** 签名一致。先经 **`validate_run_agent_params`**、再剥离可选字段后经 **`validate_agent_required_field`** 校验。将 **`agent_config`** 深拷贝为 **`AgentConfig`**，配置日志目录、从 **`agent_config["service_config"]["search_workflow"]`** 解析 **`SearchWorkflowConfig`**（解析失败则使用默认配置）、**`per_question_params`**、环境变量 **`WORKFLOW_EXECUTE_TIMEOUT`**、LLM 上下文（要求 **`llm_config`** 中存在 **`general`**），以及由 **`per_question_params.tool_map`** 决定的工具：
 
 - **`"search_fetch"`**：注册 **`WebFetch`** 与 **`WebSearch`**（使用配置中的 **`jina_api_key`**、**`serper_api_key`**）。
-- **`"retrieve"`**：注册 **`RetrieveBrowsecompPlus`**（Milvus / 向量化相关字段来自 **`search_workflow_milvus_config`**）。
+- **`"retrieve"`**：注册 **`RetrieveTool`**（Milvus / 向量化相关字段来自 **`search_workflow_milvus_config`**）。
 
 ### `MilvusConfig`（`search_workflow_milvus_config`）
 
@@ -55,19 +55,23 @@ async run(
 - **`embedder_api_key`**（`bytearray`，默认空）：Embedding 服务 API Key。
 - **`embedder_base_url`**（`str`，默认 `""`）：Embedding 服务地址（例如 `http://localhost:11450/v1/embeddings`）。
 - **`embedder_timeout`**（`int`，默认 `100`）：Embedding 请求超时时间（秒）。
+- **`retriever_class`**（可选，默认 `None`，`RetrieveTool` 使用 `KnowledgeBaseRetriever`）：检索实现类，例如对 `create_browsecompplus_index.py` 构建的索引使用 `BrowsecompPlusMilvusRetriever`。
 - **`model_config`**（`dict`，可选）：要传递给嵌入器的额外模型配置字段。
 
 **使用说明**：
 
-- 如果索引是由 `create_browsecompplus_index.py`（openjiuwen_deepsearch/algorithm/search_index/create_browsecompplus_index.py）创建的，则可以直接使用上述 MilvusConfig 中的默认 Milvus 设置，无需修改。
+- 若索引由 `create_browsecompplus_index.py`（openjiuwen_deepsearch/algorithm/search_index/create_browsecompplus_index.py）创建，可使用上述默认 Milvus 设置，并将 **`retriever_class`** 设为 **`BrowsecompPlusMilvusRetriever`**（见下方示例）。
 
-- 如果索引是使用 openJiuwen studio 中的“同步到 Deepsearch”选项构建的，则应将 `collection_name` 设置为“ds_kb_{kb_id}_chunks”，并将 `database_name` 设置为“default”。
+- 若索引由 openJiuwen studio「同步到 Deepsearch」构建，将 `collection_name` 设为 `"ds_kb_{kb_id}_chunks"`、`database_name` 设为 `"default"`；省略 **`retriever_class`** 即使用 **`KnowledgeBaseRetriever`**。
 
 **基础用法示例（DeepSearch Agent API + Milvus retrieve 模式）：**
 ```python
 import asyncio
 import copy
 import uuid
+from openjiuwen_deepsearch.algorithm.search_tools.retrieval.retriever import (
+    BrowsecompPlusMilvusRetriever,
+)
 from openjiuwen_deepsearch.config.config import Config
 from openjiuwen_deepsearch.framework.openjiuwen.agent.agent_factory import AgentFactory
 
@@ -96,6 +100,7 @@ async def main():
         "embedder_api_key": bytearray("<YOUR_EMBEDDER_API_KEY>", encoding="utf-8"),
         "embedder_base_url": "http://localhost:11450/v1/embeddings",
         "embedder_timeout": 100,
+        "retriever_class": BrowsecompPlusMilvusRetriever,
     }
 
     agent = AgentFactory().create_agent(copy.deepcopy(agent_config))

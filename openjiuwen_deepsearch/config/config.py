@@ -1,6 +1,6 @@
 # -*- coding: UTF-8 -*-
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
-from typing import List, Literal, Dict
+from typing import Any, List, Literal, Dict, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -170,6 +170,10 @@ class MilvusConfig(BaseModel):
         description="Embedding 服务地址，例如：http://localhost:11450/v1/embeddings",
     )
     embedder_timeout: int = Field(default=100, description="Embedding 请求超时时间（秒），例如：100")
+    retriever_class: Optional[Any] = Field(
+        default=None,
+        description="Optional retriever implementation class for RetrieveTool (e.g. BrowsecompPlusMilvusRetriever).",
+    )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

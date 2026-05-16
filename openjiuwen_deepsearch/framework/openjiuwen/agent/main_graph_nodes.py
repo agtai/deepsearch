@@ -18,7 +18,9 @@ from openjiuwen.core.workflow.components.flow.end_comp import End
 from openjiuwen.core.workflow.components.flow.start_comp import Start
 
 from openjiuwen_deepsearch.algorithm.chart_generation.vlm_chart_generator import VLMChartGenerator
-from openjiuwen_deepsearch.algorithm.search_nodes.utils import anonymize_config_for_logging
+from openjiuwen_deepsearch.algorithm.search_nodes.utils import (
+    anonymize_config_for_logging,
+)
 from openjiuwen_deepsearch.algorithm.query_understanding.interpreter import query_interpreter
 from openjiuwen_deepsearch.algorithm.query_understanding.intent_recognition import recognize_report_intent
 from openjiuwen_deepsearch.algorithm.query_understanding.outliner import Outliner
@@ -101,6 +103,7 @@ from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
 from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import (
     model_context,
     session_context,
+    tool_context,
 )
 from openjiuwen_deepsearch.utils.debug_utils.node_debug import (
     NodeDebugData,
@@ -1808,27 +1811,34 @@ class SearchStartNode(Start):
     async def invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
         session.update_global_state(inputs or {})
 
-        session.update_global_state(inputs or {})
+        # The framework filters ``inputs`` against the Start component's
+        # ``inputs_schema`` before invoking, so per-run fields like
+        # ``agent_config``/``search_config`` (passed via Runner.run_workflow)
+        # are not present here. They ARE available in the session global
+        # state because the framework calls ``commit_user_inputs(inputs)``
+        # before dispatching to the first node.
+        origin_agent_config = session.get_global_state("agent_config") or {}
+        if not isinstance(origin_agent_config, dict):
+            origin_agent_config = {}
+        search_workflow_config = session.get_global_state("search_config")
+        if not isinstance(search_workflow_config, dict):
+            search_workflow_config = Config().service_config.search_workflow.model_dump()
+        workflow_name = session.get_global_state("workflow_name") or inputs.get("workflow_name", "")
+
         # state_creation passes log_dir only inside agent_config; mirror to top-level for tools / LLM logs.
-        merged_log_dir = None
-        if isinstance(inputs, dict):
-            merged_log_dir = inputs.get("log_dir")
-            if not merged_log_dir:
-                ac = inputs.get("agent_config")
-                if isinstance(ac, dict):
-                    merged_log_dir = ac.get("log_dir")
+        merged_log_dir = session.get_global_state("log_dir")
+        if not merged_log_dir:
+            merged_log_dir = origin_agent_config.get("log_dir")
         if merged_log_dir:
             session.update_global_state({"log_dir": merged_log_dir})
 
-        search_workflow_config = inputs.get("search_config", Config().service_config.search_workflow.model_dump())
         logger.info(
-            "[SearchStartNode] received inputs: %s",
-            "***" if LogManager.is_sensitive() else inputs,
+            "[SearchStartNode] resolved workflow_name=%s, agent_config=%s",
+            workflow_name,
+            "***" if LogManager.is_sensitive() else origin_agent_config,
         )
-        origin_agent_config = inputs.get("agent_config", {})
         llm_config = origin_agent_config.get("llm_config", {}).get("general", {})
         retrieval_settings = origin_agent_config.get("retrieval_settings", {})
-        workflow_name = inputs.get("workflow_name", "")
         if workflow_name == "init_state_workflow":
             workflow_config = search_workflow_config["init_state_agent"]
             merged_llm_config = {**(llm_config or {})}
@@ -1845,7 +1855,9 @@ class SearchStartNode(Start):
             workflow_config["llm_config"]["general"] = merged_llm_config
         elif workflow_name == "state_creation_workflow":
             workflow_config = search_workflow_config["state_creation_agent"]
-            workflow_config["validator_agent"] = copy.deepcopy(workflow_config.get("validator_agent", {}))
+            workflow_config["validator_agent"] = copy.deepcopy(
+                workflow_config.get("validator_agent", {})
+            )
             workflow_config["validator_agent"]["llm_config"]["general"] = llm_config or {}
             merged_llm_config = {**(llm_config or {})}
             merged_llm_config.setdefault("timeout", 1200)
@@ -1912,7 +1924,7 @@ class SearchEndNode(End):
             config = session.get_global_state("config") or {}
             payload = {
                 "result": result,
-                "config": anonymize_config_for_logging(copy.deepcopy(config)),
+                "config": anonymize_config_for_logging(config),
                 "total_input_tokens": total_input_tokens,
                 "total_output_tokens": total_output_tokens,
             }
@@ -2578,7 +2590,12 @@ class ToolNode(BaseNode):
         logger.info("[ToolNode] Start ToolNode.")
         config = session.get_global_state("config") or {}
         retrieval_settings = session.get_global_state("retrieval_settings") or config.get("retrieval_settings", {})
-        tool_map = session.get_global_state("tool_map") or {}
+        # ``tool_map`` is read from the per-run ``tool_context`` ContextVar instead
+        # of session global state. Tool clients (e.g. ``MilvusClient``) hold
+        # ``_thread.RLock`` objects, and the framework deep-copies session state
+        # on every checkpoint (see ``InMemoryStore.save``) and ``asdict``-s log
+        # event metadata, both of which would crash on the lock.
+        tool_map = tool_context.get() or {}
         new_found_evidence_ids = session.get_global_state("new_found_evidence_ids") or []
         action = session.get_global_state("action") or {}
 

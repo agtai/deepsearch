@@ -55,10 +55,13 @@ from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from starlette.concurrency import run_in_threadpool
 
 from openjiuwen_deepsearch.algorithm.search_nodes.utils import ensure_api_keys_bytearray
+from openjiuwen_deepsearch.utils.validation_utils.param_validation import (
+    SAFE_CONVERSATION_ID_PATTERN,
+)
 from openjiuwen_deepsearch.config.config import Config, LLMConfig, MilvusConfig, PerQuestionParams
 from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import cancel_context
 from openjiuwen_deepsearch.utils.run_telemetry import RunTelemetryConfig, emit, run_telemetry_session
@@ -170,6 +173,18 @@ class CreateSearchRunRequest(BaseModel):
     serper_api_key: str = Field(default=_bytearray_to_str(_AC_CONFIG.serper_api_key))
     milvus: MilvusFieldsIn = Field(default_factory=MilvusFieldsIn)
     search_workflow_per_question_params: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("conversation_id")
+    @classmethod
+    def _validate_optional_conversation_id(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return v
+        if not SAFE_CONVERSATION_ID_PATTERN.fullmatch(v):
+            raise ValueError(
+                "conversation_id must be 1–128 characters and use only ASCII letters, digits, "
+                "underscore, or hyphen (^[A-Za-z0-9_-]{1,128}$)."
+            )
+        return v
 
     @model_validator(mode="after")
     def _validate_tool_keys(self) -> CreateSearchRunRequest:

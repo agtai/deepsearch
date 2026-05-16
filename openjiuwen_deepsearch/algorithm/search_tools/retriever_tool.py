@@ -1,6 +1,6 @@
 import os
 import sys
-from typing import List, Tuple
+from typing import List, Tuple, Type
 
 from openjiuwen_deepsearch.algorithm.search_tools.retrieval.base_retriever import (
     BaseRetriever,
@@ -10,7 +10,7 @@ from openjiuwen_deepsearch.algorithm.search_tools.retrieval.embedder import (
     OpenJiuwenAPIEmbedder,
 )
 from openjiuwen_deepsearch.algorithm.search_tools.retrieval.retriever import (
-    BrowsecompPlusMilvusRetriever,
+    KnowledgeBaseRetriever,
 )
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -46,11 +46,15 @@ class Retrieve:
         )
 
 
-class RetrieveBrowsecompPlus(Retrieve):
+class RetrieveTool(Retrieve):
     name = "retrieve"
-    description = "Retrieve BrowsecompPlus evidence paragraphs from Milvus."
+    description = "Retrieve evidence paragraphs from the knowledge base via Milvus."
 
-    def __init__(self, config: dict):
+    def __init__(
+        self,
+        config: dict,
+        retriever_class: Type[BaseRetriever] = KnowledgeBaseRetriever,
+    ):
         milvus_host = config.get("milvus_host")
         milvus_port = config.get("milvus_port")
         database_name = config.get("database_name")
@@ -65,7 +69,7 @@ class RetrieveBrowsecompPlus(Retrieve):
             api_url=embedder_base_url,
             timeout=embedder_timeout,
         )
-        retriever = BrowsecompPlusMilvusRetriever(
+        retriever = retriever_class(
             milvus_host=milvus_host or "localhost",
             milvus_port=str(milvus_port) if milvus_port else "19530",
             database_name=database_name or "deepsearch_benchmarks",
