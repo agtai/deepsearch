@@ -290,10 +290,14 @@ class InfoRetrievalNode(BaseNode):
         for idx, scored in enumerate(scored_result[:len(doc_infos)]):
             try:
                 index = int(scored.get("content"))
-            except (KeyError, ValueError):
+            except (AttributeError, KeyError, TypeError, ValueError):
                 logger.warning(f"section_idx: {section_idx} | [InfoRetrievalNode] "
                                f"Failed to get content form score result, using index:{idx} as fallback")
                 index = idx
+            if index < 0 or index >= len(doc_infos):
+                logger.warning(f"section_idx: {section_idx} | [InfoRetrievalNode] "
+                               f"Score result content index:{index} is out of range, skipping")
+                continue
 
             try:
                 scores: dict = scored.get("scores")

@@ -59,14 +59,14 @@ async def test_runtime_api_tool_splits_request_parts():
     json_data = json.dumps({"code": 0, "message": "ok", "data": {"result": "sunny"}}).encode("utf-8")
     mock_response.aiter_bytes = Mock(return_value=_make_async_iter([json_data]))
 
-    # Mock stream context manager
-    mock_stream_cm = AsyncMock()
+    # Mock stream context manager - use Mock() not AsyncMock() since it's the context manager object itself
+    mock_stream_cm = Mock()
     mock_stream_cm.__aenter__ = AsyncMock(return_value=mock_response)
     mock_stream_cm.__aexit__ = AsyncMock(return_value=None)
 
-    # Mock client - stream() should be an AsyncMock that returns the context manager when awaited
-    mock_client = AsyncMock()
-    mock_client.stream.return_value = mock_stream_cm
+    # Mock client - stream() returns context manager directly (no await needed after fix)
+    mock_client = Mock()
+    mock_client.stream = Mock(return_value=mock_stream_cm)
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
 
@@ -78,7 +78,7 @@ async def test_runtime_api_tool_splits_request_parts():
             "unit": "c",
         })
 
-    mock_client.stream.assert_awaited_once_with(
+    mock_client.stream.assert_called_once_with(
         method="POST",
         url="https://example.com/weather",
         headers={"x-plugin": "plugin-token", "authorization": "Bearer token"},
@@ -112,12 +112,12 @@ async def test_runtime_api_tool_parses_response_model():
     json_data = json.dumps({"code": 0, "message": "ok", "data": {"result": "done"}}).encode("utf-8")
     mock_response.aiter_bytes = Mock(return_value=_make_async_iter([json_data]))
 
-    mock_stream_cm = AsyncMock()
+    mock_stream_cm = Mock()
     mock_stream_cm.__aenter__ = AsyncMock(return_value=mock_response)
     mock_stream_cm.__aexit__ = AsyncMock(return_value=None)
 
-    mock_client = AsyncMock()
-    mock_client.stream.return_value = mock_stream_cm
+    mock_client = Mock()
+    mock_client.stream = Mock(return_value=mock_stream_cm)
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
 
@@ -238,12 +238,12 @@ async def test_runtime_api_tool_applies_search_result_wrapper():
     }).encode("utf-8")
     mock_response.aiter_bytes = Mock(return_value=_make_async_iter([json_data]))
 
-    mock_stream_cm = AsyncMock()
+    mock_stream_cm = Mock()
     mock_stream_cm.__aenter__ = AsyncMock(return_value=mock_response)
     mock_stream_cm.__aexit__ = AsyncMock(return_value=None)
 
-    mock_client = AsyncMock()
-    mock_client.stream.return_value = mock_stream_cm
+    mock_client = Mock()
+    mock_client.stream = Mock(return_value=mock_stream_cm)
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
 
@@ -298,12 +298,12 @@ async def test_runtime_api_tool_ignores_wrapper_when_response_model_present():
     }).encode("utf-8")
     mock_response.aiter_bytes = Mock(return_value=_make_async_iter([json_data]))
 
-    mock_stream_cm = AsyncMock()
+    mock_stream_cm = Mock()
     mock_stream_cm.__aenter__ = AsyncMock(return_value=mock_response)
     mock_stream_cm.__aexit__ = AsyncMock(return_value=None)
 
-    mock_client = AsyncMock()
-    mock_client.stream.return_value = mock_stream_cm
+    mock_client = Mock()
+    mock_client.stream = Mock(return_value=mock_stream_cm)
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
 

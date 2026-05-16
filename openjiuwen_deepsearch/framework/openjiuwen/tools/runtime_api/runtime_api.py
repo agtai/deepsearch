@@ -210,7 +210,7 @@ def create_runtime_api_tool(
             request_kwargs["json"] = body_params
 
         async with httpx.AsyncClient(timeout=30.0) as client:
-            async with await client.stream(**request_kwargs) as response:
+            async with client.stream(**request_kwargs) as response:
                 payload = await _read_limited_json_response(response)
 
         # Collector-like paths do not use response_model, so only those paths

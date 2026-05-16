@@ -195,12 +195,12 @@ class TestOutliner:
         }).encode("utf-8")
         mock_http_response.aiter_bytes = Mock(return_value=_make_async_iter([json_data]))
         
-        mock_stream_cm = AsyncMock()
+        mock_stream_cm = Mock()
         mock_stream_cm.__aenter__ = AsyncMock(return_value=mock_http_response)
         mock_stream_cm.__aexit__ = AsyncMock(return_value=None)
         
-        mock_client = AsyncMock()
-        mock_client.stream.return_value = mock_stream_cm
+        mock_client = Mock()
+        mock_client.stream = Mock(return_value=mock_stream_cm)
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
