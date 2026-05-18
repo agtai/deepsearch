@@ -150,7 +150,6 @@ class PerQuestionParams(BaseModel):
 class MilvusConfig(BaseModel):
     """
     Milvus 配置。
-    Embedding 当前仅支持：qwen3-embedding-0.6b、qwen3-embedding-8b。
     """
 
     milvus_host: str = Field(default="localhost", description="Milvus 主机地址")
@@ -158,8 +157,8 @@ class MilvusConfig(BaseModel):
     database_name: str = Field(default="deepsearch_benchmarks", description="数据库名称")
     collection_name: str = Field(default="browsecompplus_with_bm25", description="集合名称")
     embedder_model_name: str = Field(
-        default="qwen3-embedding-8b",
-        description="Embedding 模型名称，当前仅支持：qwen3-embedding-0.6b、qwen3-embedding-8b",
+        default="",
+        description="Embedding 模型名称（需与索引构建时所用模型一致）",
     )
     embedder_api_key: bytearray = Field(
         default=bytearray("", encoding="utf-8"),

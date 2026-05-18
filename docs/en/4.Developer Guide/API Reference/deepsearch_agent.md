@@ -164,7 +164,7 @@ Same surface as **`BaseAgent.run`**. Validates with `validate_run_agent_params` 
 - **`milvus_port`** (`int`, default `19530`): Milvus service port.
 - **`database_name`** (`str`, default `"deepsearch_benchmarks"`): Milvus database name.
 - **`collection_name`** (`str`, default `"browsecompplus_with_bm25"`): collection to query.
-- **`embedder_model_name`** (`str`, default `"qwen3-embedding-8b"`): embedding model name (currently supported: `qwen3-embedding-0.6b`, `qwen3-embedding-8b`).
+- **`embedder_model_name`** (`str`, default `""`): embedding model id; must match the model used when the index was built.
 - **`embedder_api_key`** (`bytearray`, default empty): embedding service API key.
 - **`embedder_base_url`** (`str`, default `""`): embedding endpoint URL (for example `http://localhost:11450/v1/embeddings`).
 - **`embedder_timeout`** (`int`, default `100`): embedding request timeout in seconds.
@@ -172,7 +172,7 @@ Same surface as **`BaseAgent.run`**. Validates with `validate_run_agent_params` 
 - **`model_config`** (`dict`, optional): extra model config fields to pass through to the embedder.
 
 **Usage notes**:
-- If the index is created by `create_browsecompplus_index.py` (openjiuwen_deepsearch/algorithm/search_index/create_browsecompplus_index.py), use the default milvus settings and set **`retriever_class`** to **`BrowsecompPlusMilvusRetriever`** (see example below).
+- If the index is created by `create_browsecompplus_index.py` (openjiuwen_deepsearch/algorithm/search_index/create_browsecompplus_index.py), use the default Milvus settings and set **`retriever_class`** to **`BrowsecompPlusMilvusRetriever`** (see example below). **For `retrieve` you must still configure the embedding base URL, API key, and model name to match the indexer.**
 
 - If the index is built using “Sync to Deepsearch” option from openJiuwen studio, set `collection_name` to `"ds_kb_{kb_id}_chunks"` and `database_name` to `"default"`; omit **`retriever_class`** to use **`KnowledgeBaseRetriever`**.
 
@@ -209,7 +209,7 @@ async def main():
         "milvus_port": 19530,
         "database_name": "deepsearch_benchmarks",
         "collection_name": "browsecompplus_with_bm25",
-        "embedder_model_name": "qwen3-embedding-8b",
+        "embedder_model_name": "<YOUR_EMBEDDING_MODEL_NAME>",
         "embedder_api_key": bytearray("<YOUR_EMBEDDER_API_KEY>", encoding="utf-8"),
         "embedder_base_url": "http://localhost:11450/v1/embeddings",
         "embedder_timeout": 100,

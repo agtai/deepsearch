@@ -378,17 +378,17 @@ def main(
         search_group.add_argument("--serper_api_key", type=str, default="", help="serper 模型密钥")
         search_group.add_argument("--milvus_host", type=str, default="localhost", help="milvus 主机地址")
         search_group.add_argument("--milvus_port", type=int, default=19530, help="milvus 端口")
-        search_group.add_argument("--database_name", type=str, default="deepsearch_benchmarks", help="数据库名称")
+        search_group.add_argument("--database_name", type=str, default="default", help="数据库名称")
         search_group.add_argument(
             "--collection_name",
             type=str,
-            default="browsecompplus_with_bm25",
+            default="",
             help="集合名称",
         )
         search_group.add_argument(
             "--embedder_model_name",
             type=str,
-            default="qwen/qwen3-embedding-8b",
+            default="",
             help="embedder 模型名称",
         )
         search_group.add_argument("--embedder_api_key", type=str, default="", help="embedder 模型密钥")

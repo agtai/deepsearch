@@ -51,7 +51,7 @@ async run(
 - **`milvus_port`**（`int`，默认 `19530`）：Milvus 服务端口。
 - **`database_name`**（`str`，默认 `"deepsearch_benchmarks"`）：Milvus 数据库名。
 - **`collection_name`**（`str`，默认 `"browsecompplus_with_bm25"`）：检索使用的集合名。
-- **`embedder_model_name`**（`str`，默认 `"qwen3-embedding-8b"`）：Embedding 模型名称（当前支持：`qwen3-embedding-0.6b`、`qwen3-embedding-8b`）。
+- **`embedder_model_name`**（`str`，默认 `""`）：Embedding 模型名称（须与索引构建时所用模型一致）。
 - **`embedder_api_key`**（`bytearray`，默认空）：Embedding 服务 API Key。
 - **`embedder_base_url`**（`str`，默认 `""`）：Embedding 服务地址（例如 `http://localhost:11450/v1/embeddings`）。
 - **`embedder_timeout`**（`int`，默认 `100`）：Embedding 请求超时时间（秒）。
@@ -60,7 +60,7 @@ async run(
 
 **使用说明**：
 
-- 若索引由 `create_browsecompplus_index.py`（openjiuwen_deepsearch/algorithm/search_index/create_browsecompplus_index.py）创建，可使用上述默认 Milvus 设置，并将 **`retriever_class`** 设为 **`BrowsecompPlusMilvusRetriever`**（见下方示例）。
+- 若索引由 `create_browsecompplus_index.py`（openjiuwen_deepsearch/algorithm/search_index/create_browsecompplus_index.py）创建，可使用上述默认 Milvus 设置，并将 **`retriever_class`** 设为 **`BrowsecompPlusMilvusRetriever`**（见下方示例）。**retrieve 仍须在配置中填写与索引一致的 Embedding 服务地址、密钥及模型名。**
 
 - 若索引由 openJiuwen studio「同步到 Deepsearch」构建，将 `collection_name` 设为 `"ds_kb_{kb_id}_chunks"`、`database_name` 设为 `"default"`；省略 **`retriever_class`** 即使用 **`KnowledgeBaseRetriever`**。
 
@@ -96,7 +96,7 @@ async def main():
         "milvus_port": 19530,
         "database_name": "deepsearch_benchmarks",
         "collection_name": "browsecompplus_with_bm25",
-        "embedder_model_name": "qwen3-embedding-8b",
+        "embedder_model_name": "<YOUR_EMBEDDING_MODEL_NAME>",
         "embedder_api_key": bytearray("<YOUR_EMBEDDER_API_KEY>", encoding="utf-8"),
         "embedder_base_url": "http://localhost:11450/v1/embeddings",
         "embedder_timeout": 100,
