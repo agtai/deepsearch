@@ -59,6 +59,7 @@ from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
 from openjiuwen_deepsearch.config.config import (
     AgentConfig,
+    Config,
     CustomLocalSearchConfig,
     CustomWebSearchConfig,
     LocalSearchEngineConfig,
@@ -1412,6 +1413,7 @@ class DeepSearchAgent(BaseAgent):
                         new_actions_result: WorkflowOutput = await Runner.run_workflow(
                             workflow="find_action_1",
                             inputs={
+                                **self._subworkflow_context_inputs("find_action_workflow"),
                                 "state": new_state,
                                 "query": self.query,
                                 "result": result,
@@ -1721,7 +1723,7 @@ class SimpleReactSearchAgent(BaseAgent):
                 "react_run_started",
                 {
                     "conversation_id": conversation_id,
-                    "tool_map": {k: v.__class__.__name__ for k, v in per_question_params.tool_map.items()},
+                    "tool_map": {k: v.__class__.__name__ for k, v in tool_map.items()},
                     "model_name": general.model_name,
                     "log_dir": "***" if LogManager.is_sensitive() else log_dir,
                 },
