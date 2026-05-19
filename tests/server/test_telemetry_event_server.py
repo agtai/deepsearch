@@ -24,6 +24,26 @@ def test_post_rejects_empty_body_when_jsonl(telemetry_client: TestClient) -> Non
     assert r.status_code == 422
 
 
+def test_default_public_base_uses_loopback_for_wildcard_bind_host() -> None:
+    assert tes._default_public_base_from_bind("0.0.0.0", 8089) == "http://127.0.0.1:8089"
+    assert tes._default_public_base_from_bind("::", 8089) == "http://[::1]:8089"
+
+
+def test_default_public_base_uses_loopback_for_blank_bind_host() -> None:
+    assert tes._default_public_base_from_bind("", 8089) == "http://127.0.0.1:8089"
+    assert tes._default_public_base_from_bind("   ", 8089) == "http://127.0.0.1:8089"
+
+
+def test_default_public_base_preserves_explicit_bind_host() -> None:
+    assert tes._default_public_base_from_bind("127.0.0.1", 8089) == "http://127.0.0.1:8089"
+
+
+def test_default_public_base_brackets_explicit_ipv6_bind_host() -> None:
+    assert tes._default_public_base_from_bind("::1", 8089) == "http://[::1]:8089"
+    assert tes._default_public_base_from_bind("2001:db8::1", 8089) == "http://[2001:db8::1]:8089"
+    assert tes._default_public_base_from_bind("[2001:db8::1]", 8089) == "http://[2001:db8::1]:8089"
+
+
 def test_post_rejects_correlation_only_fragment(telemetry_client: TestClient) -> None:
     r = telemetry_client.post("/events", json={"conversation_id": "c1", "space_id": "s1"})
     assert r.status_code == 422

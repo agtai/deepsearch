@@ -77,6 +77,7 @@ _DEFAULT_LOG_FILE = (
 _write_lock = threading.Lock()
 MAX_RECENT_N = 10_000
 _LIFECYCLE_SOURCE = "server.telemetry_event_server._run_search_workflow"
+_WILDCARD_BIND_HOSTS = {"0.0.0.0", "::", "[::]"}
 
 
 @dataclass
@@ -364,6 +365,20 @@ def _ingest_telemetry_url() -> str:
     ep = server_state.event_path
     ep = ep if ep.startswith("/") else f"/{ep}"
     return f"{b}{ep}"
+
+
+def _default_public_base_from_bind(host: str, port: int) -> str:
+    """Build a routable default public base URL from bind host/port."""
+    h = (host or "").strip()
+    if not h:
+        return f"http://127.0.0.1:{port}"
+    if h == "0.0.0.0":
+        return f"http://127.0.0.1:{port}"
+    if h in {"::", "[::]"}:
+        return f"http://[::1]:{port}"
+    if ":" in h and not (h.startswith("[") and h.endswith("]")):
+        return f"http://[{h}]:{port}"
+    return f"http://{h}:{port}"
 
 
 def _append_jsonl_line(path: str, line: str) -> None:
@@ -691,18 +706,30 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--public-base-url",
         default="",
-        help="Public base for RunTelemetryConfig.url = BASE + --path (default: http://HOST:PORT)",
+        help=(
+            "Public base for RunTelemetryConfig.url = BASE + --path "
+            "(default: derived from --host/--port; wildcard bind hosts use loopback)"
+        ),
     )
     p.add_argument("--verbose", "-v", action="store_true", help="DEBUG logging")
     args = p.parse_args(argv)
 
     ep = args.path if args.path.startswith("/") else f"/{args.path}"
-    public_base = (args.public_base_url or f"http://{args.host}:{args.port}").rstrip("/")
+    public_base = (
+        args.public_base_url or _default_public_base_from_bind(args.host, args.port)
+    ).rstrip("/")
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
+    if not args.public_base_url and args.host in _WILDCARD_BIND_HOSTS:
+        logger.info(
+            "bind host %s is wildcard; using internal telemetry base %s "
+            "(override with --public-base-url)",
+            args.host,
+            public_base,
+        )
 
     global server_state, app
     server_state = ServerState(

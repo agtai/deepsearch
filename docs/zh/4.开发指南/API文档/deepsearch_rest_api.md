@@ -10,6 +10,8 @@ Telemetry 后端由 `server.telemetry_event_server` 提供（FastAPI，默认 `h
 uv run python -m server.telemetry_event_server
 ```
 
+如果使用通配绑定地址（例如 `--host 0.0.0.0`），服务端现在会默认使用 loopback 作为内部 telemetry 回调基址。你仍可通过 `--public-base-url` 显式覆盖。
+
 ### `GET /health`
 轻量存活探针（返回纯文本）。
 
