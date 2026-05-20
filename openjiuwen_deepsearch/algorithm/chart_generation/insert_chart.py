@@ -9,12 +9,19 @@
 """
 
 import logging
-from typing import Dict, List, Any, Tuple
 import re
+from typing import Dict, List, Any, Tuple
 import copy
 
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
+from openjiuwen_deepsearch.utils.common_utils.text_utils import (
+    escape_html_text,
+    escape_markdown_link_text,
+)
+from openjiuwen_deepsearch.utils.common_utils.url_utils import (
+    validate_and_sanitize_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +40,7 @@ class InsertChartNode:
         self.report_content = None
         self.output_dir = output_dir
         self._log_prefix = "[InsertChartNode]"
+        self._inser_source_tracer_count = 0
         
     def run(
         self, report_content: str, 
@@ -63,6 +71,9 @@ class InsertChartNode:
                     modified_report = self._insert_chart_placeholder(
                         modified_report, chart
                     )
+            logger.info(f"{self._log_prefix} The count of source trace " \
+                        f"for vlm_charts is {self._inser_source_tracer_count}. " \
+                        f"Total count is {len(self.source_trace_datas)}.")
         except Exception as e:
             error_msg = f"Error inserting chart tasks: {repr(e)}"
             logger.error(error_msg)
@@ -83,37 +94,51 @@ class InsertChartNode:
         Returns:
             str: 修改后的报告内容
         """
-        
+
         anchor_text = chart.get("anchor_match_para", "")
         chart_title = chart.get("chart_title", "")
         description = chart.get("description", "")
         chart_id = chart.get("chart_id", "")
         source_datas = chart.get("source_datas", [])
-    
+
+        # 对图表标题和描述进行HTML转义，防止HTML/Markdown注入
+        safe_chart_title = escape_html_text(chart_title)
+        safe_description = escape_html_text(description)
+
         placeholder = f"(#insertChart:{chart_id})"
-        insertion = f"{placeholder}\n<font size=2>**{chart_title}**: {description}</font>"
-            
+        insertion = f"{placeholder}\n<font size=2>**{safe_chart_title}**: {safe_description}</font>"
+
         # 将新插入的溯源信息插入到source_trace_datas对应位置中
         if self._insert_source_trace_data(report_content, chart):
+            # 统计vlm生成图模块共插入了多少条溯源信息
+            self._inser_source_tracer_count += len(source_datas)
             # 溯源信息成功插入datas, 在报告中插入溯源信息
             for source_data in source_datas:
-                insertion += f"[source_tracer_result][{source_data.get('title', '')}]({source_data.get('url', '')})"
-            logger.info(f"Inserted source trace data, \
-                the figure id is {chart.get('chart_id', '')}")
+                # 对链接文本进行Markdown转义
+                safe_link_title = escape_markdown_link_text(source_data.get('title', ''))
+                # 验证并清理URL，只允许http/https scheme
+                safe_url = validate_and_sanitize_url(source_data.get('url', ''))
+
+                # 如果URL验证失败，使用一个占位链接文本（不插入实际链接）
+                if safe_url:
+                    insertion += f"[source_tracer_result][{safe_link_title}]({safe_url})"
+            logger.debug("%s Inserted source trace data, the figure id is %s",
+                        self._log_prefix, chart.get('chart_id', ''))
         else:
             # 溯源信息插入失败，报告的图表不显示其溯源
-            logger.warning(f"Failed to insert source trace data, \
-                the figure id is {chart.get('chart_id', '')}")
+            logger.warning(f"{self._log_prefix} Failed to insert source trace data, "
+                           f"the figure id is {chart.get('chart_id', '')}")
 
         # 在报告中插入图表占位符、描述和溯源信息
         if anchor_text in report_content:
             modified_content = report_content.replace(
-                anchor_text, anchor_text + "\n\n" + insertion
+                anchor_text, anchor_text + "\n\n" + insertion + "\n", 1
             )
-            logger.info(f"Inserted chart placeholder {placeholder} after anchor text")
+            logger.debug("%s Inserted chart placeholder %s after anchor text",
+                        self._log_prefix, placeholder)
             return modified_content
         else:
-            logger.warning(f"Anchor text not found in report: {anchor_text[:50]}...")
+            logger.warning(f"{self._log_prefix} Anchor text not found in report: {anchor_text[:50]}...")
             return report_content
 
     def _insert_source_trace_data(
@@ -150,8 +175,10 @@ class InsertChartNode:
             else:
                 sentence_position = 0
             
-            pos_offset = 1
+            pos_offset = 0
+            insert_source_traces = []
             for source_data in source_datas:
+                pos_offset += 1
                 chart_source_data = {
                     "name": "",
                     "url": source_data.get("url", ""),
@@ -166,11 +193,18 @@ class InsertChartNode:
                     "_sentence_position": sentence_position + pos_offset, # 符合datas中位置递增变化即可
                     "is_vlm_chart": True,
                 }
-                pos_offset += 1
-                self.source_trace_datas.insert(data_source_insert_pos, chart_source_data)
-                data_source_insert_pos += 1
+                insert_source_traces.append(chart_source_data)
+            # 插入点后的所有溯源的_sentence_position偏移
+            source_tracer_count = len(self.source_trace_datas)
+            if data_source_insert_pos < source_tracer_count:
+                for index in range(data_source_insert_pos, source_tracer_count):
+                    self.source_trace_datas[index]["_sentence_position"] += pos_offset
+                # 将vlm生成的图的溯源插入source_trace_datas
+                self.source_trace_datas[data_source_insert_pos:data_source_insert_pos] = insert_source_traces
+            else:
+                self.source_trace_datas.extend(insert_source_traces)
             return True
         except Exception as e:
-            logger.error(f"Failed to insert source trace data: {e}, \
+            logger.error(f"{self._log_prefix} Failed to insert source trace data: {e}, \
                 the figure id is {chart.get('chart_id', '')}")
             return False

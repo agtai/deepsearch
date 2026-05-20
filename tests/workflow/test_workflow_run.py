@@ -47,9 +47,9 @@ async def validate_run_input_parameter(
 # 测试用例1: message 参数验证
 @pytest.mark.asyncio
 @pytest.mark.parametrize("invalid_value, error_code, error_msg_fragment", [
-    (None, 200011, "Parameter validation failed, type of feild 'message' must not be empty"),
-    ("", 200011, "Parameter validation failed, type of feild 'message' must not be empty"),
-    (1, 200010, "Parameter validation failed, type of feild 'message' must be str")
+    (None, 200011, "Parameter validation failed, type of field 'message' must not be empty"),
+    ("", 200011, "Parameter validation failed, type of field 'message' must not be empty"),
+    (1, 200010, "Parameter validation failed, type of field 'message' must be str")
 ])
 async def test_run_validate_message(invalid_value, error_code, error_msg_fragment):
     await validate_run_input_parameter(
@@ -64,9 +64,9 @@ async def test_run_validate_message(invalid_value, error_code, error_msg_fragmen
 # 测试用例2: conversation_id 参数验证
 @pytest.mark.asyncio
 @pytest.mark.parametrize("invalid_value, error_code, error_msg_fragment", [
-    (None, 200011, "Parameter validation failed, type of feild 'conversation_id' must not be empty"),
-    ("", 200011, "Parameter validation failed, type of feild 'conversation_id' must not be empty"),
-    (1, 200010, "Parameter validation failed, type of feild 'conversation_id' must be str")
+    (None, 200011, "Parameter validation failed, type of field 'conversation_id' must not be empty"),
+    ("", 200011, "Parameter validation failed, type of field 'conversation_id' must not be empty"),
+    (1, 200010, "Parameter validation failed, type of field 'conversation_id' must be str")
 ])
 async def test_run_validate_conversation_id(invalid_value, error_code, error_msg_fragment):
     await validate_run_input_parameter(
@@ -81,7 +81,7 @@ async def test_run_validate_conversation_id(invalid_value, error_code, error_msg
 # 测试用例3: report_template 参数验证
 @pytest.mark.asyncio
 @pytest.mark.parametrize("invalid_value, error_code, error_msg_fragment", [
-    (123, 200010, "Parameter validation failed, type of feild 'report_template' must be str"),
+    (123, 200010, "Parameter validation failed, type of field 'report_template' must be str"),
 ])
 async def test_run_validate_report_template(invalid_value, error_code, error_msg_fragment):
     await validate_run_input_parameter(
@@ -96,7 +96,7 @@ async def test_run_validate_report_template(invalid_value, error_code, error_msg
 # 测试用例4: interrupt_feedback 参数验证
 @pytest.mark.asyncio
 @pytest.mark.parametrize("invalid_value, error_code, error_msg_fragment", [
-    (123, 200010, "Parameter validation failed, type of feild 'interrupt_feedback' must be str"),
+    (123, 200010, "Parameter validation failed, type of field 'interrupt_feedback' must be str"),
     ("xxx", 200012, "Parameter 'interrupt_feedback' must be either an empty string or 'accepted' or 'cancel'"),
 ])
 async def test_run_validate_interrupt_feedback(invalid_value, error_code, error_msg_fragment):
@@ -118,6 +118,25 @@ def test_validate_run_agent_params_allows_empty_message_for_accepted_interrupt()
     )
 
 
+@pytest.mark.parametrize("conversation_id", [
+    "x/../../escape_parent",
+    r"x\\nested",
+    "../escape",
+    "contains space",
+])
+def test_validate_run_agent_params_rejects_unsafe_conversation_id(conversation_id):
+    with pytest.raises(CustomValueException) as exc_info:
+        validate_run_agent_params(
+            message="hello",
+            conversation_id=conversation_id,
+            report_template="",
+            interrupt_feedback="",
+        )
+
+    assert exc_info.value.error_code == 200013
+    assert "conversation_id" in str(exc_info.value)
+
+
 # 测试用例5: agent_config 参数验证
 wrong_agent_config = Config().agent_config.model_dump()
 wrong_agent_config["outliner_max_section_num"] = -1
@@ -126,7 +145,7 @@ wrong_agent_config["outliner_max_section_num"] = -1
 @pytest.mark.asyncio
 @pytest.mark.parametrize("invalid_value, error_code, error_msg_fragment", [
     (wrong_agent_config, 200009, "Parameter validation failed"),
-    (None, 200011, "type of feild 'agent_config' must not be empty"),
+    (None, 200011, "type of field 'agent_config' must not be empty"),
 ])
 async def test_run_validate_agent_config(invalid_value, error_code, error_msg_fragment):
     await validate_run_input_parameter(
