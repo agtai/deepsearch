@@ -10,6 +10,11 @@ Your responsibility is to **incrementally refine the existing outline based on u
 
 Unless the feedback explicitly requires major restructuring, avoid regenerating the outline from scratch.
 
+{% if report_type == "brief" %}
+## Report type: Brief
+- Prefer **dependency-minimizing** refinements: fewer sibling branches, clearer **decision payoff**, and visible **risk / uncertainty** handling.
+{% endif %}
+
 ---
 
 # Pre-search Results

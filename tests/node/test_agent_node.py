@@ -287,11 +287,15 @@ async def test_intent_recognition_node_updates_context_and_routes_to_entry():
         "messages": messages,
         "llm_model_name": "basic",
     })
-    session.update_global_state.assert_any_call({
-        "search_context.original_query": original_query,
-        "search_context.research_query": "AI Agent 趋势",
-        "search_context.research_intent": intent_result.research_intent.model_dump(),
-    })
+    update_payloads = [call.args[0] for call in session.update_global_state.call_args_list]
+    intent_update = next(
+        payload for payload in update_payloads
+        if "search_context.original_query" in payload and "search_context.research_query" in payload
+    )
+    assert intent_update["search_context.original_query"] == original_query
+    assert intent_update["search_context.research_query"] == "AI Agent 趋势"
+    assert intent_update["search_context.research_intent"] == intent_result.research_intent.model_dump()
+    assert "search_context.report_type_policy" in intent_update
     session.update_global_state.assert_any_call({
         "search_context.messages": [{"role": "user", "content": "AI Agent 趋势"}]
     })

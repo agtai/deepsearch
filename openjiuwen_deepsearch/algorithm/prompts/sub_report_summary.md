@@ -25,9 +25,14 @@ market size, core technologies) is **MANDATORY** in the summary.
 
 # Writing Rules
 1. **Length Control (Strict)**:
+{% if paragraph_style | default("detailed") == "concise" %}
+    * **Target Range (Brief)**: 150–280 words.
+    * **Hard Ceiling**: 320 words.
+{% else %}
     * **Target Range**: 350-450 words.
     * **Hard Ceiling**: 500 words.
-    * If the draft exceeds 500 words, you MUST delete descriptive adjectives and merge sentences. Do not sacrifice key entities, but sacrifice sentence
+{% endif %}
+    * If the draft exceeds the hard ceiling, you MUST delete descriptive adjectives and merge sentences. Do not sacrifice key entities, but sacrifice sentence
 flow for brevity.
 2. **Information Density**: Avoid vague phrases like "This section analyzes...". Instead, use concrete facts: "The Top 10 insurers, led by Ping An and
 China Life, hold 65% market share."

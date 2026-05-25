@@ -2,13 +2,14 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
 
 import logging
+from typing import Literal
 
 from pydantic import BaseModel, Field
 from openjiuwen.core.foundation.tool.base import ToolCard
 from openjiuwen.core.foundation.tool.function.function import LocalFunction
 
 from openjiuwen_deepsearch.algorithm.prompts.template import apply_system_prompt
-from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import ResearchIntent
+from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import ReportTypePolicy, ResearchIntent
 from openjiuwen_deepsearch.utils.common_utils import llm_utils
 from openjiuwen_deepsearch.utils.common_utils.url_utils import extract_domain_from_url
 from openjiuwen_deepsearch.utils.constants_utils.node_constants import AgentLlmName
@@ -18,6 +19,41 @@ from openjiuwen_deepsearch.utils.log_utils.log_manager import LogManager
 logger = logging.getLogger(__name__)
 
 EMIT_INTENT_TOOL = "emit_report_intent"
+
+_VALID_REPORT_TYPES = frozenset({"professional", "brief"})
+
+
+def normalize_report_type(raw: str | None) -> Literal["professional", "brief"]:
+    """校验 report_type 是否为 professional 或 brief；缺省/非法值视为 professional。"""
+    if raw is None:
+        return "professional"
+    s = str(raw).strip().lower()
+    if not s:
+        return "professional"
+    if s == "brief":
+        return "brief"
+    if s == "professional":
+        return "professional"
+    return "professional"
+
+
+def resolve_report_type_policy(
+    normalized_report_type: Literal["professional", "brief"],
+) -> ReportTypePolicy:
+    """按报告类型解析策略。"""
+    if normalized_report_type == "brief":
+        return ReportTypePolicy(
+            report_type="brief",
+            paragraph_style="concise",
+            require_summary_first=True,
+            require_methodology_and_risk=True,
+        )
+    return ReportTypePolicy(
+        report_type="professional",
+        paragraph_style="detailed",
+        require_summary_first=False,
+        require_methodology_and_risk=False,
+    )
 
 
 class IntentRecognitionResult(BaseModel):
@@ -66,7 +102,7 @@ def _normalize_research_intent(data: dict) -> ResearchIntent:
     tone = str(tone_raw).strip().lower() if tone_raw is not None and str(tone_raw).strip() else None
 
     rt_raw = data.get("report_type")
-    report_type = str(rt_raw).strip().lower() if rt_raw is not None and str(rt_raw).strip() else None
+    report_type = normalize_report_type(str(rt_raw).strip() if rt_raw is not None else None)
 
     ar_raw = data.get("audience_role")
     audience_role = str(ar_raw).strip() if ar_raw is not None and str(ar_raw).strip() else None
@@ -123,7 +159,8 @@ def _create_emit_intent_tool() -> LocalFunction:
                     "type": "string",
                     "description": (
                         "The core research topic only (what to investigate). "
-                        "Exclude meta instructions about chapters, audience, tone, or URLs."
+                        "Exclude meta instructions about chapters, audience, tone, or URLs. "
+                        "Keep the same language as the user's original query and do not translate."
                     ),
                 },
                 "section_count": {
@@ -143,7 +180,12 @@ def _create_emit_intent_tool() -> LocalFunction:
                 },
                 "report_type": {
                     "type": "string",
-                    "description": "Report type as English enum: concise, deep_research, standard, etc.",
+                    "enum": ["professional", "brief"],
+                    "description": (
+                        "Report type. MUST be exactly 'professional' (full deep research) "
+                        "or 'brief' (concise). Map user wording (e.g. 精简版/深度研究) to these "
+                        "values before emitting. Omit if unclear."
+                    ),
                 },
                 "include_url": {
                     "type": "array",

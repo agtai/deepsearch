@@ -13,6 +13,10 @@ As a professional Deep Researcher writer, your task is to generate a single, coh
 
 Do not include any section titles (e.g., "摘要"), metadata, or explanatory notes. Begin directly with the summary content.
 
+{% if report_type | default("professional") == "brief" %}
+- Keep the abstract **extra short** (about **120–220** Chinese characters or **70–130** English words) while still bolding critical numbers/claims.
+{% endif %}
+
 # Critical Requirements
 
 - The language of generated content is specified by language = **{{language}}**

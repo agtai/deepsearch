@@ -23,7 +23,10 @@ from openjiuwen_deepsearch.algorithm.search_nodes.utils import (
 )
 from openjiuwen_deepsearch.utils.log_utils.log_metrics import metrics_logger, TIME_LOGGER_TAG
 from openjiuwen_deepsearch.algorithm.query_understanding.interpreter import query_interpreter
-from openjiuwen_deepsearch.algorithm.query_understanding.intent_recognition import recognize_report_intent
+from openjiuwen_deepsearch.algorithm.query_understanding.intent_recognition import (
+    recognize_report_intent,
+    resolve_report_type_policy,
+)
 from openjiuwen_deepsearch.algorithm.query_understanding.outliner import Outliner
 from openjiuwen_deepsearch.algorithm.query_understanding.router import classify_query, web_search_for_query
 from openjiuwen_deepsearch.algorithm.report.config import ReportFormat, ReportStyle
@@ -249,10 +252,19 @@ class IntentRecognitionNode(BaseNode):
         original_q = algorithm_output.original_query
         research_q = (algorithm_output.research_query or "").strip() or original_q
 
+        report_type = algorithm_output.research_intent.report_type
+        report_policy = resolve_report_type_policy(report_type)
+        logger.info(
+            "[IntentRecognitionNode] report_type=%s policy=%s",
+            report_type,
+            report_policy.model_dump(),
+        )
+
         session.update_global_state({
             "search_context.original_query": original_q,
             "search_context.research_query": research_q,
             "search_context.research_intent": algorithm_output.research_intent.model_dump(),
+            "search_context.report_type_policy": report_policy.model_dump(),
         })
         web_search_engine_config = session.get_global_state("config.web_search_engine_config")
         web_search_engine_name = web_search_engine_config.search_engine_name if web_search_engine_config else ""
@@ -476,6 +488,7 @@ class ReporterNode(BaseNode):
         llm_model_name = adapt_llm_model_name(session, NodeId.REPORTER.value)
 
         visualization_enable = session.get_global_state("config.visualization_enable")
+        rtp = session.get_global_state("search_context.report_type_policy") or {}
         return dict(
             thread_id=session.get_global_state("config.thread_id") or "",
             report_style=session.get_global_state("config.report_style") or ReportStyle.SCHOLARLY.value,
@@ -488,6 +501,11 @@ class ReporterNode(BaseNode):
             user_query=session.get_global_state("search_context.research_query"),
             llm_model_name=llm_model_name,
             visualization_enable=visualization_enable,
+            report_type_policy=rtp,
+            report_type=rtp.get("report_type", "professional"),
+            paragraph_style=rtp.get("paragraph_style", "detailed"),
+            require_summary_first=rtp.get("require_summary_first", False),
+            require_methodology_and_risk=rtp.get("require_methodology_and_risk", False),
         )
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext):
@@ -746,7 +764,7 @@ class OutlineNode(BaseNode):
         outline_interaction_enabled = session.get_global_state("config.outline_interaction_enabled")
         api_tools_config = session.get_global_state("config.api_tools_config") or {}
         entry_search_results = session.get_global_state("search_context.entry_search_results") or []
-
+        rtp = session.get_global_state("search_context.report_type_policy") or {}
 
         return dict(
             messages=messages,
@@ -763,6 +781,10 @@ class OutlineNode(BaseNode):
             outline_interaction_enabled=outline_interaction_enabled,
             previous_feedback=previous_feedback,
             api_tools_config=api_tools_config,
+            report_type=rtp.get("report_type", "professional"),
+            require_summary_first=rtp.get("require_summary_first", False),
+            require_methodology_and_risk=rtp.get("require_methodology_and_risk", False),
+            report_type_policy=rtp,
         )
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:

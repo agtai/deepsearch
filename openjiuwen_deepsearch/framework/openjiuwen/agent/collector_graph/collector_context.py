@@ -22,6 +22,7 @@ class CollectorContext(BaseModel):
     max_react_recursion_limit: int = Field(default=8, description="最大递归限制")
     research_loop_count: int = Field(default=0, description="研究循环计数")
     max_tool_steps: int = Field(default=3, description="最大步数")
+    report_type_policy: dict = Field(default_factory=dict, description="报告类型策略")
     evidence_ledger: dict = Field(default_factory=dict, description="collector 内部 evidence ledger")
     search_queries: list[RetrievalQuery] = Field(default_factory=list, description="当前的检索Query列表")  # info_collector
     history_queries: list[RetrievalQuery] = Field(default_factory=list, description="历史的检索Query列表")  # info_collector

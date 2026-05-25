@@ -125,6 +125,7 @@ class StartNode(Start):
             max_research_loops=inputs.get("max_research_loops", 1),
             max_react_recursion_limit=inputs.get("max_react_recursion_limit", 5),
             evidence_ledger={},
+            report_type_policy=inputs.get("report_type_policy") or {},
         )
         session.update_global_state({"collector_context": collector_context.model_dump()})
 
@@ -183,6 +184,8 @@ class GenerateQueryNode(BaseNode):
         current_ledger = ensure_ledger(state.get("evidence_ledger"))
         ledger_brief = build_ledger_brief(current_ledger)
 
+        rtp = session.get_global_state("collector_context.report_type_policy") or {}
+
         agent_input = {
             "step_title": step_title,
             "step_description": step_description,
@@ -190,7 +193,9 @@ class GenerateQueryNode(BaseNode):
             "ledger": current_ledger.model_dump(),
             "ledger_brief": ledger_brief,
             "number_queries": number_queries,
-            "language": language
+            "language": language,
+            "report_type": rtp.get("report_type", "professional"),
+            "report_type_policy": rtp,
         }
         formatted_prompt = apply_system_prompt("collector_gen_query", agent_input)
 
@@ -330,12 +335,16 @@ class SupervisorNode(BaseNode):
                         f"{len(current_ledger.attempted_queries)} | ledger brief: {ledger_brief}")
 
         evidence_table = build_supervisor_evidence_table(new_doc_infos)
+        rtp = session.get_global_state("collector_context.report_type_policy") or {}
+
         agent_input = {
             "research_record": f"[Task Title]: {step_title}\n[Task Description]: {state.get('step_description', '')}",
             "ledger_brief": ledger_brief,
             "evidence_table": evidence_table,
             "number_queries": number_queries,
             "language": state.get("language", "zh-CN"),
+            "report_type": rtp.get("report_type", "professional"),
+            "report_type_policy": rtp,
         }
         formatted_prompt = apply_system_prompt("collector_supervisor", agent_input)
 
@@ -485,6 +494,8 @@ class SummaryNode(BaseNode):
                      section_idx, step_title, evidence_brief)
 
         evidence_pack = build_summary_evidence_pack(doc_infos)
+        rtp = session.get_global_state("collector_context.report_type_policy") or {}
+
         agent_input = {
             "research_record": f"[Task Title]: {step_title}\n[Task Description]: {step_description}",
             "evidence_pack": evidence_pack,
@@ -492,6 +503,8 @@ class SummaryNode(BaseNode):
             "step_background_knowledge": step_background_knowledge,
             "ledger_brief": evidence_brief,
             "missing_evidence": current_ledger.missing_evidence,
+            "report_type": rtp.get("report_type", "professional"),
+            "report_type_policy": rtp,
         }
         formatted_prompt = apply_system_prompt("collector_final", agent_input)
 

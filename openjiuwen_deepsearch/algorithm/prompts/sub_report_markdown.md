@@ -42,7 +42,11 @@ short, focus on writing the current chapter
     - Avoid Chinese numbering like "（一）" or "一、" in headings. 
 
 ## 3. Content Standards
+{% if paragraph_style | default("detailed") == "concise" %}
+- **Density (Brief mode)**: Aim for **concise, high-signal prose** (roughly **800–1500** Chinese characters or **500–900** English words for the full chapter unless the outline is extremely narrow). Prefer short paragraphs and selective tables.
+{% else %}
 - **Density**: Each section should contain approximately 2500 words to ensure comprehensive coverage.
+{% endif %}
 - **Data Presentation**:
     - Try to present comparative data in the form of **Markdown Tables** as much as possible.
     - **Specifics**: When mentioning data, cite the source authority (e.g., "According to data from China Education Online...").
@@ -98,5 +102,3 @@ Chinese Output Format Example:
 子章节内容2
 ## 1.3 子章节标题3
 子章节内容3
-## 1.4 子章节标题4
-子章节内容4

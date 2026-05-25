@@ -82,6 +82,8 @@ class SectionStartNode(Start):
             section_description=inputs.get("section_description", ""),
             section_iscore=inputs.get("section_iscore", False),
             report_template=inputs.get("report_template", ""),
+            session_id=inputs.get("session_id", ""),
+            report_type_policy=inputs.get("report_type_policy") or {},
         )
         config = inputs.get("config")
         session.update_global_state({"section_context": section_context.model_dump(),
@@ -106,6 +108,7 @@ class BasePlanReasoningNode(BaseNode):
         self.log_prefix = f"section_idx: {section_idx} | [{self.__class__.__name__}] "
         logger.info(f"{self.log_prefix} | Start {self.__class__.__name__}")
         # 封装入参
+        rtp = session.get_global_state("section_context.report_type_policy") or {}
         return {
             "section_idx": section_idx,
             "language": session.get_global_state("section_context.language"),
@@ -120,6 +123,10 @@ class BasePlanReasoningNode(BaseNode):
             "agent_name": AgentLlmName.PLAN_REASONING.value,
             "llm_model_name": adapt_llm_model_name(session, NodeId.PLAN_REASONING.value),
             "api_tools_config": session.get_global_state("config.api_tools_config") or {},
+            "report_type": rtp.get("report_type", "professional"),
+            "require_summary_first": rtp.get("require_summary_first", False),
+            "require_methodology_and_risk": rtp.get("require_methodology_and_risk", False),
+            "report_type_policy": rtp,
         }
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
@@ -308,7 +315,7 @@ class SubReporterNode(BaseNode):
         self.log_prefix = f"section_idx: {section_idx} | [{self.__class__.__name__}] "
         logger.info(f"{self.log_prefix} Start [{self.__class__.__name__}].")
 
-        llm_model_name = adapt_llm_model_name(session, NodeId.SUB_REPORTER.value)
+        rtp = session.get_global_state("section_context.report_type_policy") or {}
 
         return dict(
             thread_id=session.get_global_state("section_context.session_id"),
@@ -333,6 +340,11 @@ class SubReporterNode(BaseNode):
             sub_report_background_knowledge=session.get_global_state(
                 "section_context.sub_report_background_knowledge") or [],
             visualization_enable=session.get_global_state("config.visualization_enable"),
+            report_type_policy=rtp,
+            report_type=rtp.get("report_type", "professional"),
+            paragraph_style=rtp.get("paragraph_style", "detailed"),
+            require_summary_first=rtp.get("require_summary_first", False),
+            require_methodology_and_risk=rtp.get("require_methodology_and_risk", False),
         )
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
@@ -525,7 +537,7 @@ class InfoCollectorNode(BaseNode):
         return dict(messages=messages, current_plan=current_plan, section_idx=section_idx,
                     language=language, initial_search_query_count=initial_search_query_count,
                     max_research_loops=max_research_loops, max_react_recursion_limit=max_react_recursion_limit,
-                    history_plans=history_plans, doc_num=collected_doc_num, warning_infos=warning_infos)
+                    history_plans=history_plans, collected_doc_num=collected_doc_num, warning_infos=warning_infos)
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
         state = self._pre_handle(inputs, session, context)
@@ -646,6 +658,7 @@ def build_editor_team_workflow():
             "section_iscore": "${section_iscore}",
             "report_template": "${report_template}",
             "config": "${config}",
+            "report_type_policy": "${report_type_policy}",
         }
     )
 

@@ -146,6 +146,18 @@ class CollectorInputBuildConfig:
 
 
 @dataclass(frozen=True)
+class CollectorInputBuildParams:
+    """封装 ``_input_build`` 所需的计划、步骤与运行上下文。"""
+
+    plan: Plan
+    step: Step
+    language: str
+    section_idx: int | str
+    build_config: CollectorInputBuildConfig
+    report_type_policy: dict | None = None
+
+
+@dataclass(frozen=True)
 class CollectorRunPlanConfig:
     """封装执行 collector plan 时使用的上下文与相关配置。"""
 
@@ -196,6 +208,7 @@ class CollectorExecutionService:
             section_idx=run_config.section_idx, plan_id=plan.id or ""
         )
         build_config = run_config.to_input_build_config()
+        report_type_policy = session.get_global_state("search_context.report_type_policy") or {}
 
         for idx, step in enumerate(plan.steps):
             step.id = f"{idx + 1}"
@@ -203,11 +216,14 @@ class CollectorExecutionService:
                 continue
 
             sub_inputs = self._input_build(
-                plan=plan,
-                step=step,
-                language=run_config.language,
-                section_idx=run_config.section_idx,
-                build_config=build_config,
+                CollectorInputBuildParams(
+                    plan=plan,
+                    step=step,
+                    language=run_config.language,
+                    section_idx=run_config.section_idx,
+                    build_config=build_config,
+                    report_type_policy=report_type_policy,
+                )
             )
             logger.info(
                 f"{log_prefix} Start step {step.id}: The input is"
@@ -261,25 +277,18 @@ class CollectorExecutionService:
         )
 
     @staticmethod
-    def _input_build(
-        plan: Plan,
-        step: Step,
-        language: str,
-        section_idx: int | str,
-        build_config: CollectorInputBuildConfig,
-    ) -> dict:
+    def _input_build(params: CollectorInputBuildParams) -> dict:
         """拼装传入 ``build_info_collector_sub_graph`` 的标准 ``agent_input`` 字典。
 
         Args:
-            plan: 当前计划对象。
-            step: 当前步骤对象。
-            language: 当前报告的语言标识。
-            section_idx: 当前小节索引。
-            build_config: 子图构造和执行所需的相关配置。
+            params: 计划、步骤与子图构造所需的相关配置。
 
         Returns:
             dict: 标准化的子图输入字典。
         """
+        plan = params.plan
+        step = params.step
+        build_config = params.build_config
         message = "Now deal with the task: \n"
         message += f"You should focus on [Topic]: {plan.title}\n"
         message += f"pay attention to [Condition]: {plan.thought}"
@@ -292,9 +301,9 @@ class CollectorExecutionService:
         message += "Begin with your initial reasoning about the task."
 
         return {
-            "language": language,
+            "language": params.language,
             "messages": [Message(role="user", content=message)],
-            "section_idx": section_idx,
+            "section_idx": params.section_idx,
             "plan_idx": plan.id,
             "step_idx": step.id,
             "step_title": step.title,
@@ -302,4 +311,5 @@ class CollectorExecutionService:
             "initial_search_query_count": build_config.initial_search_query_count,
             "max_research_loops": build_config.max_research_loops,
             "max_react_recursion_limit": build_config.max_react_recursion_limit,
+            "report_type_policy": params.report_type_policy or {},
         }

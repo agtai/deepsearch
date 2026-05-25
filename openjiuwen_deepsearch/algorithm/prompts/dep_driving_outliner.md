@@ -25,6 +25,13 @@ research process toward meaningful resolution** of {{ questions }}.
 When conflicts arise, problem-resolution value must take precedence over structural symmetry, dimensional exhaustiveness,
 or descriptive elegance. {{ user_feedback }} may refine emphasis or scope, but must not override the core research problem.
 
+{% if report_type == "brief" %}
+## Report type: Brief
+- Fewer sections; each must earn its place for **decisions, conclusions, or risk framing**—not decorative completeness.
+{% if require_summary_first %}- Early sections should establish **problem boundary, headline conclusions, and non-goals**.{% endif %}
+{% if require_methodology_and_risk %}- Surface **how evidence was formed**, its **limits**, and **top risks / unknowns** before deep dives.{% endif %}
+{% endif %}
+
 ---
 
 ## Core Principles

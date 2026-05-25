@@ -17,6 +17,12 @@ Existing collector ledger:
 Ledger object:
 {{ ledger }}
 
+{% if report_type | default("professional") == "brief" %}
+### Brief report mode
+- Bias queries toward **high-level overview**, **headline conclusions**, **methods/limits of evidence**, and **risks or uncertainties** relevant to the task.
+- Avoid ultra-niche technical rabbit holes unless the task explicitly demands them.
+{% endif %}
+
 ## Instructions
 - First identify the current step's missing evidence as concrete, verifiable evidence requirements.
 - Each missing evidence item should name the object, scope, acceptance standard, and intended report use when possible.

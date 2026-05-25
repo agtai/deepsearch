@@ -5,6 +5,7 @@ import pytest
 from openjiuwen_deepsearch.framework.openjiuwen.agent.collector_graph.collector_execution_service import (
     CollectorExecutionService,
     CollectorInputBuildConfig,
+    CollectorInputBuildParams,
     CollectorRunPlanConfig,
     run_info_collector_sub_graph,
 )
@@ -81,15 +82,17 @@ def test_input_build_accepts_named_config_object():
     step = Step(type=StepType.INFO_COLLECTING, title="步骤1", description="收集资料")
 
     agent_input = CollectorExecutionService._input_build(
-        plan=plan,
-        step=step,
-        language="zh-CN",
-        section_idx=1,
-        build_config=CollectorInputBuildConfig(
-            initial_search_query_count=2,
-            max_research_loops=3,
-            max_react_recursion_limit=8,
-        ),
+        CollectorInputBuildParams(
+            plan=plan,
+            step=step,
+            language="zh-CN",
+            section_idx=1,
+            build_config=CollectorInputBuildConfig(
+                initial_search_query_count=2,
+                max_research_loops=3,
+                max_react_recursion_limit=8,
+            ),
+        )
     )
 
     assert agent_input["language"] == "zh-CN"

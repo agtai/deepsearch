@@ -17,6 +17,13 @@ understand the context and generate a more accurate outline:
 - **Comprehensive Coverage**: All aspects + multi-perspective views (mainstream + alternative)
 - **Depth Requirement**: Reject superficial data; require detailed data points + multi-source analysis
 
+{% if report_type == "brief" %}
+## Report type: Brief
+- Prefer **fewer, higher-signal sections**; avoid encyclopedic or purely taxonomic structure.
+{% if require_summary_first %}- The first section(s) should frame **scope, executive-level takeaways**, and what will stay intentionally shallow.{% endif %}
+{% if require_methodology_and_risk %}- Include explicit room for **evidence/method limits** and **material risks or uncertainties**.{% endif %}
+{% endif %}
+
 ## Analysis Framework (8 Dimensions)
 1. **Historical Context**: Evolution timeline  
 2. **Current Status**: Data points + recent developments  

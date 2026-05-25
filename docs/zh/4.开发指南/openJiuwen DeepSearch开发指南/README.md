@@ -160,6 +160,28 @@ agent = DeepresearchAgent()
 
 `run`函数按照流式数据的模式，逐帧输出系统内部结果。每帧数据是`dict`类型，key值`agent`记录当前帧数据的生产者角色；key值`content`来记录当前帧数据的具体内容。默认情况下，最终结果由`NodeId.END.value`输出；当开启报告后局部优化能力时，`user_feedback_processor`节点会在结束前额外承担一轮交互。
 
+用户查询 `message` 不必只包含研究主题，也可以直接携带报告生成约束。系统会先做意图识别，从查询中提取研究主题 `research_query` 以及结构化约束 `research_intent`，再将这些约束透传给后续的大纲、规划、信息收集与写作阶段。
+
+当前查询中可直接表达的常见约束包括：
+
+- **报告类型**：例如“精简版”“专业版”，内部会归一化为 `brief` 或 `professional`。
+- **章节数量**：例如“生成5个章节”。
+- **目标读者**：例如“面向投资人”“给研发负责人看”“供政策研究员参考”。
+- **写作风格**：例如“正式”“分析”“客观”“解释型”。
+- **信息源约束**：例如“参考这些链接”“不要使用某站点内容”。
+
+示例查询：
+
+```text
+请写一份精简版报告，控制在 4 个章节以内，面向研发负责人，语气正式且偏分析：AI Agent 工程化落地趋势
+```
+
+```text
+请基于以下链接写一份专业版报告，面向投资人，重点分析 2025 年中国低空经济商业化进展：
+https://example.com/a
+https://example.com/b
+```
+
 ```python
 import json
 import uuid
@@ -356,8 +378,8 @@ agent_config["workflow_human_in_the_loop"] = True
 ### 工作流程
 
 1. 用户提交原始查询
-2. 系统根据用户原始查询，意图识别后生成 `research_query`
-3. 系统根据 `research_query` 提出补充问题
+2. 系统根据用户原始查询，意图识别后生成 `research_query` 与 `research_intent`
+3. 系统基于 `research_query` 提出补充问题，并保留 `research_intent` 供后续节点消费
 4. 系统中断流程等待用户回答
 5. 用户反馈后系统恢复流程并继续执行 DeepResearch
 

@@ -161,6 +161,28 @@ agent = DeepresearchAgent()
 
 `run(message: str, ...)` streams JSON chunks. Each chunk is a `dict` with `agent` and `content`. Final report content arrives from `NodeId.END.value`; with post-report editing enabled, `user_feedback_processor` adds another interaction round before completion.
 
+The query `message` does not need to contain only the research topic. It can also include report-generation constraints. The system first performs intent recognition, extracting the core research topic into `research_query` and the structured constraints into `research_intent`, then passes those constraints through outline generation, planning, information collection, and writing.
+
+Common constraints you can express directly in the query include:
+
+- **Report type**: for example, "brief" or "professional".
+- **Section count**: for example, "generate 5 sections".
+- **Target audience**: for example, "for investors" or "for an R&D lead".
+- **Writing tone**: for example, "formal", "analytical", "objective", or "explanatory".
+- **Source constraints**: for example, "use these links as references" or "do not use content from a certain site".
+
+Example queries:
+
+```text
+Write a brief report, keep it within 4 sections, target an R&D lead, and use a formal, analytical tone: AI agent engineering implementation trends
+```
+
+```text
+Using the links below, write a professional report for investors on the commercialization progress of China's low-altitude economy in 2025:
+https://example.com/a
+https://example.com/b
+```
+
 ```python
 import json
 import uuid
@@ -289,7 +311,7 @@ agent_config["workflow_human_in_the_loop"] = True
 
 (Default is on in many deployments.)
 
-Flow: user asks → system generates `research_query` after intent recognition → system asks follow-ups based on `research_query` → interrupt → user answers → resume.
+Flow: user asks → system generates `research_query` and `research_intent` after intent recognition → system asks follow-ups based on `research_query` while preserving `research_intent` for downstream nodes → interrupt → user answers → resume.
 
 ### Feedback channels
 
