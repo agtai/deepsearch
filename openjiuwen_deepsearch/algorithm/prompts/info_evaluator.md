@@ -52,7 +52,7 @@ Assesses the **authority** (qualifications, professional background, field recog
 
 Return a JSON array where each element is a dictionary containing:
 
-- "content": the index of original text from the input list of corresponding segment.
+- "document_index": the index of original text from the input list of corresponding segment.
 - "doc_time": According to the content of the document, extract the writen time of the document content in the format of year and month(e.g. 2023 Jun/2024 8月).
 - "scores": A nested dictionary containing:
   - "relevance": Relevance score (10-point scale)
@@ -63,7 +63,7 @@ Example output format (must be pure json without any Markdown formatting):
 
 [
   {
-    "content": 0,
+    "document_index": 0,
     "doc_time": "2023 Jun",
     "scores": {
       "relevance": 9.0,
@@ -72,7 +72,7 @@ Example output format (must be pure json without any Markdown formatting):
     }
   },
   {
-    "content": 1,
+    "document_index": 1,
     "doc_time": "2024 8月",
     "scores": {
       "relevance": 7.0,

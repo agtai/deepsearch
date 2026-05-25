@@ -38,6 +38,7 @@ async def test_run_plan_updates_collecting_steps_and_returns_aggregate_result():
             "evaluation": "足够",
             "history_queries": [RetrievalQuery(query="q1")],
             "doc_infos": [{"title": "doc", "url": "u"}],
+            "source_store": {"web_1": "正文"},
         }
     )
     with patch(
@@ -64,6 +65,7 @@ async def test_run_plan_updates_collecting_steps_and_returns_aggregate_result():
     assert result.collect_steps[0].retrieval_queries == [RetrievalQuery(query="q1")]
     assert result.collected_doc_num == 1
     assert result.doc_infos == [{"title": "doc", "url": "u"}]
+    assert result.source_store == {"web_1": "正文"}
     assert result.messages == [Message(role="assistant", content="摘要")]
     assert result.collect_steps[0].step_result == "摘要"
 

@@ -21,6 +21,7 @@ from openjiuwen_deepsearch.algorithm.chart_generation.vlm_chart_generator import
 from openjiuwen_deepsearch.algorithm.search_nodes.utils import (
     anonymize_config_for_logging,
 )
+from openjiuwen_deepsearch.utils.log_utils.log_metrics import metrics_logger, TIME_LOGGER_TAG
 from openjiuwen_deepsearch.algorithm.query_understanding.interpreter import query_interpreter
 from openjiuwen_deepsearch.algorithm.query_understanding.intent_recognition import recognize_report_intent
 from openjiuwen_deepsearch.algorithm.query_understanding.outliner import Outliner
@@ -565,6 +566,11 @@ class EndNode(End):
             session.update_global_state({"search_context.final_result.workflow_llm_token_usage": workflow_usage})
             logger.info(
                 f"[EndNode] workflow_llm_token_usage: " f"{json.dumps(workflow_usage, ensure_ascii=False, indent=2)}"
+            )
+            metrics_logger.info(
+                f"{TIME_LOGGER_TAG} session_id: {session_id} ------ "
+                f"[LLM CALL STATISTICS]: "
+                f"workflow_llm_token_usage{json.dumps(workflow_usage, ensure_ascii=False, indent=2)}"
             )
         logger.info(
             f"[EndNode] Get final result: {'***' if LogManager.is_sensitive() else final_result}",

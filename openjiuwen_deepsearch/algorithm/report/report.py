@@ -21,6 +21,7 @@ from tenacity import (
 )
 
 from openjiuwen_deepsearch.algorithm.prompts.template import apply_system_prompt
+from openjiuwen_deepsearch.algorithm.research_collector.collector_evidence import build_legacy_doc_infos_view
 from openjiuwen_deepsearch.algorithm.report.config import ReportFormat
 from openjiuwen_deepsearch.algorithm.report.report_utils import (
     ArticlePart,
@@ -599,7 +600,14 @@ class Reporter:
     async def generate_sub_report(
         self, current_inputs: dict
     ) -> tuple[bool, str, str, list]:
-        """General subsection report"""
+        """生成子章节报告。
+
+        Args:
+            current_inputs: 子章节生成所需的上下文参数。
+
+        Returns:
+            元组，依次表示是否成功、报告内容、子报告内容和分类后的内容列表。
+        """
         section_idx = current_inputs.get("section_idx", 1)
         logger.info(
             f"{EFFECT_SUB_REPORT_TAG} [generate_sub_report] start to generate subsection report, "
@@ -656,16 +664,16 @@ class Reporter:
                 )
 
             if classify_success:
-                core_content_urls = classified_content.get("core_content_url_list", [])
-                core_content_urls = list(dict.fromkeys(core_content_urls))
-                if not core_content_urls:
+                selected_urls = classified_content.get("selected_url_list", [])
+                selected_urls = list(dict.fromkeys(selected_urls))
+                if not selected_urls:
                     logger.error(
                         f"{EFFECT_SUB_REPORT_TAG} [generate_sub_report] section_idx: [{section_idx}], "
-                        "no core content urls returned from classification"
+                        "no selected urls returned from classification"
                     )
-                    return False, "no core content urls from classification", "", []
+                    return False, "no selected urls from classification", "", []
                 classified_infos, classified_doc_infos = _get_classified_infos(
-                    doc_infos, core_content_urls
+                    doc_infos, selected_urls
                 )
                 current_inputs["sub_section_core_content"] = classified_infos.get(
                     "core_content_list", []
@@ -1075,6 +1083,16 @@ class Reporter:
     async def _classify_with_llm(
         self, current_inputs: dict, section_task: str, doc_infos: List[Dict]
     ) -> Tuple[bool, str]:
+        """调用分类 LLM 为当前章节选择相关文档 URL。
+
+        Args:
+            current_inputs: 当前子报告生成上下文。
+            section_task: 当前章节标题。
+            doc_infos: 候选文档信息列表。
+
+        Returns:
+            元组，包含调用是否成功，以及 LLM 原始输出或失败原因。
+        """
         section_idx = current_inputs.get("section_idx", 1)
         section_description = current_inputs.get(
             "section_description", ""
@@ -1084,10 +1102,11 @@ class Reporter:
 
         for attempt in range(1, max_attempt_num + 1):
             try:
+                legacy_doc_infos = build_legacy_doc_infos_view(doc_infos)
                 infos_for_llm = (
                     f"Section title is {section_task},"
                     f"User query is {current_inputs.get('report_task', '')},"
-                    f"Document infos is {doc_infos},"
+                    f"Document infos is {legacy_doc_infos},"
                     f"Section description is {section_description},"
                     f"Subsection outline is {subsection_outline}"
                 )
@@ -1149,7 +1168,15 @@ class Reporter:
         )
 
     async def _classify_doc_infos(self, current_inputs: dict):
-        """Classify doc infos"""
+        """根据当前章节从候选文档中选择相关 URL。
+
+        Args:
+            current_inputs: 包含章节信息、候选 doc_infos 和分类配置的上下文。
+
+        Returns:
+            元组，包含分类是否成功，以及分类结果或失败原因。成功时结果使用
+            selected_url_list 表示选中的文档 URL。
+        """
         section_idx = current_inputs.get("section_idx", 1)
         logger.info(
             f"{EFFECT_SUB_REPORT_TAG} [classify_doc_infos] Starting to classify doc infos, section_idx: "
@@ -1235,15 +1262,15 @@ class Reporter:
                             f"failed reason: parse classified doc information failed: {e}"
                         )
                     continue
-                merged_urls.update(data.get("core_content_url_list", []))
+                merged_urls.update(data.get("selected_url_list", []))
 
             # Convergence check
             if not merged_urls:
                 logger.error(
                     f"{EFFECT_SUB_REPORT_TAG} [classify_doc_infos] section_idx: [{section_idx}] "
-                    f"round:[{round_count}], no core content urls returned."
+                    f"round:[{round_count}], no selected urls returned."
                 )
-                return False, "no core content urls from classification"
+                return False, "no selected urls from classification"
 
             if len(merged_urls) <= current_inputs.get(
                 "classify_doc_infos_res_top_k_num", 10
@@ -1252,7 +1279,7 @@ class Reporter:
                     f"{EFFECT_SUB_REPORT_TAG} [classify_doc_infos] section_idx: [{section_idx}] successfully "
                     f"ended on the NO.[{round_count}] round"
                 )
-                return True, {"core_content_url_list": list(merged_urls)}
+                return True, {"selected_url_list": list(merged_urls)}
 
             # If > 10, trace back to original doc_infos and iterate on a smaller set
             doc_infos = [doc for doc in doc_infos if doc.get("url") in merged_urls]
@@ -2592,7 +2619,15 @@ def _replace_citations_and_classified_index(
 
 
 def _get_classified_infos(doc_infos: list, urls: list):
-    """Get classified infos"""
+    """根据分类结果 URL 提取下游写作所需的信息。
+
+    Args:
+        doc_infos: 信息收集节点输出的文档信息列表。
+        urls: 分类模型选中的文档 URL 列表。
+
+    Returns:
+        元组，包含分类后的引用与原文内容，以及匹配到的文档信息列表。
+    """
     def escape_markdown_text(value: object) -> str:
         text = str(value or "")
         text = re.sub(r"[\r\n\t]+", " ", text)
@@ -2637,6 +2672,6 @@ def _get_classified_infos(doc_infos: list, urls: list):
             classified_infos["references"].append(
                 format_reference_link(item.get("title", ""), item.get("url", ""))
             )
-            classified_infos["core_content_list"].append(item.get("core_content", ""))
+            classified_infos["core_content_list"].append(item.get("original_content", ""))
             classified_doc_infos.append(item)
     return classified_infos, classified_doc_infos

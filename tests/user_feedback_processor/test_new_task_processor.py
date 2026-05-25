@@ -1112,13 +1112,25 @@ async def test_run_new_task_raises_when_no_historical_or_incremental_docs_availa
 @pytest.mark.asyncio
 async def test_assess_section_assets_parses_structured_llm_response():
     processor = NewTaskProcessor(llm_model_name="mock_model")
+    doc_info = {
+        "doc_id": "web_1",
+        "source_id": "web_1_p123",
+        "title": "文档A",
+        "url": "https://a.com",
+        "publish_time": "2025-05",
+        "original_content": "原文A",
+        "content_ref": {"type": "source_store", "source_id": "web_1_p123"},
+        "scores": {"authority": 8, "relevance": 9, "answerability": 7, "data_density": 6},
+        "key_passages": ["关键段落"],
+        "brief_reason": "相关",
+    }
     assets = SectionHistoricalAssets(
         section_id="1",
         match_mode="title_exact",
         section_title="第一章",
         current_section_text="## 第一章\n旧章节内容",
         historical_plans=[],
-        historical_doc_infos=[{"title": "文档A", "url": "https://a.com"}],
+        historical_doc_infos=[doc_info],
     )
     llm_response = json.dumps(
         {
@@ -1135,11 +1147,25 @@ async def test_assess_section_assets_parses_structured_llm_response():
             assets=assets,
             feedback={"user_instruction": "补充行业背景", "selected_text": "旧章节内容"},
             language="zh-CN",
-        )
+    )
 
     assert result.is_sufficient is True
-    assert result.relevant_doc_infos == [{"title": "文档A", "url": "https://a.com"}]
+    assert result.relevant_doc_infos == [doc_info]
     assert result.reasoning_summary == "历史资料足够支撑补写"
+    prompt_vars = mock_invoke.await_args.args[1]
+    assert prompt_vars["historical_doc_infos"] == [
+        {
+            "doc_time": "2025-05",
+            "source_authority": "",
+            "task_relevance": "",
+            "original_content": "原文A",
+            "url": "https://a.com",
+            "information_richness": "",
+            "data_density": "",
+            "title": "文档A",
+            "query": "",
+        }
+    ]
     assert mock_invoke.await_args.args[2] == AgentLlmName.USER_FEEDBACK_PROCESSOR_NEW_TASK_ASSESSMENT.value
 
 
@@ -1523,11 +1549,37 @@ async def test_rewrite_section_with_assets_returns_clean_section_text():
         result = await processor.rewrite_section_with_assets(
             target=target,
             feedback={"user_instruction": "补充行业背景"},
-            doc_infos=[{"title": "文档A", "url": "https://a.com"}],
+            doc_infos=[
+                {
+                    "doc_id": "web_1",
+                    "source_id": "web_1_p123",
+                    "title": "文档A",
+                    "url": "https://a.com",
+                    "publish_time": "2025-05",
+                    "original_content": "原文A",
+                    "content_ref": {"type": "source_store", "source_id": "web_1_p123"},
+                    "scores": {"authority": 8},
+                    "key_passages": ["关键段落"],
+                }
+            ],
             language="zh-CN",
         )
 
     assert result == "## 第一章\n新章节内容"
+    prompt_vars = mock_invoke.await_args.args[1]
+    assert prompt_vars["doc_infos"] == [
+        {
+            "doc_time": "2025-05",
+            "source_authority": "",
+            "task_relevance": "",
+            "original_content": "原文A",
+            "url": "https://a.com",
+            "information_richness": "",
+            "data_density": "",
+            "title": "文档A",
+            "query": "",
+        }
+    ]
     assert mock_invoke.await_args.args[2] == AgentLlmName.USER_FEEDBACK_PROCESSOR_NEW_TASK_REWRITE_SECTION.value
 
 

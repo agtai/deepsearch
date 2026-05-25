@@ -339,13 +339,28 @@ def process_local_search_common(agent_input: dict, tool_content: Any) -> (list, 
 
 
 def remove_duplicate_items(items: list[dict]) -> list[dict]:
-    """去除重复的搜索结果"""
+    """去除重复的搜索结果或 evidence 项。
+
+    Args:
+        items: 搜索结果或已结构化 evidence 列表。
+
+    Returns:
+        去重后的列表；带 source_id 的 evidence 优先按 source_id 去重，原始搜索结果按
+        title/url/content 去重，无 content 时退回 title/url。
+    """
     seen = set()
     unique_items = []
 
     for item in items:
         if isinstance(item, dict) and ('title' in item and 'url' in item):
-            key = (item['title'], item['url'])
+            source_id = item.get("source_id")
+            if source_id:
+                key = ("source_id", source_id)
+            elif "content" in item:
+                # 搜索工具可能对同一 URL/title 返回不同 query-specific snippet，需保留不同证据片段。
+                key = ("title_url_content", item['title'], item['url'], item.get("content") or "")
+            else:
+                key = ("title_url", item['title'], item['url'])
             if key not in seen:
                 seen.add(key)
                 unique_items.append(item)

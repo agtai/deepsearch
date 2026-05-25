@@ -337,22 +337,22 @@ def test_replace_citations_and_classified_index(paragraphs, classified_contents,
         ([], ["http://a.com"], {}, []),
 
         # urls为空
-        ([{"url": "http://a.com", "title": "A", "core_content": "contentA"}], [], {}, []),
+        ([{"url": "http://a.com", "title": "A", "original_content": "contentA"}], [], {}, []),
 
         # 单个匹配
         (
-                [{"url": "http://a.com", "title": "A", "core_content": "contentA"}],
+                [{"url": "http://a.com", "title": "A", "original_content": "contentA"}],
                 ["http://a.com"],
                 {"references": ["[A](http://a.com)"], "core_content_list": ["contentA"]},
-                [{"url": "http://a.com", "title": "A", "core_content": "contentA"}],
+                [{"url": "http://a.com", "title": "A", "original_content": "contentA"}],
         ),
 
         # urls里有两个地址，doc_infos里都有
         (
                 [
-                    {"url": "http://a.com", "title": "A", "core_content": "contentA"},
-                    {"url": "http://b.com", "title": "B", "core_content": "contentB"},
-                    {"url": "http://c.com", "title": "C", "core_content": "contentC"},
+                    {"url": "http://a.com", "title": "A", "original_content": "contentA"},
+                    {"url": "http://b.com", "title": "B", "original_content": "contentB"},
+                    {"url": "http://c.com", "title": "C", "original_content": "contentC"},
                 ],
                 ["http://a.com", "http://b.com"],
                 {
@@ -366,8 +366,8 @@ def test_replace_citations_and_classified_index(paragraphs, classified_contents,
                     ]
                 },
                 [
-                    {"url": "http://a.com", "title": "A", "core_content": "contentA"},
-                    {"url": "http://b.com", "title": "B", "core_content": "contentB"},
+                    {"url": "http://a.com", "title": "A", "original_content": "contentA"},
+                    {"url": "http://b.com", "title": "B", "original_content": "contentB"},
                 ],
         ),
         (
@@ -375,7 +375,7 @@ def test_replace_citations_and_classified_index(paragraphs, classified_contents,
                     {
                         "url": "https://example.test/",
                         "title": "x](javascript:alert(1)) [safe",
-                        "core_content": "contentA",
+                        "original_content": "contentA",
                     }
                 ],
                 ["https://example.test/"],
@@ -389,18 +389,18 @@ def test_replace_citations_and_classified_index(paragraphs, classified_contents,
                     {
                         "url": "https://example.test/",
                         "title": "x](javascript:alert(1)) [safe",
-                        "core_content": "contentA",
+                        "original_content": "contentA",
                     }
                 ],
         ),
         (
-                [{"url": "javascript:alert(2)", "title": "benign", "core_content": "contentB"}],
+                [{"url": "javascript:alert(2)", "title": "benign", "original_content": "contentB"}],
                 ["javascript:alert(2)"],
                 {
                     "references": ["benign (javascript:alert\\(2\\))"],
                     "core_content_list": ["contentB"],
                 },
-                [{"url": "javascript:alert(2)", "title": "benign", "core_content": "contentB"}],
+                [{"url": "javascript:alert(2)", "title": "benign", "original_content": "contentB"}],
         ),
     ],
 )

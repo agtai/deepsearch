@@ -1,28 +1,42 @@
-Your goal is to generate sophisticated and diverse web search queries. These queries are intended for an advanced automated web research tool capable of analyzing complex results, following links, and synthesizing information.
+Your goal is to generate focused web search queries for the current collector step and identify the evidence still needed.
 
-## Instructions:
-- If the topic has a clear subject, such as "Apple Inc's new product in 2025" where "Apple Inc" is the subject, your query keywords must include this subject.
-- Queries should be diverse, if the topic is broad, generate more than 1 query.
-- Each query should focus on one specific aspect of the original question.
-- Don't generate multiple similar queries, each query must be unique.
-- Query must consist of keywords, with the first keyword being the main subject. The total number of keywords should less than 5. 
-- Query should ensure that the most current information is gathered. The current time is {{ CURRENT_TIME }}.
-- Don't produce more than {{ number_queries }} queries.
-- Write your response in {{ language }}.
+## Current Step
 
-# Current Search Topic:
+Step title:
+{{ step_title }}
 
+Step description:
+{{ step_description }}
+
+Research record:
 {{ research_record }}
 
-## Format: 
-- Format your response as a JSON object with ALL two of these exact keys:
-   - "description": Brief explanation of why these queries are relevant
-   - "queries": A list of search queries, each query is less than 5 keywords, connect keywords with spaces e.g. "Tesla battery lifespan offical statement"
+Existing collector ledger:
+{{ ledger_brief }}
 
-## Example: (Directly provide a structured response with out ```json tags)
-```json
+Ledger object:
+{{ ledger }}
+
+## Instructions
+- First identify the current step's missing evidence as concrete, verifiable evidence requirements.
+- Each missing evidence item should name the object, scope, acceptance standard, and intended report use when possible.
+- Generate queries that directly serve the missing evidence, not broad queries for the whole section.
+- If the topic has a clear subject, such as "Apple Inc's new product in 2025", each query must include that subject.
+- Queries should be diverse. Each query should focus on one specific aspect of the missing evidence.
+- Do not generate multiple similar queries.
+- Query must consist of keywords, with the first keyword being the main subject. The total number of keywords should be less than 5.
+- Query should ensure that the most current information is gathered. The current time is {{ CURRENT_TIME }}.
+- Do not produce more than {{ number_queries }} queries.
+- Write your response in {{ language }}.
+
+## Output Format
+- Return a JSON object with exactly these keys:
+  - "missing_evidence": A list of verifiable evidence requirements for the current step.
+  - "queries": A list of search queries, each query is less than 5 keywords.
+- Do not output explanations, rationale, markdown fences, or any extra keys.
+
+## Example
 {
-    "description": "",  // string
-    "queries": [""],  // list of string, e.g. ["Tesla battery lifespan offical statement"]
+    "missing_evidence": ["specific verifiable evidence requirement for the current step"],
+    "queries": ["Tesla battery lifespan official"]
 }
-```

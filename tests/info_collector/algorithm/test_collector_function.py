@@ -571,7 +571,7 @@ class TestRemoveDuplicateItems:
         """测试去重功能"""
         items = [
             {"title": "Duplicate", "url": "http://same.com", "content": "Content1"},
-            {"title": "Duplicate", "url": "http://same.com", "content": "Content2"},
+            {"title": "Duplicate", "url": "http://same.com", "content": "Content1"},
             {"title": "Unique", "url": "http://unique.com", "content": "Content3"}
         ]
 
@@ -581,6 +581,28 @@ class TestRemoveDuplicateItems:
         titles = [item["title"] for item in result]
         assert "Duplicate" in titles
         assert "Unique" in titles
+
+    def test_keeps_same_title_url_with_different_content(self):
+        """同一 URL/title 的不同搜索内容不应被去重删除。"""
+        items = [
+            {"title": "Duplicate", "url": "http://same.com", "content": "Content1"},
+            {"title": "Duplicate", "url": "http://same.com", "content": "Content2"},
+        ]
+
+        result = remove_duplicate_items(items)
+
+        assert result == items
+
+    def test_keeps_same_title_url_with_different_source_ids(self):
+        """同一 URL/title 的不同 evidence source_id 不应被去重删除。"""
+        items = [
+            {"title": "Duplicate", "url": "http://same.com", "source_id": "web_1_p1"},
+            {"title": "Duplicate", "url": "http://same.com", "source_id": "web_1_p2"},
+        ]
+
+        result = remove_duplicate_items(items)
+
+        assert result == items
 
     def test_remove_duplicates_empty(self):
         """测试空列表去重"""
