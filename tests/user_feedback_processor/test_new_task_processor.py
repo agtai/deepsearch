@@ -289,9 +289,30 @@ def test_collect_section_assets_filters_malformed_doc_infos(caplog):
         assets = processor.collect_section_assets(target=target, current_outline=outline)
 
     assert assets.historical_doc_infos == [
-        {"title": "文档A", "url": "https://a.com", "extra": "later duplicate"}
+        {"title": "文档A", "url": "https://a.com"}
     ]
     assert any("filtered malformed doc_infos" in record.message for record in caplog.records)
+
+
+def test_new_task_deduplicate_doc_infos_keeps_same_url_different_sources():
+    docs = [
+        {
+            "title": "文档A",
+            "url": "https://example.com/a",
+            "source_id": "source-a",
+            "original_content": "content A",
+        },
+        {
+            "title": "文档A",
+            "url": "https://example.com/a",
+            "source_id": "source-b",
+            "original_content": "content B",
+        },
+    ]
+
+    result = NewTaskProcessor._deduplicate_doc_infos(docs)
+
+    assert [doc["source_id"] for doc in result] == ["source-a", "source-b"]
 
 
 def test_collect_section_assets_matches_by_normalized_title():

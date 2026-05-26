@@ -1,5 +1,6 @@
 from openjiuwen_deepsearch.algorithm.research_collector.collector_evidence import (
     CollectorSourceStore,
+    build_content_dedup_hash,
     build_content_ref,
     build_evaluation_documents,
     build_evidence_atom,
@@ -12,6 +13,7 @@ from openjiuwen_deepsearch.algorithm.research_collector.collector_evidence impor
     generate_source_id,
     hydrate_legacy_doc_info_fields,
     MAX_PASSAGE_LENGTH,
+    normalize_content_for_dedup,
     normalize_scores,
     read_content_by_ref,
     split_passages,
@@ -29,6 +31,13 @@ def test_generate_doc_id_is_stable_for_same_web_source():
 def test_generate_doc_id_sorts_remaining_query_parameters():
     first = generate_doc_id(url="https://example.com/a?b=2&a=1", title="Alpha", source_type="web")
     second = generate_doc_id(url="https://example.com/a?a=1&b=2", title="Alpha", source_type="web")
+
+    assert first == second
+
+
+def test_generate_doc_id_ignores_tracking_query_case_insensitively():
+    first = generate_doc_id(url="https://example.com/a?UTM_SOURCE=x&id=1", title="Alpha", source_type="web")
+    second = generate_doc_id(url="https://example.com/a?id=1", title="Alpha", source_type="web")
 
     assert first == second
 
@@ -68,6 +77,17 @@ def test_source_id_distinguishes_evidence_content_under_same_doc_id():
     assert first != second
     assert first.startswith(f"{doc_id}_p")
     assert second.startswith(f"{doc_id}_p")
+
+
+def test_source_id_uses_normalized_content_for_hashing():
+    doc_id = "web_123"
+
+    first = generate_source_id(doc_id=doc_id, content="Ａ  B\r\nC")
+    second = generate_source_id(doc_id=doc_id, content="A B C")
+
+    assert normalize_content_for_dedup("Ａ  B\r\nC") == "A B C"
+    assert build_content_dedup_hash("Ａ  B\r\nC") == build_content_dedup_hash("A B C")
+    assert first == second
 
 
 def test_source_store_round_trip_with_content_ref():

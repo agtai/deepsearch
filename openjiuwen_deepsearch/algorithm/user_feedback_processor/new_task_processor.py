@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass, replace
 
 from openjiuwen_deepsearch.algorithm.research_collector.collector_evidence import build_legacy_doc_infos_view
+from openjiuwen_deepsearch.algorithm.report.doc_prefilter import deduplicate_doc_infos
 from openjiuwen_deepsearch.algorithm.user_feedback_processor.common import (
     UserFeedbackPromptInvoker,
     resolve_model_context_collector,
@@ -189,7 +190,7 @@ class NewTaskProcessor(UserFeedbackPromptInvoker):
 
     @staticmethod
     def _deduplicate_doc_infos(doc_infos: list) -> list:
-        """按 ``title + url`` 去重文档信息。
+        """过滤异常文档后，复用报告侧统一 doc_info 去重逻辑。
 
         Args:
             doc_infos (list): 待去重的文档信息列表。
@@ -197,19 +198,19 @@ class NewTaskProcessor(UserFeedbackPromptInvoker):
         Returns:
             list: 去重后的文档信息列表；结构异常的条目会被跳过。
         """
-        merged_doc_infos = {}
+        valid_doc_infos = []
         malformed_count = 0
         for doc in doc_infos or []:
             if not isinstance(doc, dict) or not doc.get("title") or not doc.get("url"):
                 malformed_count += 1
                 continue
-            merged_doc_infos[(doc["title"], doc["url"])] = doc
+            valid_doc_infos.append(doc)
         if malformed_count:
             logger.warning(
                 "[NewTaskProcessor] filtered malformed doc_infos while deduplicating. malformed_count=%s",
                 malformed_count,
             )
-        return list(merged_doc_infos.values())
+        return deduplicate_doc_infos(valid_doc_infos)
 
     @staticmethod
     def _extract_major_section_number(title: str) -> str:

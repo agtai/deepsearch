@@ -14,6 +14,7 @@ from openjiuwen.core.workflow.workflow import Workflow
 
 from openjiuwen_deepsearch.algorithm.query_understanding.planner import Planner, PlannerConfig
 from openjiuwen_deepsearch.algorithm.report.config import ReportStyle, ReportFormat
+from openjiuwen_deepsearch.algorithm.report.doc_prefilter import deduplicate_doc_infos
 from openjiuwen_deepsearch.algorithm.report.report import Reporter
 from openjiuwen_deepsearch.algorithm.source_trace.source_tracer import SourceTracer
 from openjiuwen_deepsearch.common.common_constants import CHINESE
@@ -38,19 +39,29 @@ logger = logging.getLogger(__name__)
 
 def _collect_doc_infos(history_plans) -> list:
     doc_infos: list = []
-    for plan in history_plans or []:
+    for plan_idx, plan in enumerate(history_plans or []):
         steps = plan.steps if hasattr(plan, "steps") else plan.get("steps", [])
-        for step in steps:
+        for step_idx, step in enumerate(steps):
             retrieval_queries = (
                 step.retrieval_queries
                 if hasattr(step, "retrieval_queries")
                 else step.get("retrieval_queries", [])
             )
+            step_task = step.title if hasattr(step, "title") else step.get("title", "")
+            step_id = step.id if hasattr(step, "id") else step.get("id", "")
             for query in retrieval_queries:
                 query_doc_infos = query.doc_infos if hasattr(query, "doc_infos") else query.get("doc_infos", [])
-                doc_infos.extend(query_doc_infos)
-    # 去重：title+url 作为 key
-    return list({(doc["title"], doc["url"]): doc for doc in doc_infos}.values())
+                for doc_info in query_doc_infos:
+                    if not isinstance(doc_info, dict):
+                        continue
+                    enriched_doc_info = doc_info.copy()
+                    enriched_doc_info["plan_idx"] = plan_idx
+                    enriched_doc_info["step_idx"] = step_idx
+                    enriched_doc_info["step_task"] = step_task
+                    if step_id:
+                        enriched_doc_info["step_id"] = step_id
+                    doc_infos.append(enriched_doc_info)
+    return deduplicate_doc_infos(doc_infos)
 
 
 def _get_classify_doc_infos_single_time_num(session: Session) -> int:
@@ -336,6 +347,8 @@ class SubReporterNode(BaseNode):
             classify_doc_infos_res_top_k_num=session.get_global_state(
                 "config.sub_report_classify_doc_infos_res_top_k_num") or 10,
             classify_doc_infos_single_time_num=_get_classify_doc_infos_single_time_num(session),
+            classify_doc_infos_prefilter_multiplier=session.get_global_state(
+                "config.sub_report_doc_prefilter_multiplier") or 5,
             llm_model_name=adapt_llm_model_name(session, NodeId.SUB_REPORTER.value),
             sub_report_background_knowledge=session.get_global_state(
                 "section_context.sub_report_background_knowledge") or [],

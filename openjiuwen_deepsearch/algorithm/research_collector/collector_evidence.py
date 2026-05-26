@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -56,7 +57,9 @@ class CollectorSourceStore:
             return False
         normalized_content = content or ""
         if source_id in self.contents:
-            if self.contents[source_id] != normalized_content:
+            existing_key = normalize_content_for_dedup(self.contents[source_id])
+            incoming_key = normalize_content_for_dedup(normalized_content)
+            if existing_key != incoming_key:
                 logger.warning(
                     "[CollectorEvidence] source_store source_id conflict. source_id=%s | keeping first content.",
                     source_id,
@@ -111,6 +114,36 @@ def _short_hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
 
 
+def normalize_content_for_dedup(content: Any) -> str:
+    """正文去重前的统一规范化。
+
+    Args:
+        content: 原始正文，允许传入 None 或非字符串值。
+
+    Returns:
+        经过 NFKC、换行和连续空白归一化后的正文。
+    """
+
+    normalized = unicodedata.normalize("NFKC", str(content or ""))
+    normalized = normalized.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized.strip()
+
+
+def build_content_dedup_hash(content: Any) -> str:
+    """生成 collector/report 共用的正文去重 hash。
+
+    Args:
+        content: 原始正文。
+
+    Returns:
+        归一化正文的 SHA256 hash。
+    """
+
+    normalized = normalize_content_for_dedup(content)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
 def canonicalize_url(url: str) -> str:
     """归一化 URL，去掉常见跟踪参数。
 
@@ -129,7 +162,8 @@ def canonicalize_url(url: str) -> str:
         return url
     kept_query = []
     for key, value in parse_qsl(parts.query, keep_blank_values=True):
-        if key in TRACKING_QUERY_KEYS or key.startswith(TRACKING_QUERY_PREFIXES):
+        lower_key = key.lower()
+        if lower_key in TRACKING_QUERY_KEYS or lower_key.startswith(TRACKING_QUERY_PREFIXES):
             continue
         kept_query.append((key, value))
     kept_query = sorted(kept_query)
@@ -178,7 +212,7 @@ def generate_source_id(
     """
     if passage_index is not None:
         return f"{doc_id}_p{passage_index}"
-    normalized_content = (content or "").strip()
+    normalized_content = normalize_content_for_dedup(content)
     if normalized_content:
         return f"{doc_id}_p{_short_hash(normalized_content)}"
     return doc_id

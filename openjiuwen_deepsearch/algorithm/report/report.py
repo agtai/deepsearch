@@ -23,6 +23,12 @@ from tenacity import (
 from openjiuwen_deepsearch.algorithm.prompts.template import apply_system_prompt
 from openjiuwen_deepsearch.algorithm.research_collector.collector_evidence import build_legacy_doc_infos_view
 from openjiuwen_deepsearch.algorithm.report.config import ReportFormat
+from openjiuwen_deepsearch.algorithm.report.doc_prefilter import (
+    build_balanced_doc_batches,
+    build_doc_variant_key,
+    extract_doc_score,
+    prefilter_doc_infos_for_classification,
+)
 from openjiuwen_deepsearch.algorithm.report.report_utils import (
     ArticlePart,
     MarkdownOutlineRenumber,
@@ -688,8 +694,13 @@ class Reporter:
                         "no selected urls returned from classification"
                     )
                     return False, "no selected urls from classification", "", []
+                classify_doc_infos_res_top_k_num = current_inputs.get(
+                    "classify_doc_infos_res_top_k_num", 10
+                )
                 classified_infos, classified_doc_infos = _get_classified_infos(
-                    doc_infos, selected_urls
+                    doc_infos,
+                    selected_urls,
+                    max_source_id_count=classify_doc_infos_res_top_k_num,
                 )
                 current_inputs["sub_section_core_content"] = classified_infos.get(
                     "core_content_list", []
@@ -1211,105 +1222,155 @@ class Reporter:
         section_task = self.strip_leading_number(
             current_inputs.get("section_task", "")
         )  # Current section title
-        doc_infos = current_inputs.get("doc_infos", [])
-        # 去重
-        doc_infos = list({(d.get("title"), d.get("url")): d for d in doc_infos}.values())
+        raw_doc_infos = current_inputs.get("doc_infos", [])
         classify_doc_infos_single_time_num = current_inputs.get(
             "classify_doc_infos_single_time_num", 60
         )
+        classify_doc_infos_res_top_k_num = current_inputs.get(
+            "classify_doc_infos_res_top_k_num", 10
+        )
+        classify_doc_infos_prefilter_multiplier = current_inputs.get(
+            "classify_doc_infos_prefilter_multiplier", 5
+        )
+        prefilter_result = prefilter_doc_infos_for_classification(
+            raw_doc_infos,
+            result_top_k=classify_doc_infos_res_top_k_num,
+            prefilter_multiplier=classify_doc_infos_prefilter_multiplier,
+        )
+        doc_infos = prefilter_result.doc_infos
+        logger.info(
+            "%s [classify_doc_infos] section_idx: [%s] prefilter stats: "
+            "original_count=%s, deduped_count=%s, filtered_count=%s, candidate_limit=%s, "
+            "url_key_count=%s, content_variant_count=%s, step_bucket_count=%s, score_stats=%s",
+            EFFECT_SUB_REPORT_TAG,
+            section_idx,
+            prefilter_result.original_count,
+            len(prefilter_result.deduped_doc_infos),
+            prefilter_result.filtered_count,
+            prefilter_result.candidate_limit,
+            prefilter_result.url_key_count,
+            prefilter_result.content_variant_count,
+            prefilter_result.step_bucket_count,
+            prefilter_result.score_stats,
+        )
+        if not LogManager.is_sensitive():
+            logger.debug(
+                "%s [classify_doc_infos] section_idx: [%s] prefilter step_bucket_stats=%s",
+                EFFECT_SUB_REPORT_TAG,
+                section_idx,
+                prefilter_result.step_bucket_stats,
+            )
 
         # Validate required fields
         if not section_task or not doc_infos:
-            error_msg = "Missing 'section_task' or 'doc_infos' in context (section title required)"
-            logger.error(
-                f"{EFFECT_SUB_REPORT_TAG} [classify_doc_infos] section_idx: [{section_idx}] {error_msg}"
-            )
-            return False, error_msg
+            if section_task and prefilter_result.deduped_doc_infos:
+                doc_infos = prefilter_result.deduped_doc_infos
+            else:
+                error_msg = "Missing 'section_task' or 'doc_infos' in context (section title required)"
+                logger.error(
+                    f"{EFFECT_SUB_REPORT_TAG} [classify_doc_infos] section_idx: [{section_idx}] {error_msg}"
+                )
+                return False, error_msg
 
-        round_count = 0
-        # Process in batches of 10 with concurrent LLM calls until results
-        # converge to 10 or max iterations reached (prevent infinite loop).
-        while round_count < MAX_LOOP_ROUND:
-            round_count += 1
-            # NOTE: keep keywords separated by spaces for readability.
-            logger.info(
-                "%s [classify_doc_infos] section_idx: [%s] start round NO. [%s]",
+        async def classify_until_converged(candidate_doc_infos: list[dict], *, is_fallback: bool = False):
+            round_count = 0
+            doc_infos_for_round = candidate_doc_infos
+            while round_count < MAX_LOOP_ROUND:
+                round_count += 1
+                logger.info(
+                    "%s [classify_doc_infos] section_idx: [%s] start round NO. [%s]",
+                    EFFECT_SUB_REPORT_TAG,
+                    section_idx,
+                    round_count,
+                )
+
+                batches = build_balanced_doc_batches(
+                    doc_infos_for_round,
+                    classify_doc_infos_single_time_num,
+                )
+
+                results = await asyncio.gather(
+                    *[
+                        self._classify_with_llm(current_inputs, section_task, batch)
+                        for batch in batches
+                    ],
+                    return_exceptions=True,
+                )
+
+                merged_urls = []
+                merged_url_set = set()
+                for res in results:
+                    if isinstance(res, Exception):
+                        logger.warning(
+                            f"{EFFECT_SUB_REPORT_TAG} [classify_doc_infos] section_idx: [{section_idx}] "
+                            f"round:[{round_count}], classify task raised exception: {str(res)}",
+                            exc_info=True,
+                        )
+                        continue
+                    res_flag, json_str = res
+                    if not res_flag:
+                        logger.warning(
+                            f"{EFFECT_SUB_REPORT_TAG} [classify_doc_infos] section_idx: [{section_idx}] "
+                            f"round:[{round_count}], partly classify doc_infos with llm failed, failed reason: "
+                            f"{json_str}"
+                        )
+                        continue
+                    try:
+                        data = json.loads(json_str)
+                    except json.JSONDecodeError as e:
+                        if LogManager.is_sensitive():
+                            logger.warning(
+                                f"{EFFECT_SUB_REPORT_TAG} [classify_doc_infos] section_idx: [{section_idx}] "
+                                f"round:[{round_count}], partly classify doc_infos with llm failed, "
+                                f"failed reason: parse classified doc information failed"
+                            )
+                        else:
+                            logger.warning(
+                                f"{EFFECT_SUB_REPORT_TAG} [classify_doc_infos] section_idx: [{section_idx}] "
+                                f"round:[{round_count}], partly classify doc_infos with llm failed, "
+                                f"failed reason: parse classified doc information failed: {e}"
+                            )
+                        continue
+                    for url in data.get("selected_url_list", []):
+                        if url in merged_url_set:
+                            continue
+                        merged_urls.append(url)
+                        merged_url_set.add(url)
+
+                if not merged_urls:
+                    logger.error(
+                        f"{EFFECT_SUB_REPORT_TAG} [classify_doc_infos] section_idx: [{section_idx}] "
+                        f"round:[{round_count}], no selected urls returned."
+                    )
+                    return False, "no selected urls from classification"
+
+                if len(merged_urls) <= classify_doc_infos_res_top_k_num:
+                    logger.info(
+                        f"{EFFECT_SUB_REPORT_TAG} [classify_doc_infos] section_idx: [{section_idx}] successfully "
+                        f"ended on the NO.[{round_count}] round"
+                    )
+                    return True, {"selected_url_list": merged_urls}
+
+                doc_infos_for_round = [
+                    doc for doc in doc_infos_for_round if doc.get("url") in merged_url_set
+                ]
+            suffix = " during fallback" if is_fallback else ""
+            return False, f"Exceeded max loop round{suffix}: {MAX_LOOP_ROUND}"
+
+        success, result = await classify_until_converged(doc_infos)
+        if success:
+            return success, result
+
+        fallback_doc_infos = prefilter_result.deduped_doc_infos
+        if result == "no selected urls from classification" and fallback_doc_infos:
+            logger.warning(
+                "%s [classify_doc_infos] section_idx: [%s] prefiltered classification returned no URLs, "
+                "retry with deduped full candidates.",
                 EFFECT_SUB_REPORT_TAG,
                 section_idx,
-                round_count,
             )
-
-            # Split into batches
-            batches = [
-                doc_infos[i:i + classify_doc_infos_single_time_num]
-                for i in range(0, len(doc_infos), classify_doc_infos_single_time_num)
-            ]
-
-            # Run concurrently
-            results = await asyncio.gather(
-                *[
-                    self._classify_with_llm(current_inputs, section_task, batch)
-                    for batch in batches
-                ],
-                return_exceptions=True,
-            )
-
-            # Aggregate results
-            merged_urls = set()
-            for res in results:
-                if isinstance(res, Exception):
-                    logger.warning(
-                        f"{EFFECT_SUB_REPORT_TAG} [classify_doc_infos] section_idx: [{section_idx}] "
-                        f"round:[{round_count}], classify task raised exception: {str(res)}",
-                        exc_info=True,
-                    )
-                    continue
-                res_flag, json_str = res
-                if not res_flag:
-                    logger.warning(
-                        f"{EFFECT_SUB_REPORT_TAG} [classify_doc_infos] section_idx: [{section_idx}] "
-                        f"round:[{round_count}], partly classify doc_infos with llm failed, failed reason: "
-                        f"{json_str}"
-                    )
-                    continue
-                try:
-                    data = json.loads(json_str)
-                except json.JSONDecodeError as e:
-                    if LogManager.is_sensitive():
-                        logger.warning(
-                            f"{EFFECT_SUB_REPORT_TAG} [classify_doc_infos] section_idx: [{section_idx}] "
-                            f"round:[{round_count}], partly classify doc_infos with llm failed, "
-                            f"failed reason: parse classified doc information failed"
-                        )
-                    else:
-                        logger.warning(
-                            f"{EFFECT_SUB_REPORT_TAG} [classify_doc_infos] section_idx: [{section_idx}] "
-                            f"round:[{round_count}], partly classify doc_infos with llm failed, "
-                            f"failed reason: parse classified doc information failed: {e}"
-                        )
-                    continue
-                merged_urls.update(data.get("selected_url_list", []))
-
-            # Convergence check
-            if not merged_urls:
-                logger.error(
-                    f"{EFFECT_SUB_REPORT_TAG} [classify_doc_infos] section_idx: [{section_idx}] "
-                    f"round:[{round_count}], no selected urls returned."
-                )
-                return False, "no selected urls from classification"
-
-            if len(merged_urls) <= current_inputs.get(
-                "classify_doc_infos_res_top_k_num", 10
-            ):
-                logger.info(
-                    f"{EFFECT_SUB_REPORT_TAG} [classify_doc_infos] section_idx: [{section_idx}] successfully "
-                    f"ended on the NO.[{round_count}] round"
-                )
-                return True, {"selected_url_list": list(merged_urls)}
-
-            # If > 10, trace back to original doc_infos and iterate on a smaller set
-            doc_infos = [doc for doc in doc_infos if doc.get("url") in merged_urls]
-        return False, f"Exceeded max loop round: {MAX_LOOP_ROUND}"
+            return await classify_until_converged(fallback_doc_infos, is_fallback=True)
+        return success, result
 
     async def _generate_sub_section_outline(self, current_inputs: dict) -> dict:
         """Generate subsection outline"""
@@ -2658,7 +2719,7 @@ def _replace_citations_and_classified_index(
     return updated_paragraphs, updated_classified_contents
 
 
-def _get_classified_infos(doc_infos: list, urls: list):
+def _get_classified_infos(doc_infos: list, urls: list, max_source_id_count: int | None = 10):
     """根据分类结果 URL 提取下游写作所需的信息。
 
     Args:
@@ -2705,13 +2766,84 @@ def _get_classified_infos(doc_infos: list, urls: list):
     classified_infos = {"references": [], "core_content_list": []}
     classified_doc_infos = []
 
-    doc_dict = {item["url"]: item for item in doc_infos}
+    doc_dict: dict[str, list[dict]] = {}
+    doc_order: dict[int, int] = {}
+    for index, item in enumerate(doc_infos):
+        doc_dict.setdefault(item["url"], []).append(item)
+        doc_order[id(item)] = index
+
+    matched_items = []
+    matched_order: dict[int, int] = {}
+    matched_by_url: dict[str, list[dict]] = {}
     for url in urls:
-        item = doc_dict.get(url)
-        if item:
+        for item in doc_dict.get(url, []):
+            matched_order[id(item)] = len(matched_items)
+            matched_items.append(item)
+            matched_by_url.setdefault(url, []).append(item)
+
+    def source_key_for(item: dict) -> str:
+        # 写作阶段会回查原始 doc_infos，因此这里也复用预筛的内容变体 key；
+        # 否则无 source_id 的同正文重复项可能绕过预筛去重，重新进入写作输入。
+        return build_doc_variant_key(item)
+
+    def item_rank_key(item: dict) -> tuple[float, int, int]:
+        return (
+            extract_doc_score(item).composite,
+            len(str(item.get("original_content") or "")),
+            -matched_order.get(id(item), doc_order.get(id(item), 0)),
+        )
+
+    def best_representatives(items: list[dict]) -> list[dict]:
+        source_representatives: dict[str, dict] = {}
+        for item in items:
+            source_key = source_key_for(item)
+            current = source_representatives.get(source_key)
+            if current is None or item_rank_key(item) > item_rank_key(current):
+                source_representatives[source_key] = item
+        return sorted(source_representatives.values(), key=item_rank_key, reverse=True)
+
+    selected_items: list[dict] = []
+    selected_source_keys: set[str] = set()
+    max_count = None if max_source_id_count is None else max(0, int(max_source_id_count))
+
+    if max_count is not None:
+        for url in urls:
+            if len(selected_items) >= max_count:
+                break
+            representatives = best_representatives(matched_by_url.get(url, []))
+            if not representatives:
+                continue
+            top_item = representatives[0]
+            source_key = source_key_for(top_item)
+            if source_key in selected_source_keys:
+                continue
+            selected_items.append(top_item)
+            selected_source_keys.add(source_key)
+
+    remaining_representatives = best_representatives(matched_items)
+    if max_count is None:
+        selected_items = remaining_representatives
+    else:
+        for item in remaining_representatives:
+            if len(selected_items) >= max_count:
+                break
+            source_key = source_key_for(item)
+            if source_key in selected_source_keys:
+                continue
+            selected_items.append(item)
+            selected_source_keys.add(source_key)
+
+    if max_count is not None:
+        selected_items = selected_items[:max_count]
+
+    seen_reference_urls: set[str] = set()
+    for item in selected_items:
+        item_url = str(item.get("url") or "")
+        if item_url not in seen_reference_urls:
             classified_infos["references"].append(
-                format_reference_link(item.get("title", ""), item.get("url", ""))
+                format_reference_link(item.get("title", ""), item_url)
             )
-            classified_infos["core_content_list"].append(item.get("original_content", ""))
-            classified_doc_infos.append(item)
+            seen_reference_urls.add(item_url)
+        classified_infos["core_content_list"].append(item.get("original_content", ""))
+        classified_doc_infos.append(item)
     return classified_infos, classified_doc_infos
