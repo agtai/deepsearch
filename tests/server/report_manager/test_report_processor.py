@@ -1,12 +1,19 @@
+import re
 from pathlib import Path
 
 import pypandoc
+from docx import Document
+from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 import pytest
 
 from server.deepsearch.common.exception.exceptions import ReportConvertDependencyException
 from server.deepsearch.core.manager.report_manager.conversion_utils import (
     ensure_pandoc,
+    normalize_docx_tables,
+    postprocess_html,
     preprocess_markdown_text,
+    wrap_html_tables,
 )
 from server.deepsearch.core.manager.report_manager.docx_offline import convert_md_to_docx
 from server.deepsearch.core.manager.report_manager.html_offline import convert_md_to_html
@@ -122,6 +129,115 @@ def test_preprocess_markdown_text_strips_internal_citation_markers():
     assert '[5]</a>' in processed
 
 
+def test_wrap_html_tables_adds_centering_container_once():
+    """Validate HTML table wrapping is idempotent.
+
+    Returns:
+        None.
+    """
+    html_text = "<p>intro</p><table><tr><td>A</td></tr></table>"
+
+    processed = wrap_html_tables(html_text)
+    processed_twice = wrap_html_tables(processed)
+
+    assert '<div class="table-wrap"><table>' in processed
+    assert processed.count('class="table-wrap"') == 1
+    assert processed_twice.count('class="table-wrap"') == 1
+
+
+def test_postprocess_html_wraps_tables_without_rewriting_svg():
+    """Validate table wrapping does not mutate Mermaid SVG HTML.
+
+    Returns:
+        None.
+    """
+    html_text = (
+        '<div class="mermaid-rendered"><svg viewBox="0 0 100 100"></svg></div>'
+        "<table><tr><td>A</td></tr></table>"
+    )
+
+    processed = postprocess_html(html_text)
+
+    assert 'viewBox="0 0 100 100"' in processed
+    assert '<div class="table-wrap"><table>' in processed
+
+
+def test_report_html_convert_from_markdown_wraps_tables():
+    """Validate direct HTML conversion wraps Markdown tables.
+
+    Returns:
+        None.
+    """
+    html_text = ReportHtml.convert_from_markdown("| A | B |\n|---|---|\n| 1 | 2 |")
+
+    assert 'class="table-wrap"' in html_text
+    assert "<table>" in html_text
+
+
+def test_report_word_convert_from_markdown_keeps_wrapped_tables():
+    """Validate online DOCX conversion keeps tables wrapped for HTML centering.
+
+    Returns:
+        None.
+    """
+    doc = ReportWord.convert_from_markdown("| A | B |\n|---|---|\n| 1 | 2 |")
+
+    assert len(doc.tables) == 1
+    assert doc.tables[0].cell(0, 0).text == "A"
+    assert doc.tables[0].cell(1, 1).text == "2"
+
+
+def test_report_word_convert_from_html_handles_irregular_table_rows():
+    """Validate HTML table conversion tolerates rows with different cell counts."""
+    html_text = (
+        '<div class="report-container">'
+        "<table>"
+        "<tr><th>A</th><th>B</th></tr>"
+        "<tr><td>1</td><td>2</td><td>3</td></tr>"
+        "</table>"
+        "</div>"
+    )
+
+    doc = ReportWord._html_to_word(html_text)
+
+    assert len(doc.tables) == 1
+    assert len(doc.tables[0].columns) == 3
+    assert doc.tables[0].cell(0, 2).text == ""
+    assert doc.tables[0].cell(1, 2).text == "3"
+
+
+def test_report_word_convert_from_html_limits_nested_block_depth():
+    """Validate deeply nested HTML is flattened instead of recursing indefinitely."""
+    html_text = (
+        '<div class="report-container">'
+        + "<div>" * 120
+        + "<p>深层内容</p>"
+        + "</div>" * 120
+        + "</div>"
+    )
+
+    doc = ReportWord._html_to_word(html_text)
+
+    assert any("深层内容" in paragraph.text for paragraph in doc.paragraphs)
+
+
+def test_report_table_css_preserves_global_width_and_centers_wrapped_tables():
+    """Validate report CSS limits table centering changes to wrapped tables.
+
+    Returns:
+        None.
+    """
+    css_path = Path("server/deepsearch/core/manager/report_manager/css/style.css")
+    css_text = css_path.read_text(encoding="utf-8")
+
+    assert re.search(r"table\s*\{[^}]*width:\s*100%;", css_text, flags=re.DOTALL)
+    assert re.search(
+        r"\.table-wrap\s+table\s*\{[^}]*width:\s*auto;[^}]*max-width:\s*100%;[^}]*margin:\s*0\s+auto;",
+        css_text,
+        flags=re.DOTALL,
+    )
+
+
 def test_report_html_export_renders_mermaid_or_falls_back(tmp_path):
     """Validate HTML export renders Mermaid or preserves source as fallback.
 
@@ -144,6 +260,32 @@ def test_report_html_export_renders_mermaid_or_falls_back(tmp_path):
     assert "<html" in html_text.lower()
     assert "标题" in html_text
     assert ("<svg" in html_text) or ("language-mermaid" in html_text)
+
+
+def test_normalize_docx_tables_centers_tables_and_captions(tmp_path):
+    """Validate DOCX table normalization centers table objects and captions.
+
+    Args:
+        tmp_path: pytest 提供的临时目录。
+
+    Returns:
+        None.
+    """
+    docx_path = tmp_path / "tables.docx"
+    document = Document()
+    document.add_paragraph("普通正文段落")
+    table = document.add_table(rows=1, cols=2)
+    table.cell(0, 0).text = "A"
+    table.cell(0, 1).text = "B"
+    document.add_paragraph("表2-1：合肥市“三电”系统核心企业的技术实力与市场表现")
+    document.save(docx_path)
+
+    normalize_docx_tables(docx_path)
+
+    normalized = Document(docx_path)
+    assert normalized.tables[0].alignment == WD_TABLE_ALIGNMENT.CENTER
+    assert normalized.paragraphs[0].alignment is None
+    assert normalized.paragraphs[-1].alignment == WD_ALIGN_PARAGRAPH.CENTER
 
 
 def test_convert_md_to_html_annotates_xychart_value_labels(tmp_path, monkeypatch):
@@ -277,6 +419,10 @@ def test_report_docx_export_creates_docx_file(tmp_path, monkeypatch):
         "server.deepsearch.core.manager.report_manager.docx_offline.normalize_docx_fonts",
         lambda *_args, **_kwargs: None,
     )
+    monkeypatch.setattr(
+        "server.deepsearch.core.manager.report_manager.docx_offline.normalize_docx_tables",
+        lambda *_args, **_kwargs: None,
+    )
 
     def _fake_convert_file(*args, **kwargs):
         outputfile = kwargs["outputfile"]
@@ -291,8 +437,8 @@ def test_report_docx_export_creates_docx_file(tmp_path, monkeypatch):
     assert docx_path.read_bytes().startswith(b"PK")
 
 
-def test_convert_md_to_docx_normalizes_headings_and_fonts(tmp_path, monkeypatch):
-    """Validate DOCX export uses the reference heading/font post-processing flow.
+def test_convert_md_to_docx_normalizes_headings_fonts_and_tables(tmp_path, monkeypatch):
+    """Validate DOCX export uses heading/font/table post-processing flow.
 
     Args:
         tmp_path: pytest 提供的临时目录。
@@ -317,6 +463,7 @@ def test_convert_md_to_docx_normalizes_headings_and_fonts(tmp_path, monkeypatch)
         Path(kwargs["outputfile"]).write_bytes(b"PK\x03\x04docx")
 
     font_calls = {"count": 0}
+    table_calls = {"count": 0}
 
     monkeypatch.setattr("pypandoc.convert_file", _fake_convert_file)
     monkeypatch.setattr(
@@ -324,11 +471,17 @@ def test_convert_md_to_docx_normalizes_headings_and_fonts(tmp_path, monkeypatch)
         lambda *_args, **_kwargs: font_calls.__setitem__("count", font_calls["count"] + 1),
         raising=False,
     )
+    monkeypatch.setattr(
+        "server.deepsearch.core.manager.report_manager.docx_offline.normalize_docx_tables",
+        lambda *_args, **_kwargs: table_calls.__setitem__("count", table_calls["count"] + 1),
+        raising=False,
+    )
 
     convert_md_to_docx(md_path, docx_path)
 
     assert '<h1 id="1">1 一级标题</h1>' in captured["content"]
     assert font_calls["count"] == 1
+    assert table_calls["count"] == 1
 
 
 def test_convert_md_to_docx_preserves_short_bold_spans_in_long_chinese_summary(tmp_path):

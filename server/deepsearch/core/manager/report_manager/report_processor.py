@@ -13,6 +13,7 @@ from docx.document import Document
 
 from server.deepsearch.core.manager.report_manager.docx_offline import convert_md_to_docx
 from server.deepsearch.core.manager.report_manager.html_offline import convert_md_to_html
+from server.deepsearch.core.manager.report_manager.conversion_utils import postprocess_html
 from server.deepsearch.core.manager.report_manager.report_bundle import build_report_bundle, pack_bundle_to_base64
 from server.deepsearch.core.manager.report_manager.word_utils import set_global_styles, html_to_doc
 
@@ -172,6 +173,7 @@ class ReportHtml(DefaultReportFormatProcessor):
             extras=["tables", "fenced-code-blocks", "code-friendly"]
         )
         html_body = cls._enable_html_latex(html_body)
+        html_body = postprocess_html(html_body)
 
         default_style_block_n = cls._load_css()
         # 包裹完整 HTML

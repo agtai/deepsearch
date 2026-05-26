@@ -156,12 +156,25 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             border-radius: 6px;
         }}
 
+        .table-wrap {{
+            width: 100%;
+            overflow-x: auto;
+            margin: 16px 0 24px;
+            text-align: center;
+        }}
+
         table {{
             border-collapse: collapse;
             width: fit-content;
             max-width: 100%;
             margin: 16px auto 24px;
             display: table;
+        }}
+
+        .table-wrap table {{
+            width: auto;
+            max-width: 100%;
+            margin: 0 auto;
         }}
 
         th, td {{

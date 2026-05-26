@@ -25,6 +25,8 @@ HYPERLINK_URI = (
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
 )  # URI for word hyperlink
 OMML_URI = "http://schemas.openxmlformats.org/officeDocument/2006/math"  # URI for word omml
+MAX_HTML_BLOCK_DEPTH = 100
+HEADING_TAGS = frozenset(f"h{i}" for i in range(1, 9))
 
 
 def _docx_run_element(run):
@@ -358,69 +360,96 @@ def _set_default_table_border(table):
     tbl_pr.append(tbl_borders)
 
 
+def _add_html_table_to_doc(doc, element, style_dict):
+    """Add one HTML table element to a docx document."""
+    table_style = _get_style_by_tag(element.name, style_dict, doc)
+    rows = element.find_all('tr')
+    if not rows:
+        return
+
+    row_cells = [row.find_all(['td', 'th']) for row in rows]
+    cols_count = max((len(cells) for cells in row_cells), default=0)
+    if cols_count == 0:
+        return
+
+    table = doc.add_table(rows=len(rows), cols=cols_count)
+    if table_style.type == WD_STYLE_TYPE.TABLE:
+        table.style = table_style
+    else:
+        _set_default_table_border(table)
+
+    paragraph_style = _get_style_by_tag("p", style_dict, doc)
+    style_r_pr = paragraph_style.element.get_or_add_rPr()
+    style_r_fonts = style_r_pr.find(qn('w:rFonts'))
+
+    for r_idx, cells in enumerate(row_cells):
+        for c_idx, cell in enumerate(cells):
+            target_cell = table.cell(r_idx, c_idx)
+            target_cell.text = cell.get_text(strip=True)
+            p = target_cell.paragraphs[0]
+            _apply_style_font_on_para_run(p, style_r_fonts)
+
+
+def _process_block_element(doc, element, style_dict, depth=0, max_depth=MAX_HTML_BLOCK_DEPTH):
+    """Process one block-level HTML element into a docx document."""
+    if element.name is None:
+        return
+    if depth >= max_depth:
+        text = element.get_text(strip=True)
+        if text:
+            paragraph_style = _get_style_by_tag("p", style_dict, doc)
+            doc.add_paragraph(text, style=paragraph_style)
+        return
+
+    if element.name in HEADING_TAGS:
+        _add_para_and_apply_style(doc, element, style_dict)
+
+    elif element.name == 'p':
+        text = element.get_text(strip=True)
+
+        # 判断是否包含公式
+        if '$' in text:
+            paragraph_style = _get_style_by_tag("p", style_dict, doc)
+            _add_latex_paragraph(
+                doc=doc,
+                text=text,
+                style=paragraph_style
+            )
+        else:
+            _add_para_and_apply_style(doc, element, style_dict)
+
+    elif element.name == 'blockquote':
+        para = doc.add_paragraph(element.get_text(strip=True))
+        para.paragraph_format.left_indent = Pt(18)
+        para.paragraph_format.space_before = Pt(6)
+        para.paragraph_format.space_after = Pt(6)
+
+    elif element.name in ('ul', 'ol'):
+        paragraph_style = _get_style_by_tag("p", style_dict, doc)
+        for li in element.find_all('li'):
+            p = doc.add_paragraph(li.get_text(strip=True), style=paragraph_style)
+            style_r_pr = paragraph_style.element.get_or_add_rPr()
+            style_r_fonts = style_r_pr.find(qn('w:rFonts'))
+
+            _apply_style_font_on_para_run(p, style_r_fonts)
+
+    elif element.name == 'table':
+        _add_html_table_to_doc(doc, element, style_dict)
+
+    elif element.name in ('div', 'section', 'article', 'main'):
+        for child in element.children:
+            _process_block_element(doc, child, style_dict, depth + 1, max_depth)
+
+
 def html_to_doc(doc, html, style_dict):
     """将 HTML 内容转换并写入 docx 文档对象。"""
     soup = BeautifulSoup(html, 'html.parser')
     container = soup.find("div", class_="report-container")
+    if container is None:
+        container = soup.body or soup
 
     for element in container.children:
-        if element.name is None:
-            continue
-
-        if element.name in [f"h{i}" for i in range(1, 9)]:
-            _add_para_and_apply_style(doc, element, style_dict)
-
-        elif element.name == 'p':
-            text = element.get_text(strip=True)
-
-            # 判断是否包含公式
-            if '$' in text:
-                paragraph_style = _get_style_by_tag("p", style_dict, doc)
-                _add_latex_paragraph(
-                    doc=doc,
-                    text=text,
-                    style=paragraph_style
-                )
-            else:
-                _add_para_and_apply_style(doc, element, style_dict)
-
-        elif element.name == 'blockquote':
-            para = doc.add_paragraph(element.get_text(strip=True))
-            para.paragraph_format.left_indent = Pt(18)
-            para.paragraph_format.space_before = Pt(6)
-            para.paragraph_format.space_after = Pt(6)
-
-        elif element.name in ('ul', 'ol'):
-            paragraph_style = _get_style_by_tag("p", style_dict, doc)
-            for li in element.find_all('li'):
-                p = doc.add_paragraph(li.get_text(strip=True), style=paragraph_style)
-                style_r_pr = paragraph_style.element.get_or_add_rPr()
-                style_r_fonts = style_r_pr.find(qn('w:rFonts'))
-
-                _apply_style_font_on_para_run(p, style_r_fonts)
-
-        elif element.name == 'table':
-            table_style = _get_style_by_tag(element.name, style_dict, doc)
-            rows = element.find_all('tr')
-            if rows:
-                cols_count = len(rows[0].find_all(['td', 'th']))
-                table = doc.add_table(rows=len(rows), cols=cols_count)
-                if table_style.type == WD_STYLE_TYPE.TABLE:
-                    table.style = table_style
-                else:
-                    _set_default_table_border(table)
-                for r_idx, row in enumerate(rows):
-                    cells = row.find_all(['td', 'th'])
-                    for c_idx, cell in enumerate(cells):
-                        table.cell(r_idx, c_idx).text = cell.get_text(strip=True)
-                        p = table.cell(r_idx, c_idx).paragraphs[0]
-                        # set table fonts to paragraph default
-                        paragraph_style = _get_style_by_tag("p", style_dict, doc)
-                        # get rFonts in style
-                        style_r_pr = paragraph_style.element.get_or_add_rPr()
-                        style_r_fonts = style_r_pr.find(qn('w:rFonts'))
-
-                        _apply_style_font_on_para_run(p, style_r_fonts)
+        _process_block_element(doc, element, style_dict)
 
 
 def set_global_styles(doc, font_name="微软雅黑", font_size=11):

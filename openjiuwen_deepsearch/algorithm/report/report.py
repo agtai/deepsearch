@@ -38,6 +38,7 @@ from openjiuwen_deepsearch.algorithm.report.report_utils import (
     validate_visualization_extraction_schema,
     validate_visualization_normalization_schema,
 )
+from openjiuwen_deepsearch.algorithm.report.table_caption_utils import ensure_markdown_table_captions
 from openjiuwen_deepsearch.common.exception import CustomValueException
 from openjiuwen_deepsearch.common.status_code import StatusCode
 from openjiuwen_deepsearch.config.config import Config
@@ -2307,6 +2308,12 @@ class Reporter:
                         current_inputs.get("section_idx", 1),
                         current_inputs.get("sub_report_content", ""),
                     )
+
+            current_inputs["sub_report_content"] = ensure_markdown_table_captions(
+                current_inputs["sub_report_content"],
+                current_inputs.get("language"),
+                current_inputs.get("section_idx", ""),
+            )
 
             sub_report_summary = await self._generate_sub_report_summary(current_inputs)
             current_inputs["sub_report_summary"] = sub_report_summary.get("result", "")

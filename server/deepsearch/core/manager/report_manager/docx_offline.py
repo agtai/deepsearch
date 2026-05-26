@@ -19,6 +19,7 @@ from server.deepsearch.core.manager.report_manager.conversion_utils import (
     enhance_image,
     make_safe_filename_component,
     normalize_docx_fonts,
+    normalize_docx_tables,
     normalize_headings,
     preprocess_markdown_text,
     read_text_with_fallback,
@@ -267,6 +268,7 @@ def convert_md_to_docx(md_path: str | Path, docx_path: str | Path) -> None:
             raise ReportConvertDependencyException("pandoc execution failed during DOCX export") from exc
 
         normalize_docx_fonts(docx_file)
+        normalize_docx_tables(docx_file)
         logger.info(
             "Mermaid render stats: total=%s success=%s failed=%s",
             mermaid_stats.total,

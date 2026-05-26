@@ -50,6 +50,16 @@ CITATION_ANCHOR_RE = re.compile(
     r'(?<!<sup class="citation">)(<a\b[^>]*href="https?://[^"]+"[^>]*>\[(\d+)\]</a>)',
     flags=re.IGNORECASE,
 )
+HTML_TABLE_RE = re.compile(r"<table\b[^>]*>.*?</table>", flags=re.IGNORECASE | re.DOTALL)
+TABLE_WRAP_OPEN_RE = re.compile(
+    r'<div\b[^>]*\bclass=["\'][^"\']*\btable-wrap\b[^"\']*["\'][^>]*>\s*$',
+    flags=re.IGNORECASE,
+)
+DOCX_TABLE_CAPTION_RE = re.compile(
+    r"^(?:表\s*[\d一二三四五六七八九十]+(?:[-－—.][\d一二三四五六七八九十]+)*|"
+    r"Table\s+[\w]+(?:[-－—.][\w]+)*)\s*[:：]",
+    flags=re.IGNORECASE,
+)
 
 try:
     from PIL import Image, ImageEnhance
@@ -60,6 +70,8 @@ except Exception:  # pragma: no cover - optional dependency branch
 
 try:
     from docx import Document
+    from docx.enum.table import WD_TABLE_ALIGNMENT
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
 
@@ -349,8 +361,22 @@ def preprocess_markdown_text(text: str) -> str:
     return normalize_list_boundaries(text)
 
 
+def wrap_html_tables(html_text: str) -> str:
+    """Wrap HTML tables with a scrollable centering container."""
+    if "<table" not in html_text.lower():
+        return html_text
+
+    def _replace(match: re.Match[str]) -> str:
+        prefix = html_text[max(0, match.start() - 512): match.start()]
+        if TABLE_WRAP_OPEN_RE.search(prefix):
+            return match.group(0)
+        return f'<div class="table-wrap">{match.group(0)}</div>'
+
+    return HTML_TABLE_RE.sub(_replace, html_text)
+
+
 def postprocess_html(html_text: str) -> str:
-    """Postprocess generated HTML for external links and citations.
+    """Postprocess generated HTML for external links, citations and table wrappers.
 
     Args:
         html_text: Markdown 转换后的 HTML 文本。
@@ -372,7 +398,8 @@ def postprocess_html(html_text: str) -> str:
     html_text = EXTERNAL_LINK_RE.sub(_replace, html_text)
     html_text = CITATION_ANCHOR_RE.sub(_wrap_citation, html_text)
     html_text = re.sub(r'[ \t]+(<sup class="citation">)', r"\1", html_text)
-    return re.sub(r'(</sup>)[ \t]+(<sup class="citation">)', r"\1\2", html_text)
+    html_text = re.sub(r'(</sup>)[ \t]+(<sup class="citation">)', r"\1\2", html_text)
+    return wrap_html_tables(html_text)
 
 
 def _neighbor_numbered_line(lines: list[str], index: int, *, reverse: bool) -> str | None:
@@ -546,6 +573,65 @@ def _apply_font_to_table(table, font_name: str) -> None:
                     _set_run_font(run, font_name)
             for nested_table in cell.tables:
                 _apply_font_to_table(nested_table, font_name)
+
+
+def _center_docx_table(table) -> None:
+    """Center one docx table and its nested tables.
+
+    Args:
+        table: python-docx table 对象。
+
+    Returns:
+        None.
+    """
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    for row in table.rows:
+        for cell in row.cells:
+            for nested_table in cell.tables:
+                _center_docx_table(nested_table)
+
+
+def _center_docx_table_captions(paragraphs) -> None:
+    """Center paragraphs that look like table captions.
+
+    Args:
+        paragraphs: python-docx paragraph iterable.
+
+    Returns:
+        None.
+    """
+    for paragraph in paragraphs:
+        if DOCX_TABLE_CAPTION_RE.match(paragraph.text.strip()):
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+
+def normalize_docx_tables(docx_path: Path) -> None:
+    """Center tables and table-caption paragraphs in a generated DOCX file.
+
+    Args:
+        docx_path: DOCX 文件路径。
+
+    Returns:
+        None.
+    """
+    if not DOCX_STYLE_AVAILABLE:
+        logger.warning("python-docx is unavailable, skipping table normalization for %s.", docx_path)
+        return
+
+    document = Document(docx_path)
+    _center_docx_table_captions(document.paragraphs)
+    for table in document.tables:
+        _center_docx_table(table)
+
+    for section in document.sections:
+        _center_docx_table_captions(section.header.paragraphs)
+        _center_docx_table_captions(section.footer.paragraphs)
+        for table in section.header.tables:
+            _center_docx_table(table)
+        for table in section.footer.tables:
+            _center_docx_table(table)
+
+    document.save(docx_path)
 
 
 def normalize_docx_fonts(docx_path: Path, *, font_name: str = DEFAULT_DOCX_FONT) -> None:

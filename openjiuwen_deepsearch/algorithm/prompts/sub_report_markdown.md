@@ -73,7 +73,10 @@ This is a core part of the report. You must:
 
 # Output Format Rules
 ## Markdown Table Syntax
-- Title: Centered below the table.
+- Before each Markdown table, write one natural sentence explaining the table's analytical purpose or key conclusion.
+- After each Markdown table, write one concise table caption. The caption should name only the table's subject/scope.
+- Do not repeat the introductory sentence as the caption.
+- Keep the table as a standard Markdown pipe table. Do not wrap the table itself in HTML.
 - Alignment: Headers centered, content left-aligned.
 - Header: Concise (keep short).
 - Structure:

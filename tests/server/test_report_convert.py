@@ -201,6 +201,10 @@ def test_report_docx_processor_returns_bundle_zip_base64(monkeypatch):
         "server.deepsearch.core.manager.report_manager.docx_offline.normalize_docx_fonts",
         lambda *_args, **_kwargs: None,
     )
+    monkeypatch.setattr(
+        "server.deepsearch.core.manager.report_manager.docx_offline.normalize_docx_tables",
+        lambda *_args, **_kwargs: None,
+    )
 
     def _fake_convert_file(*args, **kwargs):
         outputfile = kwargs["outputfile"]
