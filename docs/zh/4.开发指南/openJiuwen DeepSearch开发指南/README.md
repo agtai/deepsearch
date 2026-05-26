@@ -45,6 +45,8 @@ openJiuwen-DeepSearch 当前可以为全部模块配置四个模型：
  - 硅基流动厂商系列模型，且遵循OpenAI接口格式。`LLMConfig`的`model_type`参数必须赋值为siliconflow。
  - OpenAI格式模型，模型服务按照标准OpenAI格式封装实现。`LLMConfig`的`model_type`参数必须赋值为openai。
 
+`DeepresearchAgent` 在 SDK 内部默认会关闭支持厂商的模型思考模式，对应配置为 `ServiceConfig.llm_thinking_enabled=False`。该配置仅作用于 `DeepresearchAgent` 初始化 LLM 的流程，`DeepSearchAgent` 和 `SimpleReactSearchAgent` 不受影响。若需要开启思考模式，可在 SDK 内部运行配置中设置 `service_config.llm_thinking_enabled=True`；不建议通过 `LLMConfig.extension` 手动维护统一思考开关，以免与内部厂商适配规则冲突。
+
 
 > 说明：用户需要自行前往硅基流动或者OpenAI的官网注册账号，以便获取模型广场中可用模型的api_key、模型名称model_name和模型调用的URL请求地址base_url。
 

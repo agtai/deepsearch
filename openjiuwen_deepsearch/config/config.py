@@ -400,6 +400,9 @@ class ServiceConfig(BaseModel):
     # 大模型超时参数
     llm_timeout: int = Field(default=300, description="大模型调用超时时间，单位秒")
 
+    # 大模型思考模式开关参数
+    llm_thinking_enabled: bool = Field(default=False, description="是否开启大模型思考模式，默认关闭")
+
     # debug辅助工具参数
     node_debug_enable: bool = Field(default=False, description="节点格式化记录debug日志开关")
     export_intermediate_results: bool = Field(default=False, description="可视化任务执行中间结果开关")

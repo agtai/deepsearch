@@ -321,6 +321,14 @@ class openjiuwen_deepsearch.config.config.ServiceConfig()
 - `service_config.llm_timeout` is still passed to the underlying LLM client.
 - If `agent_llm_timeouts` is also configured, DeepSearch adds an outer wall-clock timeout around the whole streaming call; when that outer timeout is hit, it raises `LLM_WALL_CLOCK_TIMEOUT` (`211204`).
 
+### LLM thinking mode parameter
+- **llm_thinking_enabled** (bool, optional): whether to enable model thinking mode. Default value: `False`. This SDK-internal setting is applied only when `DeepresearchAgent` initializes LLMs and injects provider-specific thinking on/off parameters for supported providers; `DeepSearchAgent`, `SimpleReactSearchAgent`, and REST API requests do not use this field.
+
+**Notes**:
+
+- `service_config.llm_thinking_enabled` is not an `LLMConfig` field and is not exposed as a REST API request parameter. For providers that do not support a thinking switch, the runtime only logs a warning and keeps the original extension parameters.
+- If thinking-related fields are manually configured in `LLMConfig.extension`, the internal unified thinking switch overrides those fields and writes a warning log.
+
 ### Debug parameters
 - **node_debug_enable** (bool, optional): Whether to enable formatted node debug logs. Default value: `False`.
 - **export_intermediate_results** (bool, optional): Whether to export intermediate workflow results for visualization. Default value: `False`.

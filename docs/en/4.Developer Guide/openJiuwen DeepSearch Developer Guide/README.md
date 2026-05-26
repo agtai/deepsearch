@@ -46,6 +46,8 @@ Supported backends (OpenAI-compatible):
 - SiliconFlow: set `LLMConfig.model_type` to `siliconflow`.
 - OpenAI-compatible HTTP APIs: set `model_type` to `openai`.
 
+Inside the SDK, `DeepresearchAgent` disables thinking mode by default for supported providers through `ServiceConfig.llm_thinking_enabled=False`. This setting is applied only when `DeepresearchAgent` initializes LLMs; `DeepSearchAgent` and `SimpleReactSearchAgent` are not affected. To enable thinking mode, set `service_config.llm_thinking_enabled=True` in SDK runtime configuration. Avoid managing the unified thinking switch manually through `LLMConfig.extension`, because provider-specific adapter rules may override conflicting thinking fields.
+
 > Obtain `api_key`, `model_name`, and `base_url` from your provider.
 
 ### vlm_chart_generating multimodal model reference

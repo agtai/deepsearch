@@ -448,6 +448,14 @@ class openjiuwen_deepsearch.config.config.ServiceConfig()
 - `service_config.llm_timeout` 会继续传给底层 LLM client。
 - 若同时配置 `agent_llm_timeouts`，业务层会在整次流式调用外再包一层总墙钟超时；命中新机制时会抛出 `LLM_WALL_CLOCK_TIMEOUT`（状态码 `211204`）。
 
+### 大模型思考模式参数
+- **llm_thinking_enabled**(bool, 可选)：是否开启大模型思考模式。默认值：`False`。该配置仅在 SDK 内部的 `DeepresearchAgent` 初始化 LLM 时生效，用于对支持的厂商注入关闭/开启思考参数；`DeepSearchAgent`、`SimpleReactSearchAgent` 以及 REST API 入参不使用该字段。
+
+**说明**：
+
+- `service_config.llm_thinking_enabled` 不是 `LLMConfig` 字段，也不会作为服务化 REST API 的公开请求参数；如模型厂商不支持思考开关，系统仅记录 warning 并保持原始扩展参数。
+- 若 `LLMConfig.extension` 中已手动配置思考相关字段，内部统一思考开关会覆盖这些字段，并记录 warning 日志。
+
 ### Debug参数
 - **node_debug_enable**(bool, 可选)：节点格式化记录debug日志开关。默认值：`False`。
 - **export_intermediate_results**(bool, 可选)：可视化任务执行中间结果开关。默认值：`False`。
@@ -461,6 +469,7 @@ class openjiuwen_deepsearch.config.config.ServiceConfig()
 >>> service_config = ServiceConfig(
 ...     workflow_execution_timeout=3600,
 ...     llm_timeout=600,
+...     llm_thinking_enabled=False,
 ...     node_debug_enable=True
 ... )
 >>> print(service_config.workflow_execution_timeout, service_config.node_debug_enable)
