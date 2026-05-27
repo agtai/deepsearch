@@ -54,10 +54,6 @@ The evidence pack intentionally contains source_id, key_passages, and scores ins
 ## Output Format
 
 - Format your response as a JSON object with these exact keys:
-    -"need_programmer": true or false, whether **User's question** need programmer for mathematical analysis or chart generation.
-    - "programmer_task": Detailed task of code generation based on **User's question**, including the objectives specific requirements. for example:
-        1. for chart generation task: "Based on the collected information and data, create 2-3 charts and save them."
-        2. for data analysis task: "Based on the collected information and data, analysis the underlying pattern and perfrom math modeling to predict future states."
     - "info_summary": Write a summary to cover **Evidence pack** and review it based on **User's question**.
     - "evaluation": Evaluate the information gathered so far based on the task or query. 
       1. If the information is sufficient, clarify how it relates to the task. 
@@ -67,8 +63,6 @@ The evidence pack intentionally contains source_id, key_passages, and scores ins
  
 ```json
 {
-  "need_programmer": true, // or false, bool
-  "programmer_task": "", // Detailed task of code generation, string
   "info_summary": "", // Summary of less than 500 words, string
   "evaluation": "" // evaluation of less than 300 words, string
 }

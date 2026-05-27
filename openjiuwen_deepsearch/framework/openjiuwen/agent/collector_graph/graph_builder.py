@@ -75,12 +75,6 @@ class Reflection(BaseModel):
 
 
 class Summary(BaseModel):
-    need_programmer: bool = Field(
-        description="Indicates whether a programmer is needed for further assistance."
-    )
-    programmer_task: str = Field(
-        description="A detailed description of the task to be assigned to the programmer."
-    )
     info_summary: str = Field(
         description="A concise summary of the collected information relevant to the research topic."
     )
@@ -516,15 +510,9 @@ class SummaryNode(BaseNode):
     def _post_handle(self, inputs: Input, algorithm_output: Summary, session: Session, context: ModelContext):
         section_idx = session.get_global_state("collector_context.section_idx")
         step_title = session.get_global_state("collector_context.step_title")
-        session.update_global_state({"collector_context.need_programmer": algorithm_output.need_programmer})
-        session.update_global_state({"collector_context.programmer_task": algorithm_output.programmer_task})
         session.update_global_state({"collector_context.info_summary": algorithm_output.info_summary})
         session.update_global_state({"collector_context.evaluation": algorithm_output.evaluation})
-        allow_programmer = session.get_global_state("config.info_collector_allow_programmer")
-        if algorithm_output.need_programmer and allow_programmer:
-            next_node = NodeId.COLLECTOR_PROGRAMMER.value
-        else:
-            next_node = NodeId.COLLECTOR_END.value
+        next_node = NodeId.COLLECTOR_END.value
         logger.info(f"section_idx: %s | step_title %s | [SummaryNode] End SummaryNode.", section_idx, step_title)
 
         return dict(next_node=next_node)
@@ -549,33 +537,11 @@ class SummaryNode(BaseNode):
             logger.error(f"section_idx: {section_idx} | step_title {step_title} | [SummaryNode] "
                          f"Gathered {len(doc_infos)} items of information. Error when generate collector summary.")
             result = Summary(
-                need_programmer=False,
-                programmer_task="",
                 info_summary="",
                 evaluation="",
             )
 
         return result
-
-
-class ProgrammerNode(BaseNode):
-
-    def __init__(self):
-        super().__init__()
-
-    def _pre_handle(self, inputs: Input, session: Session, context: ModelContext):
-        logger.info(f"[ProgrammerNode] Start ProgrammerNode.")
-        return dict()
-
-    async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
-        logger.info(f"[ProgrammerNode] ProgrammerNode is current not available, go to graph end.")
-        algorithm_output = {}
-        result = self._post_handle(inputs, algorithm_output, session, context)
-        return result
-
-    def _post_handle(self, inputs: Input, algorithm_output: dict, session: Session, context: ModelContext):
-        logger.info(f"[ProgrammerNode] End ProgrammerNode.")
-        return dict()
 
 
 class GraphEndNode(BaseNode):
@@ -659,7 +625,6 @@ def build_info_collector_sub_graph() -> Workflow:
     sub_workflow.add_workflow_comp(NodeId.COLLECTOR_INFO.value, InfoRetrievalNode())
     sub_workflow.add_workflow_comp(NodeId.COLLECTOR_SUPERVISOR.value, SupervisorNode())
     sub_workflow.add_workflow_comp(NodeId.COLLECTOR_SUMMARY.value, SummaryNode())
-    sub_workflow.add_workflow_comp(NodeId.COLLECTOR_PROGRAMMER.value, ProgrammerNode())
     sub_workflow.add_workflow_comp(NodeId.COLLECTOR_END.value, GraphEndNode())
     sub_workflow.set_end_comp(NodeId.END.value, End())
 
@@ -670,10 +635,7 @@ def build_info_collector_sub_graph() -> Workflow:
     supervisor_router = init_router(NodeId.COLLECTOR_SUPERVISOR.value,
                                     [NodeId.COLLECTOR_SUMMARY.value, NodeId.COLLECTOR_INFO.value])
     sub_workflow.add_conditional_connection(NodeId.COLLECTOR_SUPERVISOR.value, router=supervisor_router)
-    summary_router = init_router(NodeId.COLLECTOR_SUMMARY.value,
-                                 [NodeId.COLLECTOR_PROGRAMMER.value, NodeId.COLLECTOR_END.value])
-    sub_workflow.add_conditional_connection(NodeId.COLLECTOR_SUMMARY.value, router=summary_router)
-    sub_workflow.add_connection(NodeId.COLLECTOR_PROGRAMMER.value, NodeId.COLLECTOR_END.value)
+    sub_workflow.add_connection(NodeId.COLLECTOR_SUMMARY.value, NodeId.COLLECTOR_END.value)
     sub_workflow.add_connection(NodeId.COLLECTOR_END.value, NodeId.END.value)
 
     return sub_workflow

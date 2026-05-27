@@ -4,19 +4,12 @@ import pytest
 from openjiuwen.core.workflow.workflow import Workflow
 
 from openjiuwen_deepsearch.framework.openjiuwen.agent.collector_graph.graph_builder import SearchQueryList, \
-    Reflection, Summary, CollectorContext, StartNode, GenerateQueryNode, SupervisorNode, SummaryNode, ProgrammerNode, \
+    Reflection, Summary, CollectorContext, StartNode, GenerateQueryNode, SupervisorNode, SummaryNode, \
     GraphEndNode, build_info_collector_sub_graph, get_research_record, llm_context
 from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import RetrievalQuery
 from openjiuwen_deepsearch.framework.openjiuwen.agent.collector_graph.evidence_ledger import EvidenceLedger
 
 module_prefix = "openjiuwen_deepsearch.framework.openjiuwen.agent.collector_graph.graph_builder"
-
-
-class ExposedProgrammerNode(ProgrammerNode):
-    """用于测试的类，公开受保护的方法以遵循 G.CLS.11 规则"""
-
-    async def do_invoke(self, *args, **kwargs):
-        return await self._do_invoke(*args, **kwargs)
 
 
 class ExposedGraphEndNode(GraphEndNode):
@@ -66,15 +59,12 @@ class TestSummary:
     def test_summary_creation(self):
         """测试 Summary 创建"""
         summary = Summary(
-            need_programmer=True,
-            programmer_task="编写数据处理脚本",
             info_summary="收集到的信息总结",
-            evaluation=""
+            evaluation="评估结果"
         )
 
-        assert summary.need_programmer is True
-        assert summary.programmer_task == "编写数据处理脚本"
         assert summary.info_summary == "收集到的信息总结"
+        assert summary.evaluation == "评估结果"
 
 
 class TestResearchRecord:
@@ -703,8 +693,6 @@ class TestSummaryNode:
                     patch(f"{module_prefix}.adapt_llm_model_name"):
                 mock_apply_prompt.return_value = []
                 mock_llm.return_value = Summary(
-                    need_programmer=False,
-                    programmer_task="",
                     info_summary="信息总结内容",
                     evaluation=""
                 )
@@ -754,23 +742,6 @@ class TestSummaryNode:
                 assert "Missing evidence:" in captured_agent_input["ledger_brief"]
         finally:
             llm_context.reset(token)
-
-
-class TestProgrammerNode:
-    """测试 ProgrammerNode"""
-
-    @pytest.fixture
-    def programmer_node(self):
-        return ExposedProgrammerNode()
-
-    @pytest.mark.asyncio
-    async def test_programmer_node(self, programmer_node, mock_session, mock_context):
-        """测试 ProgrammerNode"""
-        inputs = {}
-
-        result = await programmer_node.do_invoke(inputs, mock_session, mock_context)
-
-        assert result == {}
 
 
 class TestGraphEndNode:

@@ -213,8 +213,26 @@ class TestInfoCollectorNode:
         """测试没有查询的情况"""
         inputs = {}
 
-        # Mock 返回空查询列表
-        mock_session.get_global_state.return_value = []
+        def mock_get_empty_queries(key):
+            """返回空查询列表，其他状态正常"""
+            state_map = {
+                "collector_context.search_queries": [],  # 空查询
+                "collector_context.history_queries": [],
+                "collector_context.max_tool_steps": 3,
+                "collector_context.section_idx": 0,
+                "collector_context.step_title": "测试步骤",
+                "config.info_collector_search_method": "web",
+                "collector_context.doc_infos": [],
+                "collector_context.gathered_info": [],
+                "config.web_search_engine_config": None,
+                "config.local_search_engine_config": None,
+                "config.api_tools_config": {},
+                "search_context.research_intent": {},
+            }
+            return state_map.get(key)
+
+        mock_session.get_global_state = Mock(side_effect=mock_get_empty_queries)
+        mock_session.update_global_state = Mock()
 
         # 准备 mock 的上下文字典：其 get 方法返回任意对象（因 LLM 实际未被调用）
         mock_llm_dict = MagicMock()
@@ -227,7 +245,7 @@ class TestInfoCollectorNode:
             with patch(f"{module_prefix}.adapt_llm_model_name"):
                 result = await info_collector_node.do_invoke(inputs, mock_session, mock_context)
 
-                # 验证没有创建任务
+                # 验证没有创建任务（空查询列表）
                 assert result == {}
         finally:
             # 清理 contextvar，避免影响其他测试
@@ -378,12 +396,18 @@ class TestInfoCollectorNode:
 
     @pytest.mark.asyncio
     async def test_collector_main_success(self, info_collector_node, sample_web_record, sample_local_record):
-        """测试 _collector_main 方法成功执行"""
+        """测试 _collector_main 方法成功执行（走 LLM tool-calling 路径）"""
         state = {
             "section_idx": 0,
             "step_title": "测试步骤",
             "search_query": "测试查询",
-            "max_tool_steps": 2
+            "max_tool_steps": 2,
+            "search_method": "web",
+            "web_search_engine_name": "tavily",
+            "api_tools_config": {
+                "collector_tools": [{"name": "custom_tool"}]
+            },
+            "research_intent": {},
         }
 
         with patch.object(info_collector_node, '_collector_llm') as mock_collector_llm, \

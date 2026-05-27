@@ -2,6 +2,7 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
 
 import asyncio
+import json
 import logging
 from typing import Any
 
@@ -12,7 +13,7 @@ from openjiuwen.core.session.node import Session
 
 from openjiuwen_deepsearch.algorithm.prompts.template import apply_system_prompt
 from openjiuwen_deepsearch.algorithm.research_collector.collector_function import process_tool_call, \
-    remove_duplicate_items
+    process_tool_result, remove_duplicate_items
 from openjiuwen_deepsearch.algorithm.research_collector.collector_evidence import (
     CollectorSourceStore,
     build_evaluation_documents,
@@ -21,6 +22,7 @@ from openjiuwen_deepsearch.algorithm.research_collector.collector_evidence impor
     normalize_scores,
 )
 from openjiuwen_deepsearch.algorithm.research_collector.doc_evaluation import run_doc_evaluation
+from openjiuwen_deepsearch.common.common_constants import MAX_COLLECTOR_DOC_CONTENT_LENGTH
 from openjiuwen_deepsearch.config.config import Config
 from openjiuwen_deepsearch.framework.openjiuwen.agent.base_node import BaseNode
 from openjiuwen_deepsearch.framework.openjiuwen.agent.collector_graph.evidence_ledger import (
@@ -238,7 +240,70 @@ class InfoRetrievalNode(BaseNode):
 
         tool_list, tool_dict = self._prepare_collector_tool(state)
 
-        state, agent_input = await self._collector_llm(state, agent_input, tool_list, tool_dict)
+        # 当 collector_tools 为空且 search_method 为 web/local 时，直接调用对应 search tool
+        collector_tools = state.get("api_tools_config", {}).get("collector_tools", [])
+        search_method = state.get("search_method", "web")
+        if not collector_tools and search_method in ("web", "local"):
+            # 直接调用对应 search tool
+            tool_name = f"{search_method}_search_tool"
+            if tool_name not in tool_dict:
+                if LogManager.is_sensitive():
+                    logger.error(f"section_idx: {section_idx} | "
+                                 f"[InfoRetrievalNode] Direct call: tool '{tool_name}' not found in tool_dict")
+                else:
+                    logger.error(f"section_idx: {section_idx} | step title: {step_title} | "
+                                 f"[InfoRetrievalNode] Direct call: tool '{tool_name}' not found in tool_dict")
+                processed_results = []
+            else:
+                processed_results = []
+                for retry_idx in range(max_retries):
+                    try:
+                        search_engine_name = state.get(f"{search_method}_search_engine_name")
+                        tool_call_args = {"query": query, "search_engine_name": search_engine_name}
+                        tool_result_raw = await tool_dict[tool_name].invoke(tool_call_args)
+
+                        if isinstance(tool_result_raw, dict) and tool_result_raw.get("error"):
+                            error_msg = tool_result_raw.get("error", "")
+                            current_try = retry_idx + 1
+                            record_llm_retry_log(
+                                current_try=current_try, max_retries=max_retries,
+                                section_idx=section_idx, step_title=step_title,
+                                operation=f"direct call search tool '{tool_name}' returned error",
+                                error=error_msg, extra_info=query,
+                            )
+                            if current_try < max_retries:
+                                continue
+                            # 重试耗尽，返回空结果
+                            processed_results = []
+                            break
+
+                        tool_result_json = json.dumps(tool_result_raw, ensure_ascii=False, indent=4)
+                        processed_results = process_tool_result(tool_name, tool_result_json, agent_input)
+                        if LogManager.is_sensitive():
+                            logger.info(f"section_idx: {section_idx} | "
+                                        f"[InfoRetrievalNode] Direct tool call completed, results: "
+                                        f"{len(processed_results)}")
+                        else:
+                            logger.info(f"section_idx: {section_idx} | step title: {step_title} | "
+                                        f"[InfoRetrievalNode] Direct tool call for {tool_name}, results: "
+                                        f"{len(processed_results)}")
+                        break
+
+                    except Exception as e:
+                        current_try = retry_idx + 1
+                        record_llm_retry_log(
+                            current_try=current_try, max_retries=max_retries,
+                            section_idx=section_idx, step_title=step_title,
+                            operation=f"direct call search tool '{tool_name}'",
+                            error=e, extra_info=query,
+                        )
+                        if current_try < max_retries:
+                            continue
+                        # 重试耗尽，返回空结果
+                        processed_results = []
+        else:
+            # MCP/custom tools 或多工具复杂路由走 LLM tool-calling
+            state, agent_input = await self._collector_llm(state, agent_input, tool_list, tool_dict)
 
         web_record, local_record = [], []
         if len(agent_input["web_page_search_record"]) > 0:

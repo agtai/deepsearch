@@ -168,6 +168,16 @@ def web_search_jiuwen(agent_input: dict, tool_content: Any) -> (list, dict):
     tool_content = json.loads(tool_content)
     engine = tool_content.get("search_engine", "")
     results = tool_content.get("search_results", "")
+
+    if tool_content.get("error") or (isinstance(results, list) and any(isinstance(item, str) for item in results)):
+        error_msg = tool_content.get("error") or (results[0] if isinstance(results, list) and
+                                                                results else "unknown error")
+        if LogManager.is_sensitive():
+            logger.error(f"[COLLECTOR FUNCTION] Search engine '{engine}' returned error")
+        else:
+            logger.error(f"[COLLECTOR FUNCTION] Search engine '{engine}' returned error: {error_msg}")
+        return [], agent_input
+
     if engine == "google":
         tool_result, agent_input = process_google_search_result(agent_input, results)
     elif engine == "tavily":
@@ -294,7 +304,17 @@ def process_local_search_result(agent_input: dict, tool_content: Any) -> (list, 
     """本地搜索工具结果处理方法"""
 
     tool_content = json.loads(tool_content)
+
     results = tool_content.get("search_results", "")
+    if tool_content.get("error") or (isinstance(results, list) and any(isinstance(item, str) for item in results)):
+        error_msg = tool_content.get("error") or (results[0] if isinstance(results, list) and
+                                                                results else "unknown error")
+        if LogManager.is_sensitive():
+            logger.error(f"[COLLECTOR FUNCTION] Local search engine returned error")
+        else:
+            logger.error(f"[COLLECTOR FUNCTION] Local search engine returned error: {error_msg}")
+        return [], agent_input
+
     tool_result, agent_input = process_local_search_common(agent_input, results)
     agent_input["local_text_search_record"] = remove_duplicate_items(agent_input["local_text_search_record"])
 
@@ -311,6 +331,8 @@ def process_local_search_common(agent_input: dict, tool_content: Any) -> (list, 
         tool_result = tool_content if isinstance(tool_content, list) else []
         added_records = []
         for item in tool_result:
+            if not isinstance(item, dict):
+                continue
             knowledge_base_id = item.get("knowledge_base_id", "")
             file_id = item.get("file_id", "")
             source_title = (
