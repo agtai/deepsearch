@@ -305,6 +305,8 @@ class CollectorExecutionService:
             "messages": [Message(role="user", content=message)],
             "section_idx": params.section_idx,
             "plan_idx": plan.id,
+            "plan_title": plan.title,
+            "plan_thought": plan.thought,
             "step_idx": step.id,
             "step_title": step.title,
             "step_description": step.description,

@@ -290,6 +290,8 @@ class DependencyInfoCollectorNode(InfoCollectorNode):
             "messages": [Message(role="user", content=message)],
             "section_idx": state.get("section_idx", '1'),
             "plan_idx": plan_idx,
+            "plan_title": plan.title,
+            "plan_thought": plan.thought,
             "step_idx": step_idx,
             "step_title": step.title,
             "step_description": step.description,

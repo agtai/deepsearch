@@ -111,6 +111,8 @@ class StartNode(Start):
             messages=inputs.get("messages", []),
             section_idx=inputs.get("section_idx", 0),
             plan_idx=inputs.get("plan_idx", 0),
+            plan_title=inputs.get("plan_title", ""),
+            plan_thought=inputs.get("plan_thought", ""),
             step_idx=inputs.get("step_idx", 0),
             step_title=inputs.get("step_title", ""),
             step_description=inputs.get("step_description", ""),
@@ -135,9 +137,10 @@ class GenerateQueryNode(BaseNode):
     def _pre_handle(self, inputs: Input, session: Session, context: ModelContext):
         section_idx = session.get_global_state("collector_context.section_idx")
         logger.info(f"section_idx: {section_idx} | [GenerateQueryNode] Start GenerateQueryNode.")
+        plan_title = session.get_global_state("collector_context.plan_title")
+        plan_thought = session.get_global_state("collector_context.plan_thought")
         step_title = session.get_global_state("collector_context.step_title")
         step_description = session.get_global_state("collector_context.step_description")
-        messages = session.get_global_state("collector_context.messages")
         number_queries = session.get_global_state("collector_context.initial_search_query_count")
         language = session.get_global_state("collector_context.language")
         evidence_ledger = session.get_global_state("collector_context.evidence_ledger")
@@ -150,9 +153,9 @@ class GenerateQueryNode(BaseNode):
         llm_model_name = adapt_llm_model_name(session, NodeId.INFO_COLLECTOR.value)
         self.llm = llm_context.get().get(llm_model_name)
 
-        return dict(section_idx=section_idx, step_title=step_title,
+        return dict(section_idx=section_idx, plan_title=plan_title, plan_thought=plan_thought, step_title=step_title,
                     step_description=step_description,
-                    messages=messages, number_queries=number_queries,
+                    number_queries=number_queries,
                     language=language, evidence_ledger=evidence_ledger)
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
@@ -170,15 +173,20 @@ class GenerateQueryNode(BaseNode):
         session_context.set(session)
 
         section_idx = state.get("section_idx", 0)
+        plan_title = state.get("plan_title", "")
+        plan_thought = state.get("plan_thought", "")
         step_title = state.get("step_title", "")
-        messages = state.get("messages", [])
+        step_description = state.get("step_description", "")
         number_queries = state.get("number_queries", 1)
         language = state.get("language", "zh-CN")
 
         rtp = session.get_global_state("collector_context.report_type_policy") or {}
 
         agent_input = {
-            "research_record": get_research_record(messages),
+            "plan_title": plan_title,
+            "plan_thought": plan_thought,
+            "step_title": step_title,
+            "step_description": step_description,
             "number_queries": number_queries,
             "language": language,
             "report_type": rtp.get("report_type", "professional"),
@@ -252,6 +260,8 @@ class SupervisorNode(BaseNode):
         plan_idx = session.get_global_state("collector_context.plan_idx")
         step_idx = session.get_global_state("collector_context.step_idx")
         logger.info(f"section_idx: {section_idx} | [SupervisorNode] Start SupervisorNode.")
+        plan_title = session.get_global_state("collector_context.plan_title")
+        plan_thought = session.get_global_state("collector_context.plan_thought")
         step_title = session.get_global_state("collector_context.step_title")
         step_description = session.get_global_state("collector_context.step_description")
         number_queries = session.get_global_state("collector_context.initial_search_query_count")
@@ -263,6 +273,7 @@ class SupervisorNode(BaseNode):
         self.llm = llm_context.get().get(llm_model_name)
 
         return dict(section_idx=section_idx, plan_idx=plan_idx, step_idx=step_idx,
+                    plan_title=plan_title, plan_thought=plan_thought,
                     step_title=step_title, step_description=step_description,
                     number_queries=number_queries, language=language,
                     new_doc_infos_current_loop=new_doc_infos_current_loop,
@@ -286,7 +297,10 @@ class SupervisorNode(BaseNode):
         section_idx = state.get("section_idx", 0)
         plan_idx = state.get("plan_idx", 0)
         step_idx = state.get("step_idx", 0)
+        plan_title = state.get("plan_title", "")
+        plan_thought = state.get("plan_thought", "")
         step_title = state.get("step_title", "")
+        step_description = state.get("step_description", "")
         research_loop_count = state.get("research_loop_count", 1)
         number_queries = state.get("number_queries", 1)
         new_doc_infos = state.get("new_doc_infos_current_loop", []) or []
@@ -324,7 +338,10 @@ class SupervisorNode(BaseNode):
         rtp = session.get_global_state("collector_context.report_type_policy") or {}
 
         agent_input = {
-            "research_record": f"[Task Title]: {step_title}\n[Task Description]: {state.get('step_description', '')}",
+            "plan_title": plan_title,
+            "plan_thought": plan_thought,
+            "step_title": step_title,
+            "step_description": step_description,
             "ledger_brief": ledger_brief,
             "evidence_table": evidence_table,
             "number_queries": number_queries,
@@ -443,6 +460,8 @@ class SummaryNode(BaseNode):
         section_idx = session.get_global_state("collector_context.section_idx")
         step_title = session.get_global_state("collector_context.step_title")
         logger.info("section_idx: %s | step_title: %s | [SummaryNode] Start SummaryNode.", section_idx, step_title)
+        plan_title = session.get_global_state("collector_context.plan_title")
+        plan_thought = session.get_global_state("collector_context.plan_thought")
         step_description = session.get_global_state("collector_context.step_description")
         step_background_knowledge = session.get_global_state("collector_context.step_background_knowledge")
         language = session.get_global_state("collector_context.language")
@@ -451,7 +470,8 @@ class SummaryNode(BaseNode):
         llm_model_name = adapt_llm_model_name(session, NodeId.INFO_COLLECTOR.value)
         self.llm = llm_context.get().get(llm_model_name)
 
-        return dict(section_idx=section_idx, step_title=step_title, step_description=step_description,
+        return dict(section_idx=section_idx, plan_title=plan_title, plan_thought=plan_thought,
+                    step_title=step_title, step_description=step_description,
                     language=language, doc_infos=doc_infos, step_background_knowledge=step_background_knowledge,
                     evidence_ledger=evidence_ledger)
 
@@ -460,6 +480,8 @@ class SummaryNode(BaseNode):
         session_context.set(session)
 
         section_idx = state.get("section_idx", 0)
+        plan_title = state.get("plan_title", "")
+        plan_thought = state.get("plan_thought", "")
         step_title = state.get("step_title", "")
         step_description = state.get("step_description", "")
         doc_infos = state.get("doc_infos", [])
@@ -483,7 +505,10 @@ class SummaryNode(BaseNode):
         rtp = session.get_global_state("collector_context.report_type_policy") or {}
 
         agent_input = {
-            "research_record": f"[Task Title]: {step_title}\n[Task Description]: {step_description}",
+            "plan_title": plan_title,
+            "plan_thought": plan_thought,
+            "step_title": step_title,
+            "step_description": step_description,
             "evidence_pack": evidence_pack,
             "language": state.get("language", "zh-CN"),
             "step_background_knowledge": step_background_knowledge,
@@ -605,6 +630,7 @@ def build_info_collector_sub_graph() -> Workflow:
         inputs_schema={
             "language": "${language}", "messages": "${messages}",
             "section_idx": "${section_idx}", "plan_idx": "${plan_idx}",
+            "plan_title": "${plan_title}", "plan_thought": "${plan_thought}",
             "step_idx": "${step_idx}", "step_title": "${step_title}",
             "step_description": "${step_description}",
             "step_background_knowledge": "${step_background_knowledge}",

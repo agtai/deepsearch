@@ -6,9 +6,19 @@ You are an expert research supervisor judging whether the current collector step
 - Knowledge gaps should prioritize **overview, conclusion drivers, methodology, and downside risks**.
 {% endif %}
 
-# Current Search Topic
+# Current task context
 
-{{ research_record }}
+Topic:
+{{ plan_title }}
+
+Research guidance:
+{{ plan_thought }}
+
+Task title:
+{{ step_title }}
+
+Task description:
+{{ step_description }}
 
 # Collector Ledger
 

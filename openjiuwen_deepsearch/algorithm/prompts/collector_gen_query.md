@@ -1,7 +1,18 @@
 Your goal is to generate focused web search queries for the current collector step and identify the evidence still needed.
 
-Research record:
-{{ research_record }}
+## Current task context
+
+Topic:
+{{ plan_title }}
+
+Research guidance:
+{{ plan_thought }}
+
+Task title:
+{{ step_title }}
+
+Task description:
+{{ step_description }}
 
 ## Instructions
 - First identify the current step's missing evidence as concrete, verifiable evidence requirements.

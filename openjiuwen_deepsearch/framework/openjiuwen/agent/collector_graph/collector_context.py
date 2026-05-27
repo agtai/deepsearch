@@ -13,6 +13,8 @@ class CollectorContext(BaseModel):
     messages: list = Field(default=[], description="消息列表")  # public
     section_idx: int | str = Field(default=0, description="章节索引")  # public
     plan_idx: int | str = Field(default=0, description="计划索引")  # public
+    plan_title: str = Field(default="", description="计划标题")
+    plan_thought: str = Field(default="", description="计划思路")
     step_idx: int | str = Field(default=0, description="步骤索引")  # public
     step_title: str = Field(default="", description="步骤标题")
     step_description: str = Field(default="", description="步骤描述")
