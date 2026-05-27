@@ -463,7 +463,6 @@ def build_evidence_atom(
             "answerability": None,
             "data_density": None,
         },
-        "brief_reason": "",
         "content_ref": content_ref,
     }
     doc_info = {**base, "original_content": content}
@@ -504,7 +503,6 @@ def _compact_doc(doc: dict[str, Any]) -> dict[str, Any]:
         "query": doc.get("query", ""),
         "key_passages": [_truncate_text(passage, MAX_PASSAGE_LENGTH) for passage in doc.get("key_passages", [])],
         "scores": doc.get("scores", {}),
-        "brief_reason": _truncate_text(doc.get("brief_reason", ""), 160),
         "content_ref": doc.get("content_ref", {}),
     }
 

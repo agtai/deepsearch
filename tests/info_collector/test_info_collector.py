@@ -613,7 +613,7 @@ class TestInfoCollectorNode:
             {
                 "document_index": "0",
                 "scores": {"authority": 0.8, "relevance": 0.9, "answerability": 0.7},
-                "doc_time": "2024-01-01"
+                "doc_time": "2024-01-01",
             },
             {
                 "document_index": "1",

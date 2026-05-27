@@ -41,7 +41,7 @@ async def test_run_doc_evaluation_accepts_compact_documents(mocker):
         "info_evaluator",
         return_value=(
             '[{"document_index": 0, "doc_time": "2025 5月", '
-            '"brief_reason": "高度相关", "scores": {"relevance": 8}}]'
+            '"scores": {"relevance": 8}}]'
         ),
     )
 
@@ -53,7 +53,6 @@ async def test_run_doc_evaluation_accepts_compact_documents(mocker):
 
     assert result[0]["document_index"] == 0
     assert result[0]["doc_time"] == "2025 5月"
-    assert result[0]["brief_reason"] == "高度相关"
 
 
 @pytest.mark.asyncio

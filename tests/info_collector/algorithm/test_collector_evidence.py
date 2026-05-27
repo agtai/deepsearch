@@ -145,7 +145,6 @@ def test_build_legacy_doc_info_view_returns_old_doc_info_shape():
         "query": "查询",
         "key_passages": ["关键段落"],
         "scores": {"authority": 8, "relevance": 9, "answerability": 7, "data_density": 6},
-        "brief_reason": "相关",
         "content_ref": {"type": "source_store", "source_id": "web_1_p123"},
         "original_content": "原文",
         "source_authority": "权威性说明",

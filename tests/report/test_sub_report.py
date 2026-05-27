@@ -526,7 +526,6 @@ async def test_generate_sub_report(mock_llm_cls, mock_ainvoke_llm):
             assert "content_ref" not in user_content
             assert "scores" not in user_content
             assert "key_passages" not in user_content
-            assert "brief_reason" not in user_content
             return {"content": '{\"chapter\": \"企业经营与行业分析\", \"selected_url_list\": [\"fake_url\"]}'}
         elif any("subsection outline" in msg.get("content", "") for msg in messages):
             return {"content": "3 企业经营与行业分析\n3.1 经营风险评价\3.2 杠杆风险评估"}
@@ -558,7 +557,6 @@ async def test_generate_sub_report(mock_llm_cls, mock_ainvoke_llm):
             'title': 'XX有限公司 - 企业详情',
             'source': 'local',
             'scores': {'authority': 8, 'relevance': 9, 'answerability': 7, 'data_density': 6},
-            'brief_reason': 'fake reason',
             'key_passages': ['fake passage'],
             'content_ref': {'type': 'source_store', 'source_id': 'web_1_p123'},
         }],

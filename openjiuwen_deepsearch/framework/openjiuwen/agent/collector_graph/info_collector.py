@@ -471,7 +471,6 @@ class InfoRetrievalNode(BaseNode):
             publish_time = scored.get("publish_time") or scored.get("doc_time") or "未提供时间信息"
             doc_infos[index]["scores"] = scores
             doc_infos[index]["publish_time"] = publish_time
-            doc_infos[index]["brief_reason"] = scored.get("brief_reason", "")
             hydrate_legacy_doc_info_fields(doc_infos[index])
             seen_indexes.add(index)
 

@@ -1143,7 +1143,6 @@ async def test_assess_section_assets_parses_structured_llm_response():
         "content_ref": {"type": "source_store", "source_id": "web_1_p123"},
         "scores": {"authority": 8, "relevance": 9, "answerability": 7, "data_density": 6},
         "key_passages": ["关键段落"],
-        "brief_reason": "相关",
     }
     assets = SectionHistoricalAssets(
         section_id="1",

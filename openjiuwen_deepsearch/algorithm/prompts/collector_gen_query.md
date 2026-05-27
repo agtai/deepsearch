@@ -1,31 +1,12 @@
 Your goal is to generate focused web search queries for the current collector step and identify the evidence still needed.
 
-## Current Step
-
-Step title:
-{{ step_title }}
-
-Step description:
-{{ step_description }}
-
 Research record:
 {{ research_record }}
-
-Existing collector ledger:
-{{ ledger_brief }}
-
-Ledger object:
-{{ ledger }}
-
-{% if report_type | default("professional") == "brief" %}
-### Brief report mode
-- Bias queries toward **high-level overview**, **headline conclusions**, **methods/limits of evidence**, and **risks or uncertainties** relevant to the task.
-- Avoid ultra-niche technical rabbit holes unless the task explicitly demands them.
-{% endif %}
 
 ## Instructions
 - First identify the current step's missing evidence as concrete, verifiable evidence requirements.
 - Each missing evidence item should name the object, scope, acceptance standard, and intended report use when possible.
+- Each missing evidence item must be a single plain string, not an object with subfields.
 - Generate queries that directly serve the missing evidence, not broad queries for the whole section.
 - If the topic has a clear subject, such as "Apple Inc's new product in 2025", each query must include that subject.
 - Queries should be diverse. Each query should focus on one specific aspect of the missing evidence.

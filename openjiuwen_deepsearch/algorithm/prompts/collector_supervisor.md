@@ -80,6 +80,7 @@ The table intentionally contains key_passages and scores instead of full source 
   - "known_facts": A list of newly confirmed facts from this reflection only.
   - "missing_evidence": A list of remaining blocking verifiable evidence requirements.
   - "next_queries": Follow-up queries, or [] if sufficient.
+- Return a complete, valid JSON object. Do not output partial JSON.
 - Do not output explanations, rationale, markdown fences, or any extra keys.
 
 ## Example

@@ -171,21 +171,14 @@ class GenerateQueryNode(BaseNode):
 
         section_idx = state.get("section_idx", 0)
         step_title = state.get("step_title", "")
-        step_description = state.get("step_description", "")
         messages = state.get("messages", [])
         number_queries = state.get("number_queries", 1)
         language = state.get("language", "zh-CN")
-        current_ledger = ensure_ledger(state.get("evidence_ledger"))
-        ledger_brief = build_ledger_brief(current_ledger)
 
         rtp = session.get_global_state("collector_context.report_type_policy") or {}
 
         agent_input = {
-            "step_title": step_title,
-            "step_description": step_description,
             "research_record": get_research_record(messages),
-            "ledger": current_ledger.model_dump(),
-            "ledger_brief": ledger_brief,
             "number_queries": number_queries,
             "language": language,
             "report_type": rtp.get("report_type", "professional"),
@@ -203,8 +196,7 @@ class GenerateQueryNode(BaseNode):
                          section_idx, step_title, result.queries)
             logger.info(f"section_idx: {section_idx} | step title {step_title} | "
                         f"[GenerateQueryNode] Initial queries count: {len(result.queries)} | "
-                        f"missing_evidence count: {len(result.missing_evidence)} | "
-                        f"ledger brief: {ledger_brief}")
+                        f"missing_evidence count: {len(result.missing_evidence)}")
         else:
             logger.info(f"section_idx: {section_idx} |"
                         f"[GenerateQueryNode] Initial queries count: {len(result.queries)}")

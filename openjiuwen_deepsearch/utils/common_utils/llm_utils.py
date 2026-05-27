@@ -11,7 +11,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Sequence, Any
+from typing import Sequence, Any, get_args, get_origin
 
 import json_repair
 from openjiuwen.core.foundation.llm.schema.message import (
@@ -22,7 +22,7 @@ from openjiuwen.core.foundation.llm.schema.message import (
     UsageMetadata,
 )
 from openjiuwen.core.foundation.llm.schema.message_chunk import AssistantMessageChunk
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from openjiuwen_deepsearch.common.common_constants import MAX_LLM_RESP_LENGTH
 from openjiuwen_deepsearch.common.exception import CustomValueException
@@ -708,6 +708,63 @@ def _extract_json(text: str) -> str:
     return re.sub(r"^```(?:json)?\n|\n```$", "", text.strip())
 
 
+def _is_list_of_strings(annotation: Any) -> bool:
+    """Return whether a Pydantic field annotation is list[str]."""
+    return get_origin(annotation) is list and get_args(annotation) == (str,)
+
+
+def _stringify_json_value(value: Any) -> str:
+    """Convert a JSON value into compact text for schema repair."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        parts = []
+        for key, item_value in value.items():
+            if item_value in (None, "", [], {}):
+                continue
+            if isinstance(item_value, (dict, list)):
+                item_text = json.dumps(item_value, ensure_ascii=False)
+            else:
+                item_text = str(item_value)
+            parts.append(f"{key}: {item_text}")
+        return "; ".join(parts)
+    if isinstance(value, list):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+def _repair_schema_payload(payload: Any, schema: type[BaseModel]) -> Any:
+    """Repair common local JSON/schema mismatches before strict Pydantic validation."""
+    if not isinstance(payload, dict):
+        return payload
+
+    repaired_payload = copy.deepcopy(payload)
+    for field_name, field_info in schema.model_fields.items():
+        if field_name not in repaired_payload:
+            continue
+        if _is_list_of_strings(field_info.annotation) and isinstance(repaired_payload[field_name], list):
+            repaired_payload[field_name] = [
+                text
+                for text in (_stringify_json_value(item) for item in repaired_payload[field_name])
+                if text
+            ]
+    return repaired_payload
+
+
+def _model_validate_repaired_json(schema: type[BaseModel], content: str) -> BaseModel:
+    """Validate LLM JSON output, using local json repair before failing."""
+    normalized_content = normalize_json_output(content)
+    try:
+        return schema.model_validate_json(normalized_content)
+    except ValidationError as error:
+        try:
+            payload = json_repair.loads(normalized_content)
+        except Exception as repair_error:
+            raise error from repair_error
+        repaired_payload = _repair_schema_payload(payload, schema)
+        return schema.model_validate(repaired_payload)
+
+
 def _single_provider_error_detail(
     exc: BaseException, *, max_response_text: int = 16_000
 ) -> dict[str, Any]:
@@ -1343,8 +1400,7 @@ async def ainvoke_llm_with_stats(*args, **kwargs):
 
     response.content = _extract_json(response.content)
     if schema is not None:
-        response = schema.model_validate_json(response.content)
-        return response
+        return _model_validate_repaired_json(schema, response.content)
     return _unify_responnse(response)
 
 

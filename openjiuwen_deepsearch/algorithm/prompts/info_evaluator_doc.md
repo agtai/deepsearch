@@ -62,7 +62,6 @@ Return a JSON array where each element is a dictionary containing:
 
 - "document_index": the index of the compact evidence document from the input documents list.
 - "doc_time": According to the content of the document, extract the writen time of the document content in the format of year and month(e.g. 2023 Jun/2024 8月).
-- "brief_reason": A concise reason for the scores, no more than 120 Chinese characters or 80 English words.
 - "scores": A nested dictionary containing:
   - "relevance": Relevance score (10-point scale)
   - "answerability": Answerability score (10-point scale)
@@ -75,7 +74,6 @@ Example output format (must be pure json without any Markdown formatting):
   {
     "document_index": 0,
     "doc_time": "2023 Jun",
-    "brief_reason": "The evidence directly answers the query with high-density quantitative details.",
     "scores": {
       "relevance": 9.0,
       "answerability": 8.5,
@@ -86,7 +84,6 @@ Example output format (must be pure json without any Markdown formatting):
   {
     "document_index": 1,
     "doc_time": "2024 8月",
-    "brief_reason": "The evidence is related but only partially answers the query.",
     "scores": {
       "relevance": 7.0,
       "answerability": 6.5,
