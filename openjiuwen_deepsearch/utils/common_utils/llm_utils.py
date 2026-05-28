@@ -1411,9 +1411,19 @@ def _unify_responnse(response):
         tool_calls = temp_response.get("tool_calls")
         for idx, tool_call in enumerate(tool_calls):
             func = tool_call.get("function")
-            if not tool_call.get("args") and func and func.get("arguments"):
-                arguments = normalize_json_output(func.get("arguments"))
-                new_response.get("tool_calls")[idx]["args"] = json.loads(arguments)
+            if func and func.get("arguments"):
+                if not tool_call.get("args"):
+                    arguments = normalize_json_output(func.get("arguments"))
+                    parsed_args = json.loads(arguments)
+                    new_response.get("tool_calls")[idx]["args"] = parsed_args
+                else:
+                    parsed_args = tool_call.get("args")
+
+                if isinstance(parsed_args, dict):
+                    new_response.get("tool_calls")[idx]["function"]["arguments"] = json.dumps(
+                        parsed_args,
+                        ensure_ascii=False,
+                    )
             if func and func.get("name"):
                 new_response.get("tool_calls")[idx]["name"] = func.get("name")
             # OpenAI Chat Completions requires tool_calls[].type == "function". A previous
