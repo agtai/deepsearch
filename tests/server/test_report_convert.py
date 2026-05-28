@@ -170,15 +170,16 @@ def test_report_html_processor_returns_bundle_zip_base64():
     assert "report_bundle/report.html" in names
     assert "report_bundle/infer/inference_0.html" in names
 
-def test_report_docx_processor_returns_bundle_zip_base64(monkeypatch):
+def test_report_docx_processor_returns_bundle_zip_base64():
     """Validate that ReportWord packages DOCX output inside the ZIP bundle.
-
-    Args:
-        monkeypatch: pytest monkeypatch fixture.
 
     Returns:
         None.
     """
+    tiny_png_base64 = (
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO"
+        "+/p9sAAAAASUVORK5CYII="
+    )
     final_result = {
         "response_content": "(#insertChart:chart_0)",
         "infer_messages": [],
@@ -186,36 +187,18 @@ def test_report_docx_processor_returns_bundle_zip_base64(monkeypatch):
             {
                 "chart_id": "chart_0",
                 "chart_title": "图表标题",
-                "base64": base64.b64encode(b"fakepng").decode("utf-8"),
+                "base64": tiny_png_base64,
             }
         ],
         "warning_info": "",
         "exception_info": "",
     }
 
-    monkeypatch.setattr(
-        "server.deepsearch.core.manager.report_manager.docx_offline.ensure_pandoc",
-        lambda: None,
-    )
-    monkeypatch.setattr(
-        "server.deepsearch.core.manager.report_manager.docx_offline.normalize_docx_fonts",
-        lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        "server.deepsearch.core.manager.report_manager.docx_offline.normalize_docx_tables",
-        lambda *_args, **_kwargs: None,
-    )
-
-    def _fake_convert_file(*args, **kwargs):
-        outputfile = kwargs["outputfile"]
-        with open(outputfile, "wb") as file:
-            file.write(b"PK\x03\x04docx")
-
-    monkeypatch.setattr("pypandoc.convert_file", _fake_convert_file)
-
     bundle_b64 = ReportWord().convert_from_final_result_to_bundle_base64(final_result)
     with zipfile.ZipFile(io.BytesIO(base64.b64decode(bundle_b64))) as zip_file:
         names = set(zip_file.namelist())
+        docx_bytes = zip_file.read("report_bundle/report.docx")
 
     assert "report_bundle/report.docx" in names
     assert "report_bundle/charts/chart_0.png" in names
+    assert docx_bytes.startswith(b"PK")

@@ -257,7 +257,7 @@ class ReportWord(DefaultReportFormatProcessor):
 
     @classmethod
     def convert_from_final_result(cls, final_result: dict, workspace: Path) -> Path:
-        """Convert final_result into a DOCX file through the pandoc pipeline.
+        """Convert final_result into a DOCX file through the pure-Python pipeline.
 
         Args:
             final_result: 工作流最终结果字典。

@@ -11,11 +11,6 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
-import pypandoc
-
-from server.deepsearch.common.exception.exceptions import ReportConvertDependencyException
-
-
 logger = logging.getLogger(__name__)
 
 TEXT_READ_ENCODINGS = ("utf-8-sig", "utf-8", "gb18030", "gbk")
@@ -29,6 +24,7 @@ NUMBERED_HEADING_RE = re.compile(
     r"^(?P<indent>\s{0,3})(?P<number>\d+(?:\.\d+)*)(?:\.\s+|\s+)(?P<title>.+?)\s*$"
 )
 LIST_ITEM_RE = re.compile(r"^\s{0,3}(?:[-*+]\s+|\d+\.\s+)")
+INDENTED_LIST_ITEM_RE = re.compile(r"^(?P<indent>[ \t]{4,})(?P<marker>(?:[-*+]\s+|\d+\.\s+).*)$")
 SENTENCE_END_RE = re.compile(r"[。！？?!…]$")
 CITATION_RE = re.compile(r"\[\[(\d+)\]\]\((https?://[^\s)]+(?:\([^\s)]+\)[^\s)]*)*)\)")
 CHECKED_CITATION_RE = re.compile(
@@ -93,29 +89,6 @@ class MermaidRenderStats:
     total: int = 0
     success: int = 0
     failed: int = 0
-
-
-def ensure_pandoc() -> None:
-    """Ensure that a usable pandoc binary is available.
-
-    Returns:
-        None.
-
-    Raises:
-        ReportConvertDependencyException: pandoc 不可用且自动下载失败时抛出。
-    """
-    try:
-        pypandoc.get_pandoc_version()
-        return
-    except OSError:
-        logger.info("Pandoc not found locally, downloading it now.")
-        try:
-            pypandoc.download_pandoc()
-            pypandoc.get_pandoc_version()
-        except Exception as exc:
-            raise ReportConvertDependencyException(
-                "pandoc is unavailable and automatic download failed"
-            ) from exc
 
 
 def read_text_with_fallback(path: Path) -> str:
@@ -324,6 +297,58 @@ def normalize_list_boundaries(text: str) -> str:
     return "\n".join(normalized)
 
 
+def normalize_orphan_indented_list_items(text: str) -> str:
+    """Dedent report-style list items that Markdown would otherwise treat as code.
+
+    Args:
+        text: Raw Markdown text.
+
+    Returns:
+        str: Markdown text with orphan indented list items dedented.
+    """
+    lines = text.split("\n")
+    normalized: list[str] = []
+    in_fenced_code = False
+    orphan_list_indent: int | None = None
+
+    def _previous_nonempty_line() -> str:
+        for previous in reversed(normalized):
+            if previous.strip():
+                return previous
+        return ""
+
+    def _indent_width(indent: str) -> int:
+        return len(indent.expandtabs(4))
+
+    for line in lines:
+        if line.lstrip().startswith("```"):
+            in_fenced_code = not in_fenced_code
+            normalized.append(line)
+            orphan_list_indent = None
+            continue
+
+        match = INDENTED_LIST_ITEM_RE.match(line)
+        if match and not in_fenced_code:
+            indent_width = _indent_width(match.group("indent"))
+            if orphan_list_indent == indent_width:
+                normalized.append(match.group("marker"))
+                continue
+
+            previous = _previous_nonempty_line()
+            if not LIST_ITEM_RE.match(previous) and not INDENTED_LIST_ITEM_RE.match(previous):
+                orphan_list_indent = indent_width
+                normalized.append(match.group("marker"))
+                continue
+
+            orphan_list_indent = None
+        elif line.strip():
+            orphan_list_indent = None
+
+        normalized.append(line)
+
+    return "\n".join(normalized)
+
+
 def render_mermaid_supplement(supplement_markdown: str) -> str:
     """Render timeline supplement markdown into an HTML helper block.
 
@@ -358,6 +383,7 @@ def preprocess_markdown_text(text: str) -> str:
     text = normalize_reference_lines(text)
     text = fix_center_caption_blocks(text)
     text = normalize_legacy_font_caption_blocks(text)
+    text = normalize_orphan_indented_list_items(text)
     return normalize_list_boundaries(text)
 
 
