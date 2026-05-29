@@ -279,53 +279,94 @@ class Reporter:
         return visualization_content
 
     @staticmethod
-    def is_valid_chapter_format(text, section_idx) -> bool:
-        """Check chapter format"""
+    def check_chapter_format(text, section_idx) -> tuple[bool, str]:
+        """Validate subsection outline plain-text numbering"""
         try:
             n = section_idx
             lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
             if not lines:
-                return False
+                return False, "outline is empty"
 
-            main_pat = re.compile(rf"^\s*(?:{n}\.(?!\d)\s*|{n}\s+)(?!\d).*")
+            # Subsection: "1.1 title".
+            # Section: "1 title" (title may start with digits, e.g. 2025) or "1. title" but not "1.1".
             sub_pat = re.compile(rf"^\s*{n}\.(\d+)\s*")
+            main_space_pat = re.compile(rf"^\s*{n}\s+.+")
+            main_dot_pat = re.compile(rf"^\s*{n}\.(?!\d)\s*.+")
             third_pat = re.compile(r"\d+\.\d+\.\d+")
 
             has_main = False
             sub_numbers = []
 
-            for ln in lines:
+            for line_no, ln in enumerate(lines, start=1):
+                if ln.lstrip().startswith("#"):
+                    preview = ln[:120] + ("..." if len(ln) > 120 else "")
+                    return (
+                        False,
+                        f"line {line_no}: markdown heading not allowed "
+                        f"(use plain '{n} title' / '{n}.1 title', not '#'): {preview!r}",
+                    )
                 if third_pat.search(ln):
-                    return False
-                if main_pat.match(ln):
+                    preview = ln[:120] + ("..." if len(ln) > 120 else "")
+                    return (
+                        False,
+                        f"line {line_no}: third-level numbering not allowed (e.g. {n}.1.1): {preview!r}",
+                    )
+                sub_match = sub_pat.match(ln)
+                if sub_match:
+                    sub_numbers.append(int(sub_match.group(1)))
+                elif main_space_pat.match(ln) or main_dot_pat.match(ln):
                     if has_main:
-                        return False
+                        preview = ln[:120] + ("..." if len(ln) > 120 else "")
+                        return (
+                            False,
+                            f"line {line_no}: duplicate level-1 title for section {n}: {preview!r}",
+                        )
                     has_main = True
-                elif sub_pat.match(ln):
-                    num = int(sub_pat.match(ln).group(1))
-                    sub_numbers.append(num)
                 elif re.match(r"\d+", ln):
-                    return False
+                    preview = ln[:120] + ("..." if len(ln) > 120 else "")
+                    return (
+                        False,
+                        f"line {line_no}: line starts with digits but is not a valid "
+                        f"'{n} title' or '{n}.x' subsection title: {preview!r}",
+                    )
 
             sorted_subs = sorted(set(sub_numbers))
-            if not sorted_subs or sorted_subs[0] != 1:
-                logger.error(
-                    f"{EFFECT_SUB_REPORT_TAG} No valid sub-sections found or first sub-section is not 1."
+            if not sorted_subs:
+                return (
+                    False,
+                    f"no valid subsection lines like '{n}.1 title' "
+                    f"(found {len(lines)} non-empty line(s); level-1 present={has_main})",
                 )
-                return False
-
+            if sorted_subs[0] != 1:
+                return (
+                    False,
+                    f"first subsection must be {n}.1, got {n}.{sorted_subs[0]} "
+                    f"(subsection indices found: {sorted_subs})",
+                )
             if not has_main:
-                logger.error(
-                    f"{EFFECT_SUB_REPORT_TAG} sub-section {section_idx} outline has no main chapter title."
+                return (
+                    False,
+                    f"missing level-1 title line like '{n} section title' "
+                    f"(subsection indices found: {sorted_subs})",
                 )
-            return has_main
+            return True, ""
         except Exception as e:
             if LogManager.is_sensitive():
-                error_msg = f"Error check section outliner format, section_idx: {str(section_idx)}"
-            else:
-                error_msg = f"Error check section outliner format, section_idx: {str(section_idx)}: {str(e)}"
-            logger.warning(f"[subsection] {error_msg}")
-            return False
+                return False, f"format check exception for section_idx={section_idx}"
+            return False, f"format check exception for section_idx={section_idx}: {e}"
+
+    @staticmethod
+    def is_valid_chapter_format(text, section_idx) -> bool:
+        """Check chapter format"""
+        ok, reason = Reporter.check_chapter_format(text, section_idx)
+        if not ok:
+            logger.warning(
+                "%s [is_valid_chapter_format] section_idx=%s invalid: %s",
+                EFFECT_SUB_REPORT_TAG,
+                section_idx,
+                reason,
+            )
+        return ok
 
     @staticmethod
     def add_references(sub_section_content: str, references: list, language: str):
@@ -734,16 +775,30 @@ class Reporter:
         max_attempt_num = current_inputs.get("max_generate_retry_num", 3)
         for attempt_num in range(max_attempt_num):
             gen_sub_res = await self._generate_sub_section_outline(current_inputs)
-            if gen_sub_res["rs_success"] and self.is_valid_chapter_format(
-                gen_sub_res["sub_section_outline"], section_idx
-            ):
-                current_inputs["sub_section_outline"] = gen_sub_res[
-                    "sub_section_outline"
-                ]
-                break
+            outline_text = gen_sub_res.get("sub_section_outline") or ""
+            if gen_sub_res["rs_success"]:
+                ok, reason = self.check_chapter_format(outline_text, section_idx)
+                if ok:
+                    current_inputs["sub_section_outline"] = outline_text
+                    break
+                fail_detail = f"outline format invalid: {reason}"
+            else:
+                fail_detail = f"LLM outline generation failed: {outline_text[:200]}"
+
+            if LogManager.is_sensitive():
+                outline_log = f"<{len(outline_text)} chars>"
+            else:
+                preview = outline_text.replace("\n", "\\n")
+                outline_log = preview[:500] + ("..." if len(preview) > 500 else "")
             logger.warning(
-                f"{EFFECT_SUB_REPORT_TAG} [generate_sub_report] section_idx: [{section_idx}], "
-                f"Warning: Generate section outline failed on attempt {attempt_num + 1}/{max_attempt_num}. retry ..."
+                "%s [generate_sub_report] section_idx: [%s], "
+                "section outline failed on attempt %s/%s: %s | outline=%s",
+                EFFECT_SUB_REPORT_TAG,
+                section_idx,
+                attempt_num + 1,
+                max_attempt_num,
+                fail_detail,
+                outline_log,
             )
             if attempt_num == max_attempt_num - 1:
                 logger.error(
@@ -2068,6 +2123,8 @@ class Reporter:
                     user_query=current_inputs.get("report_task", ""),
                     report_type=current_inputs.get("report_type", "professional"),
                     paragraph_style=current_inputs.get("paragraph_style", "detailed"),
+                    audience_role=current_inputs.get("audience_role", ""),
+                    tone=current_inputs.get("tone", ""),
                 ),
             )
             if not LogManager.is_sensitive():
@@ -2225,6 +2282,8 @@ class Reporter:
                     paragraph_style=current_inputs.get("paragraph_style", "detailed"),
                     require_summary_first=current_inputs.get("require_summary_first", False),
                     require_methodology_and_risk=current_inputs.get("require_methodology_and_risk", False),
+                    audience_role=current_inputs.get("audience_role", ""),
+                    tone=current_inputs.get("tone", ""),
                 ),
             )
 

@@ -154,7 +154,7 @@ class CollectorInputBuildParams:
     language: str
     section_idx: int | str
     build_config: CollectorInputBuildConfig
-    report_type_policy: dict | None = None
+    report_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -208,7 +208,8 @@ class CollectorExecutionService:
             section_idx=run_config.section_idx, plan_id=plan.id or ""
         )
         build_config = run_config.to_input_build_config()
-        report_type_policy = session.get_global_state("search_context.report_type_policy") or {}
+        rtp = session.get_global_state("search_context.report_type_policy") or {}
+        report_type = rtp.get("report_type", "professional") if isinstance(rtp, dict) else "professional"
 
         for idx, step in enumerate(plan.steps):
             step.id = f"{idx + 1}"
@@ -222,7 +223,7 @@ class CollectorExecutionService:
                     language=run_config.language,
                     section_idx=run_config.section_idx,
                     build_config=build_config,
-                    report_type_policy=report_type_policy,
+                    report_type=report_type,
                 )
             )
             logger.info(
@@ -313,5 +314,5 @@ class CollectorExecutionService:
             "initial_search_query_count": build_config.initial_search_query_count,
             "max_research_loops": build_config.max_research_loops,
             "max_react_recursion_limit": build_config.max_react_recursion_limit,
-            "report_type_policy": params.report_type_policy or {},
+            "report_type": params.report_type or "professional",
         }

@@ -45,6 +45,7 @@ class SectionWritingStartNode(Start):
             session_id=inputs.get("session_id", ""),
             history_plans=inputs.get("history_plans", []),
             report_type_policy=inputs.get("report_type_policy") or {},
+            research_intent=inputs.get("research_intent") or {},
         )
         config = inputs.get("config")
         session.update_global_state({"section_context": section_context.model_dump(), "config": config})
@@ -72,6 +73,7 @@ def build_dependency_writing_workflow():
             "session_id": "${session_id}",
             "history_plans": "${history_plans}",
             "report_type_policy": "${report_type_policy}",
+            "research_intent": "${research_intent}",
         }
     )
     sub_workflow.add_workflow_comp(NodeId.SUB_REPORTER.value, SubReporterNode())

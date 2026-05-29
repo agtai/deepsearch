@@ -10,15 +10,15 @@ from openjiuwen_deepsearch.algorithm.query_understanding.intent_recognition impo
 @pytest.mark.parametrize(
     "raw,expected",
     [
-        (None, "professional"),
-        ("", "professional"),
+        (None, None),
+        ("", None),
         ("professional", "professional"),
         ("brief", "brief"),
         ("PROFESSIONAL", "professional"),
         ("Brief", "brief"),
-        ("deep_research", "professional"),
-        ("concise", "professional"),
-        ("精简版", "professional"),
+        ("deep_research", None),
+        ("concise", None),
+        ("精简版", None),
     ],
 )
 def test_normalize_report_type(raw, expected):
@@ -39,5 +39,11 @@ def test_resolve_professional_policy():
     assert p.paragraph_style == "detailed"
     assert p.require_summary_first is False
     assert p.require_methodology_and_risk is False
+
+
+def test_resolve_default_policy_when_none():
+    p = resolve_report_type_policy(None)
+    assert p.report_type == "professional"
+    assert p.paragraph_style == "detailed"
 
 

@@ -179,7 +179,7 @@ class ResearchIntent(BaseModel):
     section_count: Optional[int] = Field(default=None, description="用户希望的章节数量")
     audience_role: Optional[str] = Field(default=None, description="目标读者角色")
     tone: Optional[str] = Field(default=None, description="写作风格，建议使用稳定英文枚举值")
-    report_type: Literal["professional", "brief"] = Field(default="professional", description="报告类型")
+    report_type: Optional[Literal["professional", "brief"]] = Field(default=None, description="报告类型")
     include_url: List[str] = Field(default_factory=list, description="用户指定包含的链接")
     exclude_url: List[str] = Field(default_factory=list, description="用户指定排除的链接")
     include_domains: List[str] = Field(default_factory=list, description="用户指定的站点域名")

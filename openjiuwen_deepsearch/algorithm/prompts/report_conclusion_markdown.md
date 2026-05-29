@@ -15,6 +15,16 @@ As a professional Deep Researcher writer, your task is to generate cohesive, and
 
 Do not include section titles (e.g., "结论"). Begin directly with the summary content.
 
+{% if audience_role or tone %}
+## Report Detail Constraints
+{% if audience_role %}
+- **Target Audience**: {{ audience_role }}. Prioritize decision-relevant takeaways and actionable implications for this audience.
+{% endif %}
+{% if tone %}
+- **Tone Intent**: {{ tone }}. Interpret as writing stance (English enum, e.g. objective, formal, analytical). Stay consistent with sub-reports; do not shift style.
+{% endif %}
+{% endif %}
+
 {% if report_type | default("professional") == "brief" %}
 ## Brief Formatting Preference (Strict)
 - Length target: **180-320 Chinese characters** (or **100-180 English words**).

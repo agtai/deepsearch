@@ -16,6 +16,16 @@ As a professional Deep Researcher planner, your task is to assemble a team of sp
 {% if require_methodology_and_risk %}- Ensure at least one step explicitly targets **methodology / evidence quality** and one targets **downside risks / uncertainties**.{% endif %}
 {% endif %}
 
+{% if audience_role or tone %}
+## Report Detail Constraints
+{% if audience_role %}
+- Target audience role: {{ audience_role }}. Every step should prioritize information that helps this audience make decisions.
+{% endif %}
+{% if tone %}
+- Writing tone intent: {{ tone }}. Collect evidence and organize tasks to support this expression style.
+{% endif %}
+{% endif %}
+
 ## Scenario Assessment (Strict Criteria)
 ▸ **Terminate Research** (`is_research_completed=true` requires ALL conditions):
   ✅ 100% coverage of all problem dimensions

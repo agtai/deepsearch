@@ -95,6 +95,7 @@ class SectionStartNode(Start):
             report_template=inputs.get("report_template", ""),
             session_id=inputs.get("session_id", ""),
             report_type_policy=inputs.get("report_type_policy") or {},
+            research_intent=inputs.get("research_intent") or {},
         )
         config = inputs.get("config")
         session.update_global_state({"section_context": section_context.model_dump(),
@@ -120,6 +121,7 @@ class BasePlanReasoningNode(BaseNode):
         logger.info(f"{self.log_prefix} | Start {self.__class__.__name__}")
         # 封装入参
         rtp = session.get_global_state("section_context.report_type_policy") or {}
+        research_intent = session.get_global_state("section_context.research_intent") or {}
         return {
             "section_idx": section_idx,
             "language": session.get_global_state("section_context.language"),
@@ -137,7 +139,8 @@ class BasePlanReasoningNode(BaseNode):
             "report_type": rtp.get("report_type", "professional"),
             "require_summary_first": rtp.get("require_summary_first", False),
             "require_methodology_and_risk": rtp.get("require_methodology_and_risk", False),
-            "report_type_policy": rtp,
+            "audience_role": research_intent.get("audience_role", ""),
+            "tone": research_intent.get("tone", ""),
         }
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
@@ -327,6 +330,7 @@ class SubReporterNode(BaseNode):
         logger.info(f"{self.log_prefix} Start [{self.__class__.__name__}].")
 
         rtp = session.get_global_state("section_context.report_type_policy") or {}
+        research_intent = session.get_global_state("section_context.research_intent") or {}
 
         return dict(
             thread_id=session.get_global_state("section_context.session_id"),
@@ -353,11 +357,12 @@ class SubReporterNode(BaseNode):
             sub_report_background_knowledge=session.get_global_state(
                 "section_context.sub_report_background_knowledge") or [],
             visualization_enable=session.get_global_state("config.visualization_enable"),
-            report_type_policy=rtp,
             report_type=rtp.get("report_type", "professional"),
             paragraph_style=rtp.get("paragraph_style", "detailed"),
             require_summary_first=rtp.get("require_summary_first", False),
             require_methodology_and_risk=rtp.get("require_methodology_and_risk", False),
+            audience_role=research_intent.get("audience_role", ""),
+            tone=research_intent.get("tone", ""),
         )
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
@@ -672,6 +677,7 @@ def build_editor_team_workflow():
             "report_template": "${report_template}",
             "config": "${config}",
             "report_type_policy": "${report_type_policy}",
+            "research_intent": "${research_intent}",
         }
     )
 

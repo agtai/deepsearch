@@ -23,6 +23,16 @@ From the user's **original_query** (below), extract:
 
 Do **not** invent URLs. Extract URLs exactly as in the text when present.
 
+## Additional Context
+
+You may receive prior conversation context in `messages`, including clarification questions and user feedback.
+Use that context to refine intent when it is directly related to report constraints.
+
+- If the clarification feedback explicitly selects report type (e.g. "精简版", "专业版", "brief", "professional"),
+  emit `report_type` accordingly.
+- If report type is still unclear after reading context, omit `report_type`.
+- Keep `research_query` focused on the research topic rather than the clarification wording itself.
+
 ## Output
 
 You **must** call the tool **`emit_report_intent`** exactly once with the fields above. Do not answer with plain text only.
@@ -33,4 +43,10 @@ You **must** call the tool **`emit_report_intent`** exactly once with the fields
 
 ```
 {{ original_query }}
+```
+
+## Conversation messages (optional)
+
+```
+{{ messages }}
 ```

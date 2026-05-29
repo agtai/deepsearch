@@ -23,22 +23,28 @@ EMIT_INTENT_TOOL = "emit_report_intent"
 _VALID_REPORT_TYPES = frozenset({"professional", "brief"})
 
 
-def normalize_report_type(raw: str | None) -> Literal["professional", "brief"]:
-    """校验 report_type 是否为 professional 或 brief；缺省/非法值视为 professional。"""
+def normalize_report_type(raw: str | None) -> str | None:
+    """归一化报告类型字段。
+
+    Only explicit enum values are accepted:
+    - "professional" / "brief" -> normalized value
+    - empty/unknown/alias -> None (means "not explicitly specified")
+
+    NOTE:
+    Keeping None is intentional. Downstream `generate_questions` uses this signal
+    to force a clarification question asking user to choose professional vs brief,
+    while policy resolution still defaults to professional when needed.
+    """
     if raw is None:
-        return "professional"
+        return None
     s = str(raw).strip().lower()
-    if not s:
-        return "professional"
-    if s == "brief":
-        return "brief"
-    if s == "professional":
-        return "professional"
-    return "professional"
+    if s in _VALID_REPORT_TYPES:
+        return s
+    return None
 
 
 def resolve_report_type_policy(
-    normalized_report_type: Literal["professional", "brief"],
+        normalized_report_type: str | None,
 ) -> ReportTypePolicy:
     """按报告类型解析策略。"""
     if normalized_report_type == "brief":

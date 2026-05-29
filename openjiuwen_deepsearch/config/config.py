@@ -6,6 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from openjiuwen_deepsearch.config.runtime_api_models import ApiToolsConfig
 
+OUTLINER_SECTION_NUM_MAX = 15
+
 
 class LLMConfig(BaseModel):
     model_name: str = Field(default="", description="模型名称")
@@ -292,7 +294,12 @@ class AgentConfig(BaseModel):
                                                                                     "dependency_driving: 依赖驱动工作流执行"
                                                                                     "parallel: 并行工作流执行")
     workflow_human_in_the_loop: bool = Field(default=True, description="工作流是否启用人机交互")
-    outliner_max_section_num: int = Field(default=10, ge=1, le=15, description="最大规划章节数量，取值范围:[1,15]")
+    outliner_max_section_num: int = Field(
+        default=5,
+        ge=1,
+        le=OUTLINER_SECTION_NUM_MAX,
+        description=f"大纲章节数量，取值范围:[1,{OUTLINER_SECTION_NUM_MAX}]",
+    )
     outline_interaction_enabled: bool = Field(default=True, description="大纲交互开关")
     outline_interaction_max_rounds: int = Field(default=3, ge=1, le=100, description="大纲交互最大轮次")
     source_tracer_research_trace_source_switch: bool = Field(default=True, description="溯源功能开关")

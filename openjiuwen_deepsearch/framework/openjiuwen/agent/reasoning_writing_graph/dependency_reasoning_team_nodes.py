@@ -58,6 +58,7 @@ class SectionReasoningStartNode(Start):
             plan_background_knowledge=plan_background_knowledge,
             step_background_knowledge=step_background_knowledge,
             report_type_policy=inputs.get("report_type_policy") or {},
+            research_intent=inputs.get("research_intent") or {},
         )
         config = inputs.get("config")
         session.update_global_state({"section_context": section_context.model_dump(),
@@ -467,6 +468,7 @@ def build_dependency_reasoning_workflow():
             "parent_section_steps": "${parent_section_steps}",
             "config": "${config}",
             "report_type_policy": "${report_type_policy}",
+            "research_intent": "${research_intent}",
         }
     )
 

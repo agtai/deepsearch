@@ -15,6 +15,16 @@ Avoid regenerating a completely new outline unless the feedback explicitly requi
 - When refining, **compress** non-essential branches; keep orientation toward **executive readability, key conclusions, and explicit risks/limits**.
 {% endif %}
 
+{% if audience_role or tone %}
+## Report Detail Constraints
+{% if audience_role %}
+- Target audience role: {{ audience_role }}. Keep section framing aligned with this audience's decision concerns.
+{% endif %}
+{% if tone %}
+- Writing tone intent: {{ tone }}. Keep naming, emphasis, and analytical posture consistent with this tone.
+{% endif %}
+{% endif %}
+
 ---
 
 # Pre-search Results
@@ -215,15 +225,7 @@ Adjust section order if necessary to maintain logical research flow.
 
 # Section Limit Policy
 
-Default maximum sections: **{{ max_section_num }}**
-
-This limit is a **soft guideline**.
-
-You may exceed it when the feedback introduces new research dimensions, but:
-
-- avoid excessive fragmentation
-- maintain a concise structure
-- ensure each section remains meaningful.
+- Max section number: **{{ max_section_num }}**. You may add/merge/remove/reorder sections to satisfy feedback, but the final number of chapters must not exceed this value.
 
 ---
 

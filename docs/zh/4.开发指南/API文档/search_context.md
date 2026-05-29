@@ -216,6 +216,11 @@ class openjiuwen_deepsearch.framework.openjiuwen.agent.search_context.ResearchIn
 - **include_domains**(List[str])：用户指定的站点域名。默认值：`[]`。
 - **exclude_domains**(List[str])：用户排除的站点域名。默认值：`[]`。
 
+**运行期生效说明**：
+- 大纲阶段 `section_num`：用户指定 `section_count` 时为 `min(section_count, OUTLINER_SECTION_NUM_MAX)`，否则为 `config.outliner_max_section_num`。
+- `audience_role` 与 `tone` 会透传到大纲、章节规划（Plan）、子报告写作与总报告汇总阶段。
+- `report_type` 会透传到大纲、章节规划（Plan）、信息收集、子报告写作与总报告汇总阶段。
+- `include_domains`与`exclude_domains` 会透传到信息收集阶段。
 ---
 
 ## class openjiuwen_deepsearch.framework.openjiuwen.agent.search_context.SearchContext

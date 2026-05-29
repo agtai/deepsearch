@@ -66,6 +66,13 @@ Structured report-generation constraints parsed from the user query.
 - **include_domains**: Site domains specified by the user. Default value: `[]`.
 - **exclude_domains**: Site domains excluded by the user. Default value: `[]`.
 
+**Runtime behavior**:
+
+- Outline `section_num`: when the user sets `section_count`, use `min(section_count, OUTLINER_SECTION_NUM_MAX)`; otherwise use `config.outliner_max_section_num`.
+- `audience_role` and `tone` are passed through to outline generation, section planning (Plan), sub-report writing, and final report synthesis.
+- `report_type` is passed through to outline generation, section planning (Plan), information collection, sub-report writing, and final report synthesis.
+- `include_domains` and `exclude_domains` are passed through to the information collection stage.
+
 ## `SearchContext`
 **Fields**:
 

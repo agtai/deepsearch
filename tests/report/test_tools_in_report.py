@@ -123,6 +123,31 @@ def test_is_valid_chapter_format(text, section_idx, expected):
     assert Reporter.is_valid_chapter_format(text, section_idx) == expected
 
 
+def test_check_chapter_format_returns_reason_for_markdown_heading():
+    ok, reason = Reporter.check_chapter_format("## 1.1 子标题\n1 主标题", 1)
+    assert ok is False
+    assert "markdown heading" in reason
+
+
+def test_check_chapter_format_returns_reason_for_digit_only_line():
+    ok, reason = Reporter.check_chapter_format("1 主章节\n2025年市场规模", 1)
+    assert ok is False
+    assert "starts with digits" in reason
+
+
+def test_check_chapter_format_accepts_level1_title_starting_with_year():
+    outline = (
+        "1 2025年中国低空经济全景透视：发展现状、技术成熟度与系统性风险评估\n"
+        "1.1 政策跃迁与制度架构\n"
+        "1.2 产业现状量化画像\n"
+        "1.3 技术成熟度与核心瓶颈\n"
+        "1.4 系统性风险矩阵"
+    )
+    ok, reason = Reporter.check_chapter_format(outline, 1)
+    assert ok is True, reason
+    assert reason == ""
+
+
 @pytest.mark.parametrize("content, refs, lang, expected", [
     # 中文引用
     ("这是正文", ["参考A", "参考B"], CHINESE,

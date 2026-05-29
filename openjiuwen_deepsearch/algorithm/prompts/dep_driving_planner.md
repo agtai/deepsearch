@@ -19,6 +19,16 @@ team to ultimately produce a comprehensive report. Insufficient information will
 {% if require_methodology_and_risk %}- Include explicit steps for **evidence formation & limits** and for **major uncertainties / downside scenarios**.{% endif %}
 {% endif %}
 
+{% if audience_role or tone %}
+## Report Detail Constraints
+{% if audience_role %}
+- Target audience role: {{ audience_role }}. Plan tasks should highlight this role's primary decision factors.
+{% endif %}
+{% if tone %}
+- Writing tone intent: {{ tone }}. Ensure evidence collection and task framing support this style.
+{% endif %}
+{% endif %}
+
 ## Scenario Assessment (Strict Criteria)
 
 ▸ **Terminate Research** (`is_research_completed=true` requires ALL conditions):

@@ -13,6 +13,16 @@ You will act based on the following inputs:
 short, focus on writing the current chapter 
 5. **Background Knowledge**: The background knowledge summarized from the sub-reports of the parent chapters.
 
+{% if audience_role or tone %}
+## Report Detail Constraints
+{% if audience_role %}
+- **Target Audience**: {{ audience_role }}. Adjust explanation granularity and emphasis to this audience.
+{% endif %}
+{% if tone %}
+- **Tone Intent**: {{ tone }}. Keep language stance and argument style consistent with this tone.
+{% endif %}
+{% endif %}
+
 # Critical Constraints (NON-NEGOTIABLE)
 
 ## 1. Citation & Grounding
