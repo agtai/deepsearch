@@ -137,6 +137,7 @@ bocha 30
 
 **补充说明**：
 
+- `tavily` 的 `extension.include_domains` / `extension.exclude_domains` 会透传给 Tavily 检索接口，用于**偏好或排除**指定站点，并非框架侧的硬性白名单。Tavily 在相关结果不足时仍可能返回`include_domains`列表外域名的页面。
 - `jina` 的 `search_url` 为空时，会自动回退到 `https://s.jina.ai`。
 - `bocha`、`perplexity` 通过 harness `web_tools` 适配层访问搜索能力，仅当底层 provider 支持地址覆盖时，`search_url` 才会生效。
 - `web_search_tool` 返回结果进入 Collector 前会统一归一化为 `title`、`url`、`content`、`type` 等字段；字段别名如 `link`、`source_url`、`snippet`、`summary`、`answer` 会在 Collector 中兼容处理。

@@ -22,7 +22,6 @@ from openjiuwen_deepsearch.algorithm.research_collector.collector_evidence impor
     normalize_scores,
 )
 from openjiuwen_deepsearch.algorithm.research_collector.doc_evaluation import run_doc_evaluation
-from openjiuwen_deepsearch.common.common_constants import MAX_COLLECTOR_DOC_CONTENT_LENGTH
 from openjiuwen_deepsearch.config.config import Config
 from openjiuwen_deepsearch.framework.openjiuwen.agent.base_node import BaseNode
 from openjiuwen_deepsearch.framework.openjiuwen.agent.collector_graph.evidence_ledger import (
@@ -103,7 +102,7 @@ class InfoRetrievalNode(BaseNode):
             web_search_engine_name=web_search_engine_name,
             local_search_engine_name=local_search_engine_name,
             api_tools_config=session.get_global_state("config.api_tools_config") or {},
-            research_intent=session.get_global_state("search_context.research_intent") or {},
+            research_intent=session.get_global_state("collector_context.research_intent") or {},
         )
         return state
 

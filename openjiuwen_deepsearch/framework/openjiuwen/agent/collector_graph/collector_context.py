@@ -25,6 +25,7 @@ class CollectorContext(BaseModel):
     research_loop_count: int = Field(default=0, description="研究循环计数")
     max_tool_steps: int = Field(default=3, description="最大步数")
     report_type: str = Field(default="professional", description="报告类型：professional / brief")
+    research_intent: dict = Field(default_factory=dict, description="结构化报告约束")
     evidence_ledger: dict = Field(default_factory=dict, description="collector 内部 evidence ledger")
     search_queries: list[RetrievalQuery] = Field(default_factory=list, description="当前的检索Query列表")  # info_collector
     history_queries: list[RetrievalQuery] = Field(default_factory=list, description="历史的检索Query列表")  # info_collector

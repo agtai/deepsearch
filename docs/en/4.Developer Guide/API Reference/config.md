@@ -64,6 +64,20 @@ class openjiuwen_deepsearch.config.config.WebSearchEngineConfig()
 
 ```python
 >>> from openjiuwen_deepsearch.config.config import WebSearchEngineConfig
+
+>>> # Example 1: configure tavily with include_domains
+>>> web_search_config = WebSearchEngineConfig(
+...     search_engine_name="tavily",
+...     search_api_key=bytearray("your_api_key", encoding="utf-8"),
+...     max_web_search_results=8,
+...     extension={
+...         "include_domains": ["www.sz.gov.cn", "www.pku.edu.cn"]
+...     }
+... )
+>>> print(web_search_config.search_engine_name, web_search_config.extension["include_domains"])
+tavily ["www.sz.gov.cn", "www.pku.edu.cn"]
+
+>>> # Example 2: configure jina with default search_url and locale options
 >>> web_search_config = WebSearchEngineConfig(
 ...     search_engine_name="jina",
 ...     search_api_key=bytearray("your_jina_key", encoding="utf-8"),
@@ -75,6 +89,7 @@ class openjiuwen_deepsearch.config.config.WebSearchEngineConfig()
 ...         "page": 2,
 ...     },
 ... )
+>>> # Example 3: configure bocha with harness extension options
 >>> web_search_config = WebSearchEngineConfig(
 ...     search_engine_name="bocha",
 ...     search_api_key=bytearray("your_bocha_key", encoding="utf-8"),
@@ -84,6 +99,7 @@ class openjiuwen_deepsearch.config.config.WebSearchEngineConfig()
 
 **Notes**
 
+- For `tavily`, `extension.include_domains` and `extension.exclude_domains` are forwarded to the Tavily search API to **prefer or exclude** specified sites; this is not a hard allowlist on the framework side. When relevant results are insufficient, Tavily may still return pages whose domains are outside the `include_domains` list.
 - `jina` falls back to `https://s.jina.ai` when `search_url` is empty.
 - `bocha` and `perplexity` honor `search_url` only when the underlying harness provider supports URL override.
 - Search results are normalized before collector-side storage so aliases like `link`, `source_url`, `snippet`, `summary`, and `answer` are mapped into the common `title` / `url` / `content` / `type` shape.

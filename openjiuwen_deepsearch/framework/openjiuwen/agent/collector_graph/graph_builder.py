@@ -99,13 +99,13 @@ def get_research_record(messages: List[dict]) -> str:
 
 class StartNode(Start):
     """
-    起始节点，初始化 Session global_state 中的 search_context 和 config
+    起始节点，初始化 Session global_state 中的 collector_context
     """
 
     async def invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
         """Invoke method of StartNode."""
 
-        # 初始化search_context
+        # 初始化 collector_context
         collector_context = CollectorContext(
             language=inputs.get("language", "zh-CN"),
             messages=inputs.get("messages", []),
@@ -122,6 +122,7 @@ class StartNode(Start):
             max_react_recursion_limit=inputs.get("max_react_recursion_limit", 5),
             evidence_ledger={},
             report_type=inputs.get("report_type", "professional"),
+            research_intent=inputs.get("research_intent") or {},
         )
         session.update_global_state({"collector_context": collector_context.model_dump()})
 
@@ -631,7 +632,9 @@ def build_info_collector_sub_graph() -> Workflow:
             "step_background_knowledge": "${step_background_knowledge}",
             "initial_search_query_count": "${initial_search_query_count}",
             "max_research_loops": "${max_research_loops}",
-            "max_react_recursion_limit": "${max_react_recursion_limit}"
+            "max_react_recursion_limit": "${max_react_recursion_limit}",
+            "report_type": "${report_type}",
+            "research_intent": "${research_intent}",
         }
     )
     sub_workflow.add_workflow_comp(NodeId.COLLECTOR_QUERY_GEN.value, GenerateQueryNode())

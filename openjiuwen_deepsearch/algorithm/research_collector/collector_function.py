@@ -5,8 +5,6 @@ import json
 import logging
 from typing import Any
 
-from Crypto.Util.number import inverse
-
 from openjiuwen_deepsearch.common.common_constants import MAX_URL_LENGTH, MAX_SEARCH_CONTENT_LENGTH
 from openjiuwen_deepsearch.framework.openjiuwen.tools import build_runtime_api_search_payload
 from openjiuwen_deepsearch.utils.common_utils.url_utils import extract_domain_from_url, normalize_domains
@@ -37,6 +35,7 @@ def filter_search_results_by_exclude_domains(items: list, exclude_domains: list[
         return items
 
     filtered_items = []
+    removed_count = 0
     for item in items:
         if not isinstance(item, dict):
             filtered_items.append(item)
@@ -44,8 +43,15 @@ def filter_search_results_by_exclude_domains(items: list, exclude_domains: list[
         item_url = item.get("url") or item.get("link") or ""
         item_domain = extract_domain_from_url(item_url)
         if item_domain and any(_is_domain_match(item_domain, domain) for domain in normalized_exclude_domains):
+            removed_count += 1
             continue
         filtered_items.append(item)
+    logger.info(
+        "[COLLECTOR FUNCTION] exclude_domains filter applied. before=%s after=%s removed=%s",
+        len(items),
+        len(filtered_items),
+        removed_count,
+    )
     return filtered_items
 
 
@@ -230,6 +236,7 @@ def process_tavily_search_result(agent_input: dict, tool_content: Any) -> (list,
     tool_result = []
     try:
         tool_result = tool_content if isinstance(tool_content, list) else []
+        tool_result = filter_search_results_by_exclude_domains(tool_result, _get_exclude_domains(agent_input))
         added_records = []
         for item in tool_result:
             new_item = _normalize_web_search_item(item)

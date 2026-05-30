@@ -527,6 +527,22 @@ class TestSearchResultProcessing:
         assert [item.get("title") for item in modified_input["web_page_search_record"]] == ["Keep"]
 
 
+    def test_process_common_search_result_filters_exclude_domains(self):
+        """测试通用搜索结果按排除域名过滤"""
+        agent_input = {
+            "web_page_search_record": [],
+            "research_intent": {"exclude_domains": ["csdn.net"]},
+        }
+        tool_content = [
+            {"title": "Keep", "url": "https://arxiv.org/abs/1234", "content": "paper"},
+            {"title": "Drop", "url": "https://blog.csdn.net/article", "content": "blog"},
+        ]
+
+        result, modified_input = process_common_search_result(agent_input, tool_content)
+
+        assert [item.get("title") for item in result] == ["Keep"]
+        assert [item.get("title") for item in modified_input["web_page_search_record"]] == ["Keep"]
+
     def test_process_common_search_result_field_aliases_and_invalid_items(self):
         """Common search processor should normalize aliases and skip invalid rows."""
         tool_content = [
