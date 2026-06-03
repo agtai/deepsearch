@@ -108,15 +108,16 @@ Windows 上运行 Docker Desktop 推荐使用 WSL 2（Windows Subsystem for Linu
 
 * **本地构建镜像**：若无法拉取 SWR 或需与仓库源码一致，在 DeepSearch **源码根目录**执行  
   `docker build -t deepsearch-full -f docker/Dockerfile .`  
-  其中 `deepsearch-full` 仅为示例标签（`-t` 可改为任意名称），须与 `docker run` 最后一行镜像名一致。
+  其中 `deepsearch-full` 仅为示例标签（`-t` 可改为任意名称），须与 `docker run` 最后一行镜像名一致。容器内同时运行 8000 与 8089，说明见 [Docker 安装总览](./README.md#镜像内的两个-http-服务)。
 
 ### 2. 启动 DeepSearch 服务（以 x86_64 架构为例）
 
-* 最小化可运行的启动命令如下（以SQLite作为数据库）：
+* 推荐启动命令如下（SQLite；含 8089 映射，适用于 **DeepSearch** 模式 `search_mode=search`）：
 
   ```
   docker run \
-    -p 8000:8000 \ 
+    -p 8000:8000 \
+    -p 8089:8089 \
     -e LLM_SSL_VERIFY=False \
     -e TOOL_SSL_VERIFY=False \
     -e EMBEDDING_SSL_VERIFY=False \ 
@@ -124,7 +125,9 @@ Windows 上运行 Docker Desktop 推荐使用 WSL 2（Windows Subsystem for Linu
     swr.cn-north-4.myhuaweicloud.com/openjiuwen/deepsearch-studio-server-amd64:0.1.6
   ```
 
-  当出现如下信息时，表示服务已成功启动：
+  若仅使用 **DeepResearch** 模式（`search_mode=research`），可只映射 `-p 8000:8000`。
+
+  当出现如下信息时，表示主 API 已成功启动：
   ```
   INFO:     Application startup complete.
   ```
@@ -135,13 +138,13 @@ Windows 上运行 Docker Desktop 推荐使用 WSL 2（Windows Subsystem for Linu
 
 #### 端口映射
 
-  服务可以通过端口映射将其暴露到宿主机的指定端口。 端口映射参数格式如下：
+  官方镜像提供 **8000**（DeepResearch）与 **8089**（DeepSearch 模式）。端口映射格式如下：
 
   ```bash
   -p <宿主机端口>:<容器端口>
   ```
 
-  示例：
+  主 API 示例：
 
   ```bash
   -p 8000:8000
@@ -150,11 +153,16 @@ Windows 上运行 Docker Desktop 推荐使用 WSL 2（Windows Subsystem for Linu
   表示将容器内部的 `8000` 端口映射到宿主机的 `8000` 端口，
   服务可通过 `http://localhost:8000` 访问。
 
+  DeepSearch 模式示例：`-p 8089:8089`（`search_mode=search`，如 `POST /runs`）。
+
   如宿主机端口已被占用，也可使用不同端口进行映射，例如：
 
   ```bash
   -p 9000:8000
+  -p 9089:8089
   ```
+
+  > **说明**：下文部分示例仅写出 `-p 8000:8000`。使用 **DeepSearch** 模式时请增加 `-p 8089:8089`，或在同一 Docker 网络内访问容器 8089。
 
 
 #### 数据库 / 存储配置

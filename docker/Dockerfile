@@ -48,5 +48,5 @@ EXPOSE 8089
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health'); urllib.request.urlopen('http://localhost:8089')" || exit 1
 
-# 启动命令（telemetry 监听 0.0.0.0 以便 -p 8089:8089 映射；进程内回调仍用 127.0.0.1）
+# 同时启动：8000 主 API（DeepResearch 等）、8089 Telemetry（DeepSearch 模式 search_mode=search）
 CMD ["sh", "-c", "python -m server.telemetry_event_server --host 0.0.0.0 & python start_backend.py"]

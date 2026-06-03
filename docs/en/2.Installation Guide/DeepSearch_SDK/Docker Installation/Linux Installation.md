@@ -72,17 +72,22 @@ Ensure the machine meets:
 
 ### 2. Start DeepSearch (x86_64 example)
 
-Minimal SQLite run:
+Recommended SQLite run (maps 8000 and 8089 when you need **DeepSearch** mode, `search_mode=search`):
 
   ```
   docker run \
-    -p 8000:8000 \ 
+    -p 8000:8000 \
+    -p 8089:8089 \
     -e LLM_SSL_VERIFY=False \
     -e TOOL_SSL_VERIFY=False \
     -e EMBEDDING_SSL_VERIFY=False \ 
     -e DB_TYPE=sqlite \ 
     swr.cn-north-4.myhuaweicloud.com/openjiuwen/deepsearch-studio-server-amd64:0.1.6
   ```
+
+For **DeepResearch** only (`search_mode=research`), `-p 8000:8000` is enough.
+
+See [Docker overview](./README.md#two-http-services-in-one-container).
 
 Success:
 
@@ -96,21 +101,32 @@ More: [Extended parameters](#3-extended-parameters).
 
 #### Port mapping
 
+The image exposes **8000** (DeepResearch) and **8089** (DeepSearch mode / Telemetry).
+
   ```bash
   -p <host_port>:<container_port>
   ```
 
-Example:
+Main API:
 
   ```bash
   -p 8000:8000
   ```
 
-Alternate host port:
+DeepSearch mode (`search_mode=search`, e.g. `POST /runs`):
+
+  ```bash
+  -p 8089:8089
+  ```
+
+Alternate host ports:
 
   ```bash
   -p 9000:8000
+  -p 9089:8089
   ```
+
+> Later examples may show only `-p 8000:8000` for brevity. Add `-p 8089:8089` (or use the same Docker network) when using **DeepSearch** mode.
 
 
 #### Database / storage
