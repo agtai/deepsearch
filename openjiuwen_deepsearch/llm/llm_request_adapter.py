@@ -185,6 +185,73 @@ def _remove_existing_thinking_fields(extension: dict) -> list[str]:
     return removed_fields
 
 
+def _list_existing_thinking_fields(extension: dict) -> list[str]:
+    """列出 extension 中已有的思考开关字段路径，不修改传入对象。"""
+    fields = []
+    if "enable_thinking" in extension:
+        fields.append("enable_thinking")
+
+    extra_body = extension.get("extra_body")
+    if not isinstance(extra_body, dict):
+        return fields
+
+    if "thinking" in extra_body:
+        fields.append("extra_body.thinking")
+    if "enable_thinking" in extra_body:
+        fields.append("extra_body.enable_thinking")
+
+    chat_template_kwargs = extra_body.get("chat_template_kwargs")
+    if not isinstance(chat_template_kwargs, dict):
+        return fields
+
+    if "thinking" in chat_template_kwargs:
+        fields.append("extra_body.chat_template_kwargs.thinking")
+    if "enable_thinking" in chat_template_kwargs:
+        fields.append("extra_body.chat_template_kwargs.enable_thinking")
+    return fields
+
+
+def _prune_empty_thinking_containers(extension: dict) -> None:
+    """删除 fallback 清理思考字段后留下的空容器。"""
+    extra_body = extension.get("extra_body")
+    if not isinstance(extra_body, dict):
+        return
+
+    chat_template_kwargs = extra_body.get("chat_template_kwargs")
+    if isinstance(chat_template_kwargs, dict) and not chat_template_kwargs:
+        extra_body.pop("chat_template_kwargs", None)
+    if not extra_body:
+        extension.pop("extra_body", None)
+
+
+def _build_rule_injected_thinking_fields(llm_config: LLMConfig, rule: ThinkingRule) -> list[str]:
+    """计算当前厂商规则在主请求中会注入的思考开关字段。"""
+    generated_extension = {}
+    rule.apply(generated_extension, False, llm_config)
+    return _list_existing_thinking_fields(generated_extension)
+
+
+def build_thinking_fallback_extension(llm_config: LLMConfig, extension: dict) -> tuple[dict, list[str]]:
+    """构造移除思考开关后的 fallback extension，仅对已支持的厂商规则生效。
+
+    ``extension`` 应是 LLMConfig 中的原始 extension，而不是已经注入
+    ``thinking_enabled=False`` 的主请求 extension。fallback 只继承用户原始
+    extension 中与思考开关无关的字段，避免把主请求临时注入的字段泄漏到
+    fallback model。
+    """
+    fallback_extension = copy.deepcopy(extension or {})
+    rule = _select_thinking_rule(llm_config)
+    if rule is None or not rule.supported or rule.apply is None:
+        return fallback_extension, []
+    removed_fields = _remove_existing_thinking_fields(fallback_extension)
+    _prune_empty_thinking_containers(fallback_extension)
+
+    for field in _build_rule_injected_thinking_fields(llm_config, rule):
+        if field not in removed_fields:
+            removed_fields.append(field)
+    return fallback_extension, removed_fields
+
+
 def merge_thinking_extension(llm_config: LLMConfig, thinking_enabled: bool) -> dict:
     """按厂商规则把 SDK 内部思考开关合并到 extension，不修改原始 LLMConfig。"""
     extension = copy.deepcopy(llm_config.extension or {})

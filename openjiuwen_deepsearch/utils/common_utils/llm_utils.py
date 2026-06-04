@@ -75,6 +75,16 @@ _DEEPSEARCH_NODE_IDS = frozenset({
 _WORKFLOW_LLM_USAGE: dict[str, dict[str, Any]] = {}
 _USAGE_ONLY_PARSER_PATCHES: dict[int, dict[str, Any]] = {}
 _AGENT_LLM_TIMEOUT_MAX_SECONDS = 3600
+_THINKING_FALLBACK_SESSION_KEY = "llm_runtime.thinking_fallback_active_keys"
+_THINKING_SWITCH_FIELD_KEYWORDS = ("enable_thinking", "thinking")
+_THINKING_SWITCH_UNSUPPORTED_MARKERS = (
+    "invalidparameter",
+    "invalid_parameter",
+    "invalid parameter",
+    "restricted to true",
+    "not support",
+    "unsupported",
+)
 
 
 def _clamp_agent_llm_timeout(timeout: Any) -> int:
@@ -874,6 +884,121 @@ async def _call_model_method(method, primary_kwargs: dict):
     return await asyncio.to_thread(method, **primary_kwargs)
 
 
+def _get_current_session() -> Any | None:
+    try:
+        return session_context.get()
+    except LookupError:
+        return None
+
+
+def _get_thinking_fallback_key(llm: dict[str, Any]) -> str | None:
+    fallback_key = llm.get("thinking_fallback_key")
+    if isinstance(fallback_key, str) and fallback_key:
+        return fallback_key
+    return None
+
+
+def _get_session_thinking_fallback_registry() -> dict[str, bool]:
+    session = _get_current_session()
+    if session is None:
+        return {}
+    getter = getattr(session, "get_global_state", None)
+    if not callable(getter):
+        return {}
+    try:
+        registry = getter(_THINKING_FALLBACK_SESSION_KEY) or {}
+    except Exception as exc:
+        logger.debug("Failed to read session thinking fallback registry: %s", exc, exc_info=True)
+        return {}
+    if not isinstance(registry, dict):
+        return {}
+    return dict(registry)
+
+
+def _mark_session_thinking_fallback_active(llm: dict[str, Any]) -> None:
+    fallback_key = _get_thinking_fallback_key(llm)
+    if fallback_key is None:
+        return
+    session = _get_current_session()
+    if session is None:
+        return
+    updater = getattr(session, "update_global_state", None)
+    if not callable(updater):
+        return
+    try:
+        updater({_THINKING_FALLBACK_SESSION_KEY: {fallback_key: True}})
+    except Exception as exc:
+        logger.debug("Failed to write session thinking fallback registry: %s", exc, exc_info=True)
+
+
+def _is_thinking_fallback_active(llm: dict[str, Any]) -> bool:
+    if llm.get("thinking_fallback_active"):
+        return True
+    fallback_key = _get_thinking_fallback_key(llm)
+    if fallback_key is None:
+        return False
+    if _get_session_thinking_fallback_registry().get(fallback_key):
+        llm["thinking_fallback_active"] = True
+        return True
+    return False
+
+
+def _select_active_llm_model(llm: dict[str, Any]) -> Any:
+    fallback_model = llm.get("thinking_fallback_model")
+    if fallback_model is not None and _is_thinking_fallback_active(llm):
+        return fallback_model
+    return llm.get("model", None)
+
+
+def _has_available_inactive_thinking_fallback(llm: dict[str, Any]) -> bool:
+    return not _is_thinking_fallback_active(llm) and llm.get("thinking_fallback_model") is not None
+
+
+def _resolve_call_stream_options(llm_model: Any, stats_info_llm: bool) -> dict | None:
+    if not stats_info_llm:
+        return None
+    return _resolve_stream_options(llm_model=llm_model, need_include_usage=True)
+
+
+def _contains_any(text: str, markers: tuple[str, ...]) -> bool:
+    for marker in markers:
+        if marker in text:
+            return True
+    return False
+
+
+def _should_retry_without_thinking_switch(detail: str, llm: dict[str, Any]) -> bool:
+    if not _has_available_inactive_thinking_fallback(llm):
+        return False
+    lower_detail = (detail or "").lower()
+    if not _contains_any(lower_detail, _THINKING_SWITCH_FIELD_KEYWORDS):
+        return False
+    return _contains_any(lower_detail, _THINKING_SWITCH_UNSUPPORTED_MARKERS)
+
+
+def _log_thinking_fallback_retry(model_name: str, agent_name: str, removed_fields: list[str], detail: str) -> None:
+    logger.warning(
+        "Model/provider does not support disabling thinking mode; retry without thinking switch. "
+        "model=%s, agent=%s, removed_fields=%s, error=%s",
+        model_name,
+        agent_name or "-",
+        removed_fields,
+        "*" if LogManager.is_sensitive() else detail,
+    )
+
+
+def _activate_thinking_fallback(llm: dict[str, Any], model_name: str, agent_name: str) -> None:
+    llm["thinking_fallback_active"] = True
+    _mark_session_thinking_fallback_active(llm)
+    logger.warning(
+        "Thinking switch fallback activated; subsequent calls will use model without thinking switch. "
+        "model=%s, agent=%s, removed_fields=%s",
+        model_name,
+        agent_name or "-",
+        llm.get("thinking_fallback_removed_fields") or [],
+    )
+
+
 def _extract_usage_payload_from_stream_chunk(raw_chunk: Any) -> Any:
     """从流式原始 chunk 中提取 usage 载荷。
 
@@ -1203,7 +1328,7 @@ async def llm_astream(*args, **kwargs):
     except Exception as e:
         if can_write_stream and need_stream_out:
             await session.write_custom_stream(_make_payload(stream_id, StreamEvent.DONE.value, ""))
-        raise e
+        raise
     finally:
         if callable(restore_usage_parser):
             restore_usage_parser()
@@ -1290,18 +1415,13 @@ async def ainvoke_llm_with_stats(*args, **kwargs):
 
     # 真正调用llm处
     messages = transfer_to_jiuwen_messages(messages)
-    llm_model = llm.get("model", None)
-    if llm_model is None:
-        raise CustomValueException(
-            error_code=StatusCode.LLM_INSTANCE_NONE_ERROR.code,
-            message=StatusCode.LLM_INSTANCE_NONE_ERROR.errmsg)
-    resolved_stream_options = (
-        _resolve_stream_options(llm_model=llm_model, need_include_usage=True)
-        if stats_info_llm
-        else None
-    )
 
     if agent_name in _DEEPSEARCH_NODE_IDS:
+        llm_model = llm.get("model", None)
+        if llm_model is None:
+            raise CustomValueException(
+                error_code=StatusCode.LLM_INSTANCE_NONE_ERROR.code,
+                message=StatusCode.LLM_INSTANCE_NONE_ERROR.errmsg)
         processed_messages = []
         for m in messages:
             if isinstance(m, (SystemMessage, UserMessage, AssistantMessage, ToolMessage)):
@@ -1328,6 +1448,7 @@ async def ainvoke_llm_with_stats(*args, **kwargs):
             "tools": tools,
         }
         try:
+            resolved_stream_options = _resolve_call_stream_options(llm_model, stats_info_llm)
             if hasattr(llm_model, "invoke"):
                 response = await _call_model_method(llm_model.invoke, invoke_kw)
             elif hasattr(llm_model, "_ainvoke"):
@@ -1363,16 +1484,49 @@ async def ainvoke_llm_with_stats(*args, **kwargs):
             ) from e
 
     else:
-        response = await llm_astream(
-            llm=llm_model,
-            messages=messages,
-            model_name=model_name,
-            agent_name=agent_name,
-            tools=tools,
-            need_stream_out=need_stream_out,
-            stream_meta=stream_meta,
-            stream_options=resolved_stream_options,
-        )
+        llm_model = _select_active_llm_model(llm)
+        if llm_model is None:
+            raise CustomValueException(
+                error_code=StatusCode.LLM_INSTANCE_NONE_ERROR.code,
+                message=StatusCode.LLM_INSTANCE_NONE_ERROR.errmsg)
+
+        async def _invoke_stream_model(target_model):
+            return await llm_astream(
+                llm=target_model,
+                messages=messages,
+                model_name=model_name,
+                agent_name=agent_name,
+                tools=tools,
+                need_stream_out=need_stream_out,
+                stream_meta=stream_meta,
+                stream_options=_resolve_call_stream_options(target_model, stats_info_llm),
+            )
+
+        try:
+            response = await _invoke_stream_model(llm_model)
+        except Exception as e:
+            fallback_succeeded = False
+            if not _has_available_inactive_thinking_fallback(llm):
+                raise
+
+            detail = _format_llm_invoke_exception(e)
+            if _should_retry_without_thinking_switch(detail, llm):
+                _log_thinking_fallback_retry(
+                    model_name,
+                    agent_name,
+                    llm.get("thinking_fallback_removed_fields") or [],
+                    detail,
+                )
+                _activate_thinking_fallback(llm, model_name, agent_name)
+                try:
+                    response = await _invoke_stream_model(llm["thinking_fallback_model"])
+                except Exception as fallback_error:
+                    raise fallback_error from e
+                else:
+                    fallback_succeeded = True
+
+            if not fallback_succeeded:
+                raise
 
     if stats_info_llm:
         duration = time.time() - start
