@@ -33,6 +33,29 @@ def _centered_caption(caption_text: str) -> str:
     return f'<div style="text-align: center;">\n\n**{caption_text}**\n\n</div>'
 
 
+def test_clean_internal_callback_labels_keeps_natural_callbacks():
+    content = (
+        "[Parent Section 1] 如第1章所述，市场宽度恶化是核心背景。"
+        "[Background Knowledge from Parent Section 2] 结合第2章分析，宏观预期仍偏弱。"
+        "[Background Knowledge from Section 3] 延续第3章判断，科技板块仍需分化看待。"
+        "[Context from Section 4] 承接第4章策略，风险控制仍是重点。"
+        "[Prior Section 5] 参考第5章情景，悲观假设需要预案。"
+    )
+
+    result = Reporter._clean_internal_callback_labels(content)
+
+    assert "[Parent Section 1]" not in result
+    assert "[Background Knowledge from Parent Section 2]" not in result
+    assert "[Background Knowledge from Section 3]" not in result
+    assert "[Context from Section 4]" not in result
+    assert "[Prior Section 5]" not in result
+    assert "如第1章所述" in result
+    assert "结合第2章分析" in result
+    assert "延续第3章判断" in result
+    assert "承接第4章策略" in result
+    assert "参考第5章情景" in result
+
+
 def test_ensure_markdown_table_captions_adds_contextual_caption():
     content = """# 2 整车制造格局
 
@@ -784,6 +807,7 @@ async def test_generate_sub_report_with_background_knowledge_only(mock_llm_cls, 
     mock_session = MagicMock()
     mock_session.write_custom_stream = AsyncMock()
     token = session_context.set(mock_session)
+    writer_user_messages = []
 
     async def mock_ainvoke_llm_with_stats(llm, messages, llm_type: str = "basic", agent_name="AI", schema=None,
                                           tools=None, need_stream_out=False):
@@ -791,8 +815,17 @@ async def test_generate_sub_report_with_background_knowledge_only(mock_llm_cls, 
             raise AssertionError("classification should not run when doc_infos is empty but background exists")
         if any("subsection outline" in msg.get("content", "") for msg in messages):
             return {"content": "2 企业经营分析\n2.1 上游章节要点承接\n2.2 当前章节判断"}
-        if any("write the chapter" in msg.get("content", "") for msg in messages):
-            return {"content": "fake subsection report content from background knowledge"}
+        if any("professional sub report writer" in msg.get("content", "") for msg in messages):
+            writer_user_messages.extend(
+                msg.get("content", "") for msg in messages if msg.get("role") == "user"
+            )
+            return {
+                "content": (
+                    "[Parent Section 1] 如第1章所述，公司主营业务稳定。"
+                    "[Background Knowledge from Parent Section 1] 结合第1章分析，收入结构清晰。"
+                    "[Background Knowledge from Section 2] 延续第2章判断，风险仍需关注。"
+                )
+            }
         return {"content": "background summary"}
 
     mock_ainvoke_llm.side_effect = mock_ainvoke_llm_with_stats
@@ -825,6 +858,20 @@ async def test_generate_sub_report_with_background_knowledge_only(mock_llm_cls, 
     assert success is True
     assert sub_report_content
     assert classified_content == []
-    assert current_inputs["sub_section_core_content"] == [
-        "[Parent Section 1] 父章节总结：公司主营业务稳定，收入结构清晰。"
-    ]
+    assert "[Parent Section 1]" not in sub_report_content
+    assert "[Background Knowledge from Parent Section 1]" not in sub_report_content
+    assert "[Background Knowledge from Section 2]" not in sub_report_content
+    assert "如第1章所述" in sub_report_content
+    assert "结合第1章分析" in sub_report_content
+    assert "延续第2章判断" in sub_report_content
+    assert len(current_inputs["sub_section_core_content"]) == 1
+    background_content = current_inputs["sub_section_core_content"][0]
+    assert background_content["section_id"] == "1"
+    assert background_content["summary"] == "父章节总结：公司主营业务稳定，收入结构清晰。"
+    assert "Section 1" in background_content["allowed_callback"]
+    assert len(writer_user_messages) == 1
+    writer_user_message = writer_user_messages[0]
+    assert "Background Knowledge is" not in writer_user_message
+    assert "Background Knowledge / prior-section continuity context (not citation sources)" in writer_user_message
+    assert '"section_id": "1"' in writer_user_message
+    assert '"summary": "父章节总结：公司主营业务稳定，收入结构清晰。"' in writer_user_message

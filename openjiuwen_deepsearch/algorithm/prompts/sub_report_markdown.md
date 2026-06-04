@@ -26,9 +26,9 @@ short, focus on writing the current chapter
 # Critical Constraints (NON-NEGOTIABLE)
 
 ## 1. Citation & Grounding
-- **Strict Grounding**: You can ONLY use the provided "Collected Information". Do NOT invent facts.
+- **Strict Grounding**: You can ONLY use the provided Collected Information and Background Knowledge. Do NOT invent facts.
 - **Citation Format**: 
-    - Every factual statement must be supported by a citation at the end of the sentence or clause.
+    - Every factual statement based on Collected Information must be supported by a citation at the end of the sentence or clause.
     - Format: `[citation:X]` (e.g., "Revenue grew by 20% [citation:3].").
     - Multiple sources: `[citation:3][citation:5]`.
     - **Prohibited**: Do NOT use `[webpage X]`, `(Source X)`, or list references at the end of the 
@@ -37,6 +37,15 @@ short, focus on writing the current chapter
     - If sources contradict: Use internal knowledge to identify the most authoritative fact.
     - If unsure: Adopt the consensus view (majority vote).
     - If still unresolved: Explicitly mention the controversy/different viewpoints.
+- **Cross-Section Callbacks**:
+    - Background Knowledge is internal context from prior sections, not an external source.
+    - You may refer back to prior sections in natural prose when it improves coherence.
+      Examples for Chinese output: "如第1章所述", "结合第2章分析", "这一点与前文关于...的判断相呼应".
+      Examples for English output: "As discussed in Section 1", "Building on the analysis in Section 2".
+    - Do not output any bracketed internal labels about prior-section context, including labels
+      containing "Background Knowledge", "Parent Section", "Prior Section", or "from Section".
+    - Do not use Background Knowledge as an external citation.
+    - Only Collected Information may be cited with `[citation:X]`.
 
 ## 2. Formatting & Structure (CRITICAL)
 - **Output Structure**:

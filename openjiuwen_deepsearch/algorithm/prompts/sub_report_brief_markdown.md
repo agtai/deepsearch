@@ -25,9 +25,17 @@ You will write using:
 
 ## 1) Citation & Grounding
 - Only use provided collected information and background knowledge. Do not invent facts.
-- Every factual claim must carry inline citation: `[citation:X]`.
+- Every factual claim based on Collected Information must carry inline citation: `[citation:X]`.
 - Multiple sources are allowed: `[citation:2][citation:7]`.
 - Do not output separate references in this chapter.
+- Background Knowledge is internal context from prior sections, not an external source.
+- You may refer back to prior sections in natural prose when it improves coherence.
+  Examples for Chinese output: "如第1章所述", "结合第2章分析", "这一点与前文关于...的判断相呼应".
+  Examples for English output: "As discussed in Section 1", "Building on the analysis in Section 2".
+- Do not output any bracketed internal labels about prior-section context, including labels
+  containing "Background Knowledge", "Parent Section", "Prior Section", or "from Section".
+- Do not use Background Knowledge as an external citation.
+- Only Collected Information may be cited with `[citation:X]`.
 
 ## 2) Output Structure
 - Convert `current_chapter_outline` plain text into Markdown headings:

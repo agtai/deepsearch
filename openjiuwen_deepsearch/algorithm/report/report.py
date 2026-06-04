@@ -54,6 +54,10 @@ logger = logging.getLogger(__name__)
 
 EFFECT_SUB_REPORT_TAG = "### sub_report_tag ###"
 MAX_LOOP_ROUND = 10
+INTERNAL_CALLBACK_LABEL_PATTERN = re.compile(
+    r"\s*\[[^\]]*(?:Background Knowledge|Parent Section|Prior Section|prior-section|from Section)\s+\d+[^\]]*\]\s*",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -490,7 +494,7 @@ class Reporter:
         return data if is_dict else Outline.model_validate(data)
 
     @staticmethod
-    def _get_background_knowledge_contents(background_knowledge: list) -> list[str]:
+    def _get_background_knowledge_contents(background_knowledge: list) -> list[dict[str, str]]:
         """Extract usable text snippets from dependency-writing background knowledge."""
         if not isinstance(background_knowledge, list):
             return []
@@ -503,11 +507,47 @@ class Reporter:
             if not content:
                 continue
             section_id = str(item.get("section_id", "") or "").strip()
-            if section_id:
-                content = f"[Parent Section {section_id}] {content}"
-            contents.append(content)
+            allowed_callback = (
+                f"Refer to Section {section_id} in natural prose only; do not cite this context."
+                if section_id
+                else "Refer to prior sections in natural prose only; do not cite this context."
+            )
+            contents.append(
+                {
+                    "section_id": section_id,
+                    "summary": content,
+                    "allowed_callback": allowed_callback,
+                }
+            )
 
         return contents
+
+    @staticmethod
+    def _format_background_knowledge_for_prompt(background_knowledge_contents: list[dict[str, str]]) -> str:
+        """Format prior-section background knowledge for model input without citation-like labels."""
+        if not background_knowledge_contents:
+            return (
+                "Background Knowledge / prior-section continuity context "
+                "(not citation sources): []"
+            )
+        payload = json.dumps(background_knowledge_contents, ensure_ascii=False, indent=2)
+        return (
+            "Background Knowledge / prior-section continuity context (not citation sources):\n"
+            f"{payload}\n"
+            "Rules for this context:\n"
+            "- Use it only to maintain continuity with earlier sections.\n"
+            "- You may refer to it in natural prose, such as \"as discussed in Section 2\" "
+            "or \"结合第2章分析\".\n"
+            "- Never cite it with `[citation:X]`.\n"
+            "- Never output bracketed labels about this context."
+        )
+
+    @staticmethod
+    def _clean_internal_callback_labels(content: str) -> str:
+        """Remove leaked dependency-context labels while preserving natural callbacks."""
+        if not content:
+            return ""
+        return INTERNAL_CALLBACK_LABEL_PATTERN.sub("", content)
 
     @staticmethod
     def _is_missing_subsection_report_context(
@@ -707,6 +747,7 @@ class Reporter:
                 section_idx,
             )
             current_inputs["sub_section_core_content"] = background_contents
+            current_inputs["sub_section_core_content_from_background_knowledge"] = True
             current_inputs["sub_section_references"] = []
             current_inputs["classified_content"] = []
             classified_content = []
@@ -747,6 +788,7 @@ class Reporter:
                 current_inputs["sub_section_core_content"] = classified_infos.get(
                     "core_content_list", []
                 )
+                current_inputs["sub_section_core_content_from_background_knowledge"] = False
                 current_inputs["sub_section_references"] = classified_infos.get(
                     "references", []
                 )
@@ -1463,11 +1505,15 @@ class Reporter:
             )
             return dict(rs_success=False, sub_section_outline=error_msg)
         try:
+            if current_inputs.get("sub_section_core_content_from_background_knowledge"):
+                core_context = self._format_background_knowledge_for_prompt(collected_infos)
+            else:
+                core_context = f"Collected information is {collected_infos}"
             sub_content_message = (
                 f"Section id is {section_idx},"
                 f"Section title is {section_task},"
                 f"User query is {report_task},"
-                f"Collected information is {collected_infos},"
+                f"{core_context},"
                 f"Section description is {section_description},"
             )
             tmp_context = {}
@@ -2254,6 +2300,9 @@ class Reporter:
         current_outline_without_plans = Reporter.export_outline_without_plans(
             current_outline
         )
+        background_knowledge_prompt = self._format_background_knowledge_for_prompt(
+            background_knowledge_contents
+        )
         sub_content_message = (
             f"Section id is {current_inputs.get('section_idx', 1)},"
             f"Section title is {section_task},"
@@ -2263,7 +2312,7 @@ class Reporter:
             f"References is {current_inputs.get('sub_section_references', '')},"
             f"Current Chapter Outline is "
             f"{current_inputs.get('sub_section_outline', '')},"
-            f"Background Knowledge is {background_knowledge_contents}"
+            f"{background_knowledge_prompt}"
         )
         try:
             report_type = current_inputs.get("report_type", "professional")
@@ -2314,7 +2363,9 @@ class Reporter:
                     message=f"LLM returned empty content for the section {current_inputs.get('section_idx', 1)}",
                 )
 
-            current_inputs["sub_report_content"] = llm_output.get("content")
+            current_inputs["sub_report_content"] = self._clean_internal_callback_labels(
+                llm_output.get("content", "")
+            )
 
             # Insert visualization content
             if current_inputs.get("visualization_enable", True):
