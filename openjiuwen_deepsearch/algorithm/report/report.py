@@ -55,7 +55,10 @@ logger = logging.getLogger(__name__)
 EFFECT_SUB_REPORT_TAG = "### sub_report_tag ###"
 MAX_LOOP_ROUND = 10
 INTERNAL_CALLBACK_LABEL_PATTERN = re.compile(
-    r"\s*\[[^\]]*(?:Background Knowledge|Parent Section|Prior Section|prior-section|from Section)\s+\d+[^\]]*\]\s*",
+    r"\s*\["
+    r"(?=[^\]]*(?:background|knowledge|parent|section|prior|summary|背景|知识))"
+    r"[^\]]+"
+    r"\]\s*",
     re.IGNORECASE,
 )
 

@@ -56,6 +56,44 @@ def test_clean_internal_callback_labels_keeps_natural_callbacks():
     assert "参考第5章情景" in result
 
 
+def test_clean_internal_callback_labels_removes_internal_bracket_labels():
+    content = (
+        "valuation is stretched [background knowledge]. "
+        "policy support remains active[citation:8背景知识]. "
+        "snake case leaked [citation:background_section_2]. "
+        "substring section leaked [sectional]."
+    )
+
+    result = Reporter._clean_internal_callback_labels(content)
+
+    assert "[background knowledge]" not in result
+    assert "[citation:8背景知识]" not in result
+    assert "[citation:background_section_2]" not in result
+    assert "[sectional]" not in result
+    assert "valuation is stretched" in result
+    assert "policy support remains active" in result
+    assert "snake case leaked" in result
+    assert "substring section leaked" in result
+
+
+def test_clean_internal_callback_labels_preserves_safe_brackets_and_natural_section_text():
+    content = (
+        "source backed [citation:8]. "
+        "checked source [checked_citation:2]. "
+        "normal marker [market breadth]. "
+        "from is no longer an internal keyword [citation:8 from]. "
+        "plain callback remains as discussed in Section 2."
+    )
+
+    result = Reporter._clean_internal_callback_labels(content)
+
+    assert "[citation:8]" in result
+    assert "[checked_citation:2]" in result
+    assert "[market breadth]" in result
+    assert "[citation:8 from]" in result
+    assert "as discussed in Section 2" in result
+
+
 def test_ensure_markdown_table_captions_adds_contextual_caption():
     content = """# 2 整车制造格局
 
