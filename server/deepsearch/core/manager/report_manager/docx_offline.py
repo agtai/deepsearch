@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import uuid
 from pathlib import Path
 
@@ -233,6 +234,8 @@ def convert_md_to_docx(md_path: str | Path, docx_path: str | Path) -> None:
     """
     md_file = Path(md_path).resolve()
     docx_file = Path(docx_path).resolve()
+    start_time = time.perf_counter()
+    logger.info("Starting Markdown to DOCX conversion input=%s output=%s", md_file, docx_file)
     if not md_file.exists():
         raise FileNotFoundError(f"Markdown file does not exist: {md_file}")
 
@@ -279,6 +282,13 @@ def convert_md_to_docx(md_path: str | Path, docx_path: str | Path) -> None:
             mermaid_stats.total,
             mermaid_stats.success,
             mermaid_stats.failed,
+        )
+        logger.info(
+            "Completed Markdown to DOCX conversion input=%s output=%s docx_bytes=%s duration_ms=%.2f",
+            md_file,
+            docx_file,
+            docx_file.stat().st_size if docx_file.exists() else 0,
+            (time.perf_counter() - start_time) * 1000,
         )
     finally:
         for cleanup_path in cleanup_paths:

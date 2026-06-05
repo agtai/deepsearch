@@ -1,6 +1,7 @@
 import base64
 import binascii
 import io
+import logging
 import zipfile
 
 import pytest
@@ -59,6 +60,56 @@ def test_report_convert_returns_zip_base64(monkeypatch):
     res = report_mgr.report_convert(req)
 
     assert base64.b64decode(res.convert_content).startswith(b"PK")
+
+
+def test_report_convert_logs_start_and_success(monkeypatch, caplog):
+    """验证报告转换 manager 成功路径会记录入口和结果日志。
+
+    Args:
+        monkeypatch: pytest monkeypatch fixture.
+        caplog: pytest 日志捕获工具。
+
+    Returns:
+        None.
+    """
+    from server.deepsearch.core.manager import report as report_mgr
+    from server.schemas import report as report_schema
+
+    class _DummyProcessor:
+        """Provide a minimal processor stub for log contract testing."""
+
+        def convert_from_final_result_to_bundle_base64(self, final_result):
+            """Return a dummy ZIP payload.
+
+            Args:
+                final_result: 输入的 final_result 字典。
+
+            Returns:
+                base64 编码后的伪 ZIP 二进制内容。
+            """
+            return base64.b64encode(b"PK\x03\x04dummy").decode("utf-8")
+
+    req = ReportConvertReq(
+        final_result={
+            "response_content": "正文",
+            "infer_messages": [],
+            "chart_messages": [],
+            "warning_info": "",
+            "exception_info": "",
+        },
+        convert_type=ReportFormat.HTML,
+    )
+    monkeypatch.setattr(
+        report_schema.ReportFormat,
+        "get_processor",
+        lambda self: _DummyProcessor(),
+    )
+    caplog.set_level(logging.INFO, logger="server.deepsearch.core.manager.report")
+
+    report_mgr.report_convert(req)
+
+    assert any("Starting report convert convert_type=html" in record.message for record in caplog.records)
+    assert any("Completed report convert convert_type=html" in record.message for record in caplog.records)
 
 
 def test_report_convert_raises_validation_exception(monkeypatch):
