@@ -21,12 +21,7 @@ from tenacity import (
 )
 
 from openjiuwen_deepsearch.algorithm.prompts.template import apply_system_prompt
-from openjiuwen_deepsearch.algorithm.report.compact_doc_info import (
-    build_compact_classify_doc_infos_text,
-    format_scores_inline,
-    format_key_passage_block,
-    get_numeric_score,
-)
+from openjiuwen_deepsearch.algorithm.research_collector.collector_evidence import build_legacy_doc_infos_view
 from openjiuwen_deepsearch.algorithm.report.config import ReportFormat
 from openjiuwen_deepsearch.algorithm.report.doc_prefilter import (
     build_balanced_doc_batches,
@@ -1245,11 +1240,11 @@ class Reporter:
 
         for attempt in range(1, max_attempt_num + 1):
             try:
-                compact_doc_infos = build_compact_classify_doc_infos_text(doc_infos)
+                legacy_doc_infos = build_legacy_doc_infos_view(doc_infos)
                 infos_for_llm = (
                     f"Section title is {section_task},"
                     f"User query is {current_inputs.get('report_task', '')},"
-                    f"Document infos is {compact_doc_infos},"
+                    f"Document infos is {legacy_doc_infos},"
                     f"Section description is {section_description},"
                     f"Subsection outline is {subsection_outline}"
                 )
@@ -2097,12 +2092,11 @@ class Reporter:
         # Build all async tasks
         tasks = []
         for i in range(n):
-            data_density_score = get_numeric_score(visualization_content[i], "data_density")
             visualization_dict = {
                 "section_idx": section_idx,
                 "title": visualization_content[i].get("title", ""),
                 "origin_content": visualization_content[i].get("original_content", ""),
-                "data_density": data_density_score if data_density_score is not None else -1.0,
+                "data_density": visualization_content[i].get("data_density", -1.0),
                 "language": current_inputs.get("language", "zh-CN"),
                 "section_title": section_task,
                 "section_outline": section_outline,
@@ -2300,10 +2294,11 @@ class Reporter:
         infos = ""
         for item in current_inputs.get("classified_content", []):
             infos += (
-                f"\n[citation:{item.get('index', 1)} begin]time: {item.get('doc_time', '')}|||"
-                f"scores: {format_scores_inline(item)}|||"
-                f"content: {item.get('original_content', '')}[citation:{item.get('index', 1)} end]"
+                f"\n[citation:{item.get('index', 1)} begin]网页时间: {item.get('doc_time', '')}|||"
+                f"网页权威性：{item.get('source_authority', '')}|||网页相关性：{item.get('task_relevance', '')}|||"
+                f"网页内容：{item.get('original_content', '')}[citation:{item.get('index', 1)} end]"
             )
+
         current_outline = current_inputs.get("current_outline", {})
         current_outline_without_plans = Reporter.export_outline_without_plans(
             current_outline
@@ -2478,9 +2473,28 @@ class Reporter:
         for item in classified_content_for_visualization:
             if not isinstance(item, dict):
                 continue
-            point = get_numeric_score(item, "data_density")
-            if point is not None and point >= 9.0:
-                selected_visualizations.append(item)
+            item_data_density = item.get("data_density")
+            if item_data_density is not None:
+                try:
+                    if isinstance(item_data_density, (int, float)):
+                        point = float(item_data_density)
+                    else:
+                        density_str = str(item_data_density)
+                        if "：" in density_str:
+                            point_str = density_str.split("：", 1)[1]
+                        elif ":" in density_str:
+                            point_str = density_str.split(":", 1)[1]
+                        else:
+                            point_str = density_str
+                        point = float(point_str.strip())
+                    if point >= 9.0:
+                        selected_visualizations.append(item)
+                except (ValueError, IndexError):
+                    logger.warning(
+                        "%s [select_visualization] invalid data_density: %s",
+                        EFFECT_SUB_REPORT_TAG,
+                        item_data_density,
+                    )
         return selected_visualizations
 
     async def _request_visualization_insert_plan(
@@ -2950,8 +2964,6 @@ def _get_classified_infos(doc_infos: list, urls: list, max_source_id_count: int 
                 format_reference_link(item.get("title", ""), item_url)
             )
             seen_reference_urls.add(item_url)
-        classified_infos["core_content_list"].append(
-            format_key_passage_block(item, len(classified_doc_infos) + 1)
-        )
+        classified_infos["core_content_list"].append(item.get("original_content", ""))
         classified_doc_infos.append(item)
     return classified_infos, classified_doc_infos

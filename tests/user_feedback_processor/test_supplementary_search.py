@@ -277,19 +277,27 @@ async def test_rewrite_methods_accept_named_context_and_forward_prompt_vars(meth
         result = await getattr(searcher, method_name)(rewrite_context)
 
     assert result == "改写结果"
-    mock_invoke_prompt.assert_awaited_once()
-    prompt_args = mock_invoke_prompt.await_args.args
-    assert prompt_args[0] == prompt_name
-    assert prompt_args[2] == agent_name
-    prompt_vars = prompt_args[1]
-    assert prompt_vars["language"] == "zh-CN"
-    assert prompt_vars["doc_infos"][0]["publish_time"] == "2025-05"
-    assert prompt_vars["doc_infos"][0]["url"] == "https://example.com"
-    assert prompt_vars["doc_infos"][0]["query"] == ""
-    assert prompt_vars["doc_infos"][0]["scores"] == {"authority": 8}
-    assert prompt_vars["doc_infos"][0]["key_passages"] == ["关键段落"]
-    assert "original_content" not in prompt_vars["doc_infos"][0]
-    assert "source_authority" not in prompt_vars["doc_infos"][0]
-    assert "task_relevance" not in prompt_vars["doc_infos"][0]
-    assert "information_richness" not in prompt_vars["doc_infos"][0]
-    assert "data_density" not in prompt_vars["doc_infos"][0]
+    mock_invoke_prompt.assert_awaited_once_with(
+        prompt_name,
+        {
+            "language": "zh-CN",
+            "user_instruction": "补充数据",
+            "selected_text_clean": "选中文本",
+            "section_text_clean": "章节文本",
+            "collector_summary": "摘要",
+            "doc_infos": [
+                {
+                    "doc_time": "2025-05",
+                    "source_authority": "",
+                    "task_relevance": "",
+                    "original_content": "原文",
+                    "url": "https://example.com",
+                    "information_richness": "",
+                    "data_density": "",
+                    "title": "doc",
+                    "query": "",
+                }
+            ],
+        },
+        agent_name,
+    )
