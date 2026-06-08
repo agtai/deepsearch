@@ -50,6 +50,7 @@ You will write using:
 - Hard ceiling: **1200 Chinese characters** (or **700 English words**).
 - Keep each `##` subsection to at most **1 short paragraph** (2 only when unavoidable).
 - Prefer at most **1 table** for the whole chapter. Skip tables when they do not improve clarity.
+- If a table is used, write one intro sentence above it and exactly one concise plain-text caption below it; keep the caption to the table's subject/scope only. Do not manually number the table or add extra table notes/blockquotes such as "表格说明", "表说明", "Table note", or "Note".
 - Avoid long historical background, repeated context, and generic transition language.
 
 ## 4) Content Prioritization

@@ -93,8 +93,10 @@ This is a core part of the report. You must:
 # Output Format Rules
 ## Markdown Table Syntax
 - Before each Markdown table, write one natural sentence explaining the table's analytical purpose or key conclusion.
+- Do not manually number tables in the intro sentence or caption; use general references such as "下表 / 以下表格" or "the table below" when needed.
 - After each Markdown table, write one concise table caption. The caption should name only the table's subject/scope.
 - Do not repeat the introductory sentence as the caption.
+- Do not add extra table notes or blockquotes after the caption, such as "表格说明", "表说明", "Table note", or "Note".
 - Keep the table as a standard Markdown pipe table. Do not wrap the table itself in HTML.
 - Alignment: Headers centered, content left-aligned.
 - Header: Concise (keep short).

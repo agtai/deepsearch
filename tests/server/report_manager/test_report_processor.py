@@ -591,6 +591,26 @@ def test_convert_md_to_html_separates_paragraph_from_following_bullets_without_b
     assert "<li><strong>求稳与求变并存</strong>：第一条</li>" in html_text
 
 
+def test_convert_md_to_html_separates_paragraph_from_following_table_without_blank_line(tmp_path):
+    """Validate pipe tables render after a paragraph even when the source misses a blank line."""
+    md_path = tmp_path / "report.md"
+    html_path = tmp_path / "report.html"
+    md_path.write_text(
+        "表2-1梳理了测试数据：\n"
+        "| 列1 | 列2 |\n"
+        "| --- | --- |\n"
+        "| A | B |\n",
+        encoding="utf-8",
+    )
+
+    convert_md_to_html(md_path, html_path)
+
+    html_text = html_path.read_text(encoding="utf-8")
+    assert "<p>表2-1梳理了测试数据：</p>" in html_text
+    assert '<div class="table-wrap"><table>' in html_text
+    assert "| 列1 | 列2 |" not in html_text
+
+
 def test_convert_md_to_html_centers_table_display(tmp_path):
     """Validate exported HTML uses centered table presentation styles."""
     md_path = tmp_path / "report.md"

@@ -25,6 +25,8 @@ NUMBERED_HEADING_RE = re.compile(
 )
 LIST_ITEM_RE = re.compile(r"^\s{0,3}(?:[-*+]\s+|\d+\.\s+)")
 INDENTED_LIST_ITEM_RE = re.compile(r"^(?P<indent>[ \t]{4,})(?P<marker>(?:[-*+]\s+|\d+\.\s+).*)$")
+MARKDOWN_TABLE_ROW_RE = re.compile(r"^[ \t]{0,3}\|")
+MARKDOWN_TABLE_DELIMITER_RE = re.compile(r":?-{1,}:?")
 SENTENCE_END_RE = re.compile(r"[。！？?!…]$")
 CITATION_RE = re.compile(r"\[\[(\d+)\]\]\((https?://[^\s)]+(?:\([^\s)]+\)[^\s)]*)*)\)")
 CHECKED_CITATION_RE = re.compile(
@@ -297,6 +299,55 @@ def normalize_list_boundaries(text: str) -> str:
     return "\n".join(normalized)
 
 
+def normalize_table_boundaries(text: str) -> str:
+    """Insert a blank line before Markdown pipe tables when the source omits one.
+
+    Args:
+        text: 原始 Markdown 文本。
+
+    Returns:
+        str: 修正表格边界后的 Markdown 文本。
+    """
+
+    def _is_table_row(line: str) -> bool:
+        return bool(MARKDOWN_TABLE_ROW_RE.match(line))
+
+    def _is_table_delimiter(line: str) -> bool:
+        if not _is_table_row(line):
+            return False
+        cells = [
+            cell.strip().replace(" ", "")
+            for cell in line.strip().strip("|").split("|")
+        ]
+        return len(cells) >= 2 and all(
+            bool(MARKDOWN_TABLE_DELIMITER_RE.fullmatch(cell))
+            for cell in cells
+        )
+
+    lines = text.split("\n")
+    normalized: list[str] = []
+    in_fenced_code = False
+
+    for index, line in enumerate(lines):
+        if line.lstrip().startswith("```"):
+            in_fenced_code = not in_fenced_code
+            normalized.append(line)
+            continue
+
+        is_table_start = (
+            not in_fenced_code
+            and index + 1 < len(lines)
+            and _is_table_row(line)
+            and _is_table_delimiter(lines[index + 1])
+        )
+        if is_table_start and normalized and normalized[-1].strip():
+            normalized.append("")
+
+        normalized.append(line)
+
+    return "\n".join(normalized)
+
+
 def normalize_orphan_indented_list_items(text: str) -> str:
     """Dedent report-style list items that Markdown would otherwise treat as code.
 
@@ -384,7 +435,8 @@ def preprocess_markdown_text(text: str) -> str:
     text = fix_center_caption_blocks(text)
     text = normalize_legacy_font_caption_blocks(text)
     text = normalize_orphan_indented_list_items(text)
-    return normalize_list_boundaries(text)
+    text = normalize_list_boundaries(text)
+    return normalize_table_boundaries(text)
 
 
 def wrap_html_tables(html_text: str) -> str:
