@@ -406,7 +406,11 @@ class SubReporterNode(BaseNode):
             classified_content=algorithm_output.get("classified_content", []),
             sub_report_content_text=algorithm_output.get("sub_report_content", ""),
             sub_report_content_summary=algorithm_output.get("sub_report_summary", ""),
+            sub_report_chapter_sidecar=algorithm_output.get("sub_report_chapter_sidecar"),
         )
+        sidecar_warning = algorithm_output.get("sub_report_sidecar_warning", "")
+        if sidecar_warning:
+            _handle_warning_exception_info(session, added_warning=sidecar_warning)
         sub_report_debug_info_output = sub_report_content.model_dump()
         # 添加SubReporterNode debug日志
         add_debug_log_wrapper(session, NodeDebugData(NodeId.SUB_REPORTER.value, 0, NodeType.SUB.value,
