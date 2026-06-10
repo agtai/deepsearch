@@ -536,6 +536,10 @@ async def test_run_new_task_merges_new_docs_and_rewrites_entire_section(caplog):
     assert result["used_historical_doc_count"] == 1
     assert result["used_new_doc_count"] == 1
     assert result["incremental_doc_infos"] == [{"title": "文档B", "url": "https://b.com"}]
+    assert result["source_trace_doc_infos"] == [
+        {"title": "文档A", "url": "https://a.com"},
+        {"title": "文档B", "url": "https://b.com"},
+    ]
     assert result["assessment_summary"] == "还缺行业背景"
     assert any("incremental collection started" in record.message for record in caplog.records)
     assert any("incremental collection completed" in record.message for record in caplog.records)

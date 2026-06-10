@@ -128,7 +128,14 @@ class TestUserFeedbackProcessorNode:
         assert result["disabled"] is False
         assert result["max_interactions"] == 100
         assert result["feedback_snapshot_sent"] is False
+        assert result["enable_local_source_trace"] is True
         assert "max_text_length" not in result
+
+    def test_pre_handle_disables_local_source_trace_when_trace_source_switch_is_false(self, node):
+        session = make_mock_session(config_overrides={"source_tracer_research_trace_source_switch": False})
+        result = node._pre_handle(None, session, None)
+
+        assert result["enable_local_source_trace"] is False
 
     @pytest.mark.asyncio
     async def test_do_invoke_disabled_goes_to_end(self, node):
@@ -360,14 +367,34 @@ class TestUserFeedbackProcessorNode:
             "rewritten_text": "扩写后的测试报告内容",
             "rewritten_start_offset": 0,
             "rewritten_end_offset": 10,
+            "citation_messages": {
+                "code": 0,
+                "msg": "success",
+                "data": [
+                    {
+                        "id": 0,
+                        "reference_index": 1,
+                        "citation_start_offset": 8,
+                        "citation_end_offset": 28,
+                    },
+                    {
+                        "id": 2,
+                        "reference_index": 2,
+                        "title": "新来源",
+                        "url": "https://new.com",
+                    },
+                ],
+            },
+            "warning_info": "local trace degraded",
         }
 
-        with patch(f"{ALGO_CLASS_PATH}.execute", new_callable=AsyncMock, return_value=execute_return):
+        with patch(f"{ALGO_CLASS_PATH}.execute", new_callable=AsyncMock, return_value=execute_return) as mock_execute:
             with patch(f"{ALGO_CLASS_PATH}.send_result", new_callable=AsyncMock) as mock_send_result:
                 with patch(f"{NODE_MODULE_PATH}.add_debug_log_wrapper"):
                     result = await node._do_invoke(None, session, None)
 
         assert result["next_node"] == NodeId.USER_FEEDBACK_PROCESSOR.value
+        assert mock_execute.await_args.kwargs["enable_local_source_trace"] is True
         mock_send_result.assert_awaited_once()
         kwargs = mock_send_result.await_args.kwargs
         assert kwargs["session"] is session
@@ -383,22 +410,18 @@ class TestUserFeedbackProcessorNode:
             action_subcategory=SynonymRewriteActionSubcategory.EXPAND,
         )
         assert kwargs["final_result"]["response_content"] == execute_return["new_report"]
-        assert kwargs["final_result"]["citation_messages"] == {
-            "code": 0,
-            "msg": "success",
-            "data": [
-                {
-                    "id": 0,
-                    "reference_index": 1,
-                    "citation_start_offset": 8,
-                    "citation_end_offset": 28,
-                }
-            ],
-        }
+        assert kwargs["final_result"]["citation_messages"] == execute_return["citation_messages"]
+        assert kwargs["final_result"]["warning_info"] == "local trace degraded"
         assert kwargs["final_result"]["infer_messages"] == []
 
         session.update_global_state.assert_any_call(
             {"search_context.final_result.response_content": execute_return["new_report"]}
+        )
+        session.update_global_state.assert_any_call(
+            {"search_context.final_result.citation_messages": execute_return["citation_messages"]}
+        )
+        session.update_global_state.assert_any_call(
+            {"search_context.final_result.warning_info": "local trace degraded"}
         )
         session.update_global_state.assert_any_call({"search_context.feedback_interaction_count": 1})
 
@@ -422,6 +445,46 @@ class TestUserFeedbackProcessorNode:
                 "user_instruction": "",
             }
         ]
+
+    @pytest.mark.asyncio
+    async def test_do_invoke_passes_disabled_local_source_trace_switch_to_processor(self, node):
+        session = make_mock_session(
+            config_overrides={"source_tracer_research_trace_source_switch": False},
+            search_context_overrides={
+                "feedback_snapshot_sent": True,
+                "final_result": {
+                    "response_content": "这是一段测试报告内容结束",
+                    "citation_messages": {"data": []},
+                    "infer_messages": [],
+                },
+            },
+        )
+        feedback = {
+            "action": "expand",
+            "selected_text": "这是一段",
+            "start_offset": 0,
+            "end_offset": 4,
+            "user_instruction": "",
+        }
+        session.interact.return_value = json.dumps(feedback)
+        execute_return = {
+            "new_report": "扩写后的测试报告内容",
+            "original_text": "这是一段",
+            "original_start_offset": 0,
+            "original_end_offset": 4,
+            "original_text_clean": "这是一段",
+            "rewritten_text": "扩写后的测试报告内容",
+            "rewritten_start_offset": 0,
+            "rewritten_end_offset": 10,
+        }
+
+        with patch(f"{ALGO_CLASS_PATH}.execute", new_callable=AsyncMock, return_value=execute_return) as mock_execute:
+            with patch(f"{ALGO_CLASS_PATH}.send_result", new_callable=AsyncMock):
+                with patch(f"{NODE_MODULE_PATH}.add_debug_log_wrapper"):
+                    result = await node._do_invoke(None, session, None)
+
+        assert result["next_node"] == NodeId.USER_FEEDBACK_PROCESSOR.value
+        assert mock_execute.await_args.kwargs["enable_local_source_trace"] is False
 
     @pytest.mark.asyncio
     async def test_do_invoke_supplementary_search_success_updates_final_result_and_history(self, node):

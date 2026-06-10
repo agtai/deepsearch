@@ -564,6 +564,7 @@ agent_config["user_feedback_processor_max_interactions"] = 100
 - `polish`：润色选中文本。
 - `shorten`：缩写选中文本。
 - `supplementary_search`：结合补充检索对选中内容定向增强（见下文「改写范围」）。
+- `new_task`：根据新的用户任务改写现有章节或追加新小节。
 - `sync`：将前端已编辑完成的整篇报告同步回后端状态。
 - `finish`：结束当前局部优化会话。
 
@@ -574,7 +575,7 @@ agent_config["user_feedback_processor_max_interactions"] = 100
   - `selected_and_related`：替换选区所在**整章**，并允许衔接性联动改写（仅 `supplementary_search` 使用；其它动作即使携带也会在行为上忽略）。
 - 对 `supplementary_search`，`rewrite_scope` 必须为上述二者之一（否则在校验阶段报错）。
 
-局部改写动作（`expand`、`polish`、`shorten`、`supplementary_search`）的请求体需包含以下字段：
+局部改写动作（`expand`、`polish`、`shorten`、`supplementary_search`、`new_task`）的请求体需包含以下字段：
 - `action`：动作类型（必填）。
 - `selected_text`：用户当前选中的原始文本。
 - `start_offset`：选中文本在当前报告中的起始偏移。
@@ -642,7 +643,8 @@ async for chunk in agent.run(message=finish_message, conversation_id=conversatio
 
 说明：
 - 局部改写动作要求 `selected_text` 与当前报告中 `[start_offset, end_offset)` 范围内的文本完全一致，否则会返回偏移校验错误。
-- 改写结果仅更新 `final_result.response_content`，原有 citation / infer metadata 保持不变；后端不再额外维护 offset 映射。
+- 改写结果会更新 `final_result.response_content`；当 `source_tracer_research_trace_source_switch` 开启时，后端会对变化片段执行差异感知局部溯源，未变化片段保留原引用，新增引用会同步更新 `citation_messages` 并在文末追加参考文献。
+- 后端不再额外维护 offset 映射。
 - `sync` 仅更新 `final_result.response_content`，不消耗 `feedback_interaction_count`，且只有整篇报告内容实际变化时才会追加一条 `search_context.rewrite_history` 记录。
 - 后端仅保留最近 10 条 `sync` 历史；内容未变化的 `sync` 不会新增历史记录。
 - 每次成功的普通局部改写会在 `search_context.rewrite_history` 中追加一条记录，其中包含 `action`、`rewrite_scope`（若有）及偏移等信息，便于排查与审计。
