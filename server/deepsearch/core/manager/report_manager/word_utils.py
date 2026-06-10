@@ -33,6 +33,8 @@ HEADING_TAGS = frozenset(f"h{i}" for i in range(1, 9))
 REMOTE_IMAGE_SCHEMES = frozenset({"http", "https"})
 LATEX_TOKEN_RE = re.compile(r"(\$\$.*?\$\$|\$.+?\$)", re.DOTALL)
 HTML_FORMATTING_WHITESPACE_RE = re.compile(r"[ \t]*\n[ \t]*")
+DOCX_LIST_LEVELS = 9
+DOCX_BULLET_SYMBOLS = ("•", "◦", "▪")
 
 
 @dataclass(frozen=True)
@@ -46,6 +48,16 @@ class HtmlToDocContext:
     style_r_fonts: object | None = None
     current_run: object | None = None
     superscript: bool = False
+
+
+@dataclass(frozen=True)
+class HtmlBlockState:
+    """Recursive state for converting HTML block elements."""
+
+    depth: int = 0
+    list_depth: int = 0
+    list_num_id: int | None = None
+    list_tag: str | None = None
 
 
 def _docx_run_element(run):
@@ -66,6 +78,73 @@ def _docx_table_element(table):
 
 def _docx_style_element(style):
     return style._element  # pylint: disable=protected-access
+
+
+def _append_word_list_level(abstract_num, level: int, *, ordered: bool) -> None:
+    """Append one list level to a Word abstract numbering definition."""
+    lvl = OxmlElement("w:lvl")
+    lvl.set(qn("w:ilvl"), str(level))
+
+    start = OxmlElement("w:start")
+    start.set(qn("w:val"), "1")
+    lvl.append(start)
+
+    num_fmt = OxmlElement("w:numFmt")
+    num_fmt.set(qn("w:val"), "decimal" if ordered else "bullet")
+    lvl.append(num_fmt)
+
+    lvl_text = OxmlElement("w:lvlText")
+    lvl_text.set(
+        qn("w:val"),
+        f"%{level + 1}." if ordered else DOCX_BULLET_SYMBOLS[level % len(DOCX_BULLET_SYMBOLS)],
+    )
+    lvl.append(lvl_text)
+
+    lvl_jc = OxmlElement("w:lvlJc")
+    lvl_jc.set(qn("w:val"), "left")
+    lvl.append(lvl_jc)
+
+    p_pr = OxmlElement("w:pPr")
+    indent = OxmlElement("w:ind")
+    indent.set(qn("w:left"), str(360 * (level + 1)))
+    indent.set(qn("w:hanging"), "180")
+    p_pr.append(indent)
+    lvl.append(p_pr)
+
+    abstract_num.append(lvl)
+
+
+def _create_word_list_numbering(doc, *, ordered: bool) -> int:
+    """Create a native multilevel Word list and return its numbering ID."""
+    numbering = doc.part.numbering_part.element
+    abstract_ids = [
+        int(element.get(qn("w:abstractNumId")))
+        for element in numbering.findall(qn("w:abstractNum"))
+    ]
+    abstract_num_id = max(abstract_ids, default=-1) + 1
+
+    abstract_num = OxmlElement("w:abstractNum")
+    abstract_num.set(qn("w:abstractNumId"), str(abstract_num_id))
+    multi_level_type = OxmlElement("w:multiLevelType")
+    multi_level_type.set(qn("w:val"), "multilevel")
+    abstract_num.append(multi_level_type)
+    for level in range(DOCX_LIST_LEVELS):
+        _append_word_list_level(abstract_num, level, ordered=ordered)
+    numbering.insert(len(abstract_ids), abstract_num)
+
+    num = numbering.add_num(abstract_num_id)
+    return int(num.get(qn("w:numId")))
+
+
+def _apply_word_list_numbering(paragraph, num_id: int, level: int) -> None:
+    """Apply a native Word list numbering ID and level to one paragraph."""
+    num_pr = _docx_paragraph_p(paragraph).get_or_add_pPr().get_or_add_numPr()
+    ilvl = OxmlElement("w:ilvl")
+    ilvl.set(qn("w:val"), str(min(level, DOCX_LIST_LEVELS - 1)))
+    num_id_element = OxmlElement("w:numId")
+    num_id_element.set(qn("w:val"), str(num_id))
+    num_pr.append(ilvl)
+    num_pr.append(num_id_element)
 
 
 def _get_style_def_by_tag(tag: str) -> str:
@@ -569,12 +648,12 @@ def _process_block_element(
     doc,
     element,
     context: HtmlToDocContext,
-    depth: int = 0,
+    state: HtmlBlockState = HtmlBlockState(),
 ):
     """Process one block-level HTML element into a docx document."""
     if element.name is None:
         return
-    if depth >= context.max_depth:
+    if state.depth >= context.max_depth:
         text = element.get_text(strip=True)
         if text:
             paragraph_style = _get_style_by_tag("p", context.style_dict, doc)
@@ -600,9 +679,17 @@ def _process_block_element(
         para.paragraph_format.space_after = Pt(6)
 
     elif element.name in ('ul', 'ol'):
+        current_list_num_id = (
+            state.list_num_id
+            if state.list_num_id is not None and state.list_tag == element.name
+            else _create_word_list_numbering(doc, ordered=element.name == "ol")
+        )
         paragraph_style = _get_style_by_tag("p", context.style_dict, doc)
         for li in element.find_all('li', recursive=False):
             p = doc.add_paragraph(style=paragraph_style)
+            if state.list_depth:
+                p.paragraph_format.left_indent = Pt(18 * state.list_depth)
+            _apply_word_list_numbering(p, current_list_num_id, state.list_depth)
             style_r_pr = paragraph_style.element.get_or_add_rPr()
             style_r_fonts = style_r_pr.find(qn('w:rFonts'))
             for child in li.contents:
@@ -611,7 +698,13 @@ def _process_block_element(
                         doc,
                         child,
                         context,
-                        depth + 1,
+                        replace(
+                            state,
+                            depth=state.depth + 1,
+                            list_depth=state.list_depth + 1,
+                            list_num_id=current_list_num_id,
+                            list_tag=element.name,
+                        ),
                     )
                     continue
                 _process_inline(
@@ -629,7 +722,12 @@ def _process_block_element(
                 doc,
                 child,
                 context,
-                depth + 1,
+                replace(
+                    state,
+                    depth=state.depth + 1,
+                    list_num_id=None,
+                    list_tag=None,
+                ),
             )
 
 

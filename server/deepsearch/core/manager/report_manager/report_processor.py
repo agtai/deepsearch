@@ -15,7 +15,7 @@ from docx.document import Document
 
 from server.deepsearch.core.manager.report_manager.docx_offline import convert_md_to_docx
 from server.deepsearch.core.manager.report_manager.html_offline import convert_md_to_html
-from server.deepsearch.core.manager.report_manager.conversion_utils import postprocess_html
+from server.deepsearch.core.manager.report_manager.conversion_utils import postprocess_html, preprocess_markdown_text
 from server.deepsearch.core.manager.report_manager.report_bundle import build_report_bundle, pack_bundle_to_base64
 from server.deepsearch.core.manager.report_manager.word_utils import set_global_styles, html_to_doc
 
@@ -181,6 +181,7 @@ class ReportHtml(DefaultReportFormatProcessor):
     @classmethod
     def convert_from_markdown(cls, md_report_content: str) -> str:
         md_report_content = cls._fix_markdown_latex(md_report_content)
+        md_report_content = preprocess_markdown_text(md_report_content)
         html_body = markdown2.markdown(
             md_report_content,
             extras=["tables", "fenced-code-blocks", "code-friendly"]
