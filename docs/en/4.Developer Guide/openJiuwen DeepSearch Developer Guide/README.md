@@ -430,6 +430,7 @@ The currently supported actions are:
 - `polish`: polish the selected text.
 - `shorten`: shorten the selected text.
 - `supplementary_search`: selectively enhance the selected content together with supplementary retrieval. See "Rewrite Scope" below.
+- `new_task`: rewrite an existing section or append a new subsection based on a new user task.
 - `sync`: sync the full report already edited on the frontend back into backend state.
 - `finish`: end the current local editing session.
 
@@ -440,7 +441,7 @@ The currently supported actions are:
   - `selected_and_related`: replace the entire section containing the selection and allow connective rewriting across related content. This is only used by `supplementary_search`; other actions ignore it behaviorally even if it is present.
 - For `supplementary_search`, `rewrite_scope` must be one of the two values above, otherwise validation fails.
 
-The request body for local rewrite actions (`expand`, `polish`, `shorten`, `supplementary_search`) must contain the following fields:
+The request body for local rewrite actions (`expand`, `polish`, `shorten`, `supplementary_search`, `new_task`) must contain the following fields:
 - `action`: action type. Required.
 - `selected_text`: the original text currently selected by the user.
 - `start_offset`: the start offset of the selected text in the current report.
@@ -512,7 +513,8 @@ async for chunk in agent.run(message=finish_message, conversation_id=conversatio
 
 Notes:
 - Local rewrite actions require `selected_text` to exactly match the text in `[start_offset, end_offset)` of the current report, otherwise offset validation fails.
-- Rewrite results update only `final_result.response_content`. Existing citation / infer metadata stays unchanged, and the backend no longer maintains an extra offset mapping.
+- Rewrite results update `final_result.response_content`. When `source_tracer_research_trace_source_switch` is enabled, the backend runs diff-aware local source tracing on changed spans; unchanged spans keep their existing citations, and newly traced citations update `citation_messages` and append reference entries at the end of the report.
+- The backend no longer maintains an extra offset mapping.
 - `sync` only updates `final_result.response_content`, does not consume `feedback_interaction_count`, and appends a `search_context.rewrite_history` record only when the full report content actually changes.
 - The backend keeps only the latest 10 `sync` history records; unchanged `sync` requests do not create history entries.
 - Each successful normal local rewrite appends one record to `search_context.rewrite_history`, including `action`, `rewrite_scope` (when present), offsets, and related information for debugging and auditing.

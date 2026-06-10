@@ -202,9 +202,10 @@ class UserFeedbackProcessorNode(BaseNode)
 - 对改写类动作解析并校验 `action`、`rewrite_scope`、`selected_text`、偏移量等字段。
 - `supplementary_search` 支持 `selected_only` 与 `selected_and_related` 两种改写范围。
 - `sync` 会以轻量 ack 回传整篇报告更新结果，不消耗 `feedback_interaction_count`；只有整篇报告内容实际变化时才会追加一条 `rewrite_history` 记录。
-- 调用 `UserFeedbackProcessor` 完成局部改写，仅更新 `final_result.response_content`。
-- 普通 rewrite / supplementary_search 会维护 `search_context.feedback_interaction_count` 与 `search_context.rewrite_history`，记录动作类型、改写范围和实际替换区间。
-- 改写链路保留原有 citation / infer metadata，不再额外维护前端偏移映射。
+- 调用 `UserFeedbackProcessor` 完成局部改写并更新 `final_result.response_content`。
+- 当 `source_tracer_research_trace_source_switch` 开启时，普通 rewrite、`supplementary_search` 和 `new_task` 会对变化片段执行差异感知局部溯源；未变化片段保留原引用，新增引用会同步更新 `citation_messages` 并在文末追加参考文献。
+- 普通 rewrite / supplementary_search / new_task 会维护 `search_context.feedback_interaction_count` 与 `search_context.rewrite_history`，记录动作类型、改写范围和实际替换区间。
+- 改写链路不再额外维护前端偏移映射；`sync` 仅同步正文，不触发局部溯源。
 - `sync` 历史仅保留最近 10 条；内容未变化的 `sync` 不会新增历史记录。
 - 只有非 `sync` 动作会受 `user_feedback_processor_max_interactions` 约束；收到 `finish` 后结束流程。
 

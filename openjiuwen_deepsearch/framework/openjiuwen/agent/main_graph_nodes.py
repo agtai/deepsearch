@@ -1541,6 +1541,9 @@ class UserFeedbackProcessorNode(BaseNode):
             language=session.get_global_state("search_context.language"),
             final_result=session.get_global_state("search_context.final_result"),
             llm_model_name=adapt_llm_model_name(session, NodeId.USER_FEEDBACK_PROCESSOR.value),
+            enable_local_source_trace=(
+                session.get_global_state("config.source_tracer_research_trace_source_switch") is not False
+            ),
         )
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
@@ -1633,6 +1636,7 @@ class UserFeedbackProcessorNode(BaseNode):
                 feedback=feedback,
                 final_result=final_result,
                 language=current_inputs["language"],
+                enable_local_source_trace=current_inputs["enable_local_source_trace"],
             )
         except CustomException as e:
             if interaction_count >= max_interactions and consume_interaction:
@@ -1680,6 +1684,10 @@ class UserFeedbackProcessorNode(BaseNode):
                 "response_content": action_result["new_report"],
             }
         )
+        if "citation_messages" in action_result:
+            updated_final_result["citation_messages"] = action_result["citation_messages"]
+        if "warning_info" in action_result:
+            updated_final_result["warning_info"] = action_result["warning_info"]
         await UserFeedbackProcessor.send_result(
             session=session,
             feedback=feedback,
@@ -1777,6 +1785,12 @@ class UserFeedbackProcessorNode(BaseNode):
         current_report_content = current_final_result.get("response_content", "") or ""
         new_report = algorithm_output["new_report"]
         session.update_global_state({"search_context.final_result.response_content": new_report})
+        if "citation_messages" in algorithm_output:
+            session.update_global_state(
+                {"search_context.final_result.citation_messages": algorithm_output["citation_messages"]}
+            )
+        if "warning_info" in algorithm_output:
+            session.update_global_state({"search_context.final_result.warning_info": algorithm_output["warning_info"]})
         feedback = algorithm_output["feedback"]
         updated_outline = build_current_outline_update(
             current_outline=session.get_global_state("search_context.current_outline"),

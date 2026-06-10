@@ -118,9 +118,10 @@ class UserFeedbackProcessorNode(BaseNode)
 - Parse and validate rewrite payload fields such as `action`, `rewrite_scope`, `selected_text`, and offsets.
 - Support both `selected_only` and `selected_and_related` as rewrite scopes for `supplementary_search`.
 - Return a lightweight ack for `sync`, without consuming `feedback_interaction_count`; successful sync appends a rewrite-history record only when the full report content actually changes.
-- Call `UserFeedbackProcessor` to complete the local rewrite and update only `final_result.response_content`.
-- For normal rewrite and `supplementary_search` actions, maintain `search_context.feedback_interaction_count` and `search_context.rewrite_history`, including action type, rewrite scope, and actual replacement range.
-- Keep the existing citation / infer metadata unchanged during the rewrite path, without maintaining extra frontend offset mappings.
+- Call `UserFeedbackProcessor` to complete the local rewrite and update `final_result.response_content`.
+- When `source_tracer_research_trace_source_switch` is enabled, normal rewrite, `supplementary_search`, and `new_task` actions run diff-aware local source tracing on changed spans; unchanged spans keep their existing citations, and newly traced citations update `citation_messages` and append reference entries at the end of the report.
+- For normal rewrite, `supplementary_search`, and `new_task` actions, maintain `search_context.feedback_interaction_count` and `search_context.rewrite_history`, including action type, rewrite scope, and actual replacement range.
+- The rewrite path no longer maintains extra frontend offset mappings; `sync` only synchronizes the report body and does not trigger local source tracing.
 - Keep only the latest 10 `sync` history records; unchanged `sync` requests do not create history records.
 - Apply `user_feedback_processor_max_interactions` only to non-`sync` actions; end the flow after receiving `finish`.
 

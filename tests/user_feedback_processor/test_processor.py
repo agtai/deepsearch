@@ -329,6 +329,91 @@ class TestUserFeedbackProcessorDispatch:
         )
 
     @pytest.mark.asyncio
+    async def test_execute_applies_local_source_trace_for_rewrite_actions(self, processor):
+        feedback = {
+            "action": "expand",
+            "selected_text": "原文",
+            "start_offset": 0,
+            "end_offset": 2,
+        }
+        final_result = {"response_content": "原文", "citation_messages": {"data": []}, "infer_messages": []}
+        rewrite_result = {
+            "new_report": "改写",
+            "original_text": "原文",
+            "original_start_offset": 0,
+            "original_end_offset": 2,
+            "original_text_clean": "原文",
+            "rewritten_text": "改写",
+            "rewritten_start_offset": 0,
+            "rewritten_end_offset": 2,
+        }
+        traced_result = {**rewrite_result, "warning_info": "local trace degraded"}
+
+        with patch.object(
+            processor._synonym_rewriter,
+            "synonym_rewrite",
+            new_callable=AsyncMock,
+            return_value=rewrite_result,
+        ):
+            with patch(
+                "openjiuwen_deepsearch.algorithm.user_feedback_processor.user_feedback_processor."
+                "apply_local_source_trace_to_action_result",
+                new_callable=AsyncMock,
+                return_value=traced_result,
+            ) as mock_apply:
+                result = await processor.execute(feedback=feedback, final_result=final_result, language="zh-CN")
+
+        assert result["warning_info"] == "local trace degraded"
+        mock_apply.assert_awaited_once_with(
+            feedback=feedback,
+            action_result=rewrite_result,
+            final_result=final_result,
+            llm_model_name=processor.llm_model_name,
+            language="zh-CN",
+        )
+
+    @pytest.mark.asyncio
+    async def test_execute_skips_local_source_trace_when_trace_source_switch_disabled(self, processor):
+        feedback = {
+            "action": "expand",
+            "selected_text": "原文",
+            "start_offset": 0,
+            "end_offset": 2,
+        }
+        final_result = {"response_content": "原文", "citation_messages": {"data": []}, "infer_messages": []}
+        rewrite_result = {
+            "new_report": "改写",
+            "original_text": "原文",
+            "original_start_offset": 0,
+            "original_end_offset": 2,
+            "original_text_clean": "原文",
+            "rewritten_text": "改写",
+            "rewritten_start_offset": 0,
+            "rewritten_end_offset": 2,
+        }
+
+        with patch.object(
+            processor._synonym_rewriter,
+            "synonym_rewrite",
+            new_callable=AsyncMock,
+            return_value=rewrite_result,
+        ):
+            with patch(
+                "openjiuwen_deepsearch.algorithm.user_feedback_processor.user_feedback_processor."
+                "apply_local_source_trace_to_action_result",
+                new_callable=AsyncMock,
+            ) as mock_apply:
+                result = await processor.execute(
+                    feedback=feedback,
+                    final_result=final_result,
+                    language="zh-CN",
+                    enable_local_source_trace=False,
+                )
+
+        assert result == rewrite_result
+        mock_apply.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_execute_rejects_unsupported_action(self, processor):
         with pytest.raises(CustomValueException) as exc_info:
             await processor.execute(

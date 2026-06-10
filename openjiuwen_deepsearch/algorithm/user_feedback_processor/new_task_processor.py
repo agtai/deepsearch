@@ -1075,6 +1075,7 @@ class NewTaskProcessor(UserFeedbackPromptInvoker):
             "used_new_doc_count": len(evidence.incremental_doc_infos),
             "incremental_plan": evidence.incremental_plan,
             "incremental_doc_infos": evidence.incremental_doc_infos,
+            "source_trace_doc_infos": evidence.merged_doc_infos,
             "missing_aspects": evidence.assessment.missing_aspects,
             "edit_strategy": evidence.assessment.edit_strategy,
             "new_subsection_title": edit_result.new_subsection_title,
