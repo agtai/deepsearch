@@ -366,17 +366,17 @@ def test_replace_citations_and_classified_index(paragraphs, classified_contents,
 
         # 单个匹配
         (
-                [{"url": "http://a.com", "title": "A", "original_content": "contentA"}],
+                [{"url": "http://a.com", "title": "A", "original_content": "contentA", "key_passages": ["passageA"]}],
                 ["http://a.com"],
-                {"references": ["[A](http://a.com)"], "core_content_list": ["contentA"]},
-                [{"url": "http://a.com", "title": "A", "original_content": "contentA"}],
+                {"references": ["[A](http://a.com)"], "core_content_list": ["Document 1 key passages:\n- passageA"]},
+                [{"url": "http://a.com", "title": "A", "original_content": "contentA", "key_passages": ["passageA"]}],
         ),
 
         # urls里有两个地址，doc_infos里都有
         (
                 [
-                    {"url": "http://a.com", "title": "A", "original_content": "contentA"},
-                    {"url": "http://b.com", "title": "B", "original_content": "contentB"},
+                    {"url": "http://a.com", "title": "A", "original_content": "contentA", "key_passages": ["passageA"]},
+                    {"url": "http://b.com", "title": "B", "original_content": "contentB", "key_passages": ["passageB"]},
                     {"url": "http://c.com", "title": "C", "original_content": "contentC"},
                 ],
                 ["http://a.com", "http://b.com"],
@@ -386,13 +386,13 @@ def test_replace_citations_and_classified_index(paragraphs, classified_contents,
                         "[B](http://b.com)"
                     ],
                     "core_content_list": [
-                        "contentA",
-                        "contentB"
+                        "Document 1 key passages:\n- passageA",
+                        "Document 2 key passages:\n- passageB",
                     ]
                 },
                 [
-                    {"url": "http://a.com", "title": "A", "original_content": "contentA"},
-                    {"url": "http://b.com", "title": "B", "original_content": "contentB"},
+                    {"url": "http://a.com", "title": "A", "original_content": "contentA", "key_passages": ["passageA"]},
+                    {"url": "http://b.com", "title": "B", "original_content": "contentB", "key_passages": ["passageB"]},
                 ],
         ),
         (
@@ -401,6 +401,7 @@ def test_replace_citations_and_classified_index(paragraphs, classified_contents,
                         "url": "https://example.test/",
                         "title": "x](javascript:alert(1)) [safe",
                         "original_content": "contentA",
+                        "key_passages": [],
                     }
                 ],
                 ["https://example.test/"],
@@ -408,24 +409,25 @@ def test_replace_citations_and_classified_index(paragraphs, classified_contents,
                     "references": [
                         "[x\\]\\(javascript:alert\\(1\\)\\) \\[safe](https://example.test/)"
                     ],
-                    "core_content_list": ["contentA"],
+                    "core_content_list": ["Document 1 key passages:\n[]"],
                 },
                 [
                     {
                         "url": "https://example.test/",
                         "title": "x](javascript:alert(1)) [safe",
                         "original_content": "contentA",
+                        "key_passages": [],
                     }
                 ],
         ),
         (
-                [{"url": "javascript:alert(2)", "title": "benign", "original_content": "contentB"}],
+                [{"url": "javascript:alert(2)", "title": "benign", "original_content": "contentB", "key_passages": ["passageB"]}],
                 ["javascript:alert(2)"],
                 {
                     "references": ["benign (javascript:alert\\(2\\))"],
-                    "core_content_list": ["contentB"],
+                    "core_content_list": ["Document 1 key passages:\n- passageB"],
                 },
-                [{"url": "javascript:alert(2)", "title": "benign", "original_content": "contentB"}],
+                [{"url": "javascript:alert(2)", "title": "benign", "original_content": "contentB", "key_passages": ["passageB"]}],
         ),
     ],
 )
