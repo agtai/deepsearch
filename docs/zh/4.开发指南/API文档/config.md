@@ -137,6 +137,7 @@ bocha 30
 
 **补充说明**：
 
+- `tavily` 的 `extension.include_domains` / `extension.exclude_domains` 会透传给 Tavily 检索接口，用于**偏好或排除**指定站点，并非框架侧的硬性白名单。Tavily 在相关结果不足时仍可能返回`include_domains`列表外域名的页面。
 - `jina` 的 `search_url` 为空时，会自动回退到 `https://s.jina.ai`。
 - `bocha`、`perplexity` 通过 harness `web_tools` 适配层访问搜索能力，仅当底层 provider 支持地址覆盖时，`search_url` 才会生效。
 - `web_search_tool` 返回结果进入 Collector 前会统一归一化为 `title`、`url`、`content`、`type` 等字段；字段别名如 `link`、`source_url`、`snippet`、`summary`、`answer` 会在 Collector 中兼容处理。
@@ -323,7 +324,7 @@ class openjiuwen_deepsearch.config.config.AgentConfig()
 - **stats_info_llm**(bool, 可选)：LLM调用统计开关。默认值：`False`。
 - **api_tools_config**(ApiToolsConfig，可选)：运行时 HTTP API 工具配置，用于在默认工具之外注入可调用工具。默认值：`ApiToolsConfig`。
 - **vlm_chart_generator_enable**(bool, 可选)：vlm迭代生成图功能开关，与`visualization_enable`功能互斥。
-- **vlm_chart_generator_max_iterations**(int, 可选)：vlm生成图迭代优化最大次数。默认值：`1`，可设置范围为0~3，0表示生成的图表不进行迭代优化，数值越大，耗时越长。
+- **vlm_chart_generator_max_iterations**(int, 可选)：vlm生成图迭代优化最大次数。默认值：`1`，可设置范围为1~3，数值越大，耗时越长。
 - **agent_llm_timeouts**(Dict[str, int], 可选)：按 `agent_name` / 节点级 key 配置的 LLM 总墙钟超时。命中优先级为 `agent_name` 精确匹配 > 节点级 key 前缀匹配 > `default`。仅当字典非空且包含 `default` 时生效；命中值为 `0` 时表示对该规则禁用业务层总超时。默认值：`dict()`。
 
 **说明**：
@@ -428,6 +429,7 @@ class openjiuwen_deepsearch.config.config.ServiceConfig()
 ### 报告节点参数
 - **sub_report_classify_doc_infos_single_time_num**(int, 可选)：子报告中单次llm处理筛选收集到的数量。默认值：`60`。
 - **sub_report_classify_doc_infos_res_top_k_num**(int, 可选)：子报告中单次llm处理返回的top_k数量。默认值：`10`。
+- **sub_report_doc_prefilter_multiplier**(int, 可选)：子报告写作前文档预筛保留倍数，最大候选数为 `sub_report_classify_doc_infos_res_top_k_num * sub_report_doc_prefilter_multiplier`。默认值：`5`。
 - **report_max_generate_retry_num**(int, 可选)：生成内容最大重试次数。默认值：`3`。
 - **visualization_enable**(bool, 可选)：报告插图可视化开关。默认值：`False`。
 
@@ -447,6 +449,14 @@ class openjiuwen_deepsearch.config.config.ServiceConfig()
 - `service_config.llm_timeout` 会继续传给底层 LLM client。
 - 若同时配置 `agent_llm_timeouts`，业务层会在整次流式调用外再包一层总墙钟超时；命中新机制时会抛出 `LLM_WALL_CLOCK_TIMEOUT`（状态码 `211204`）。
 
+### 大模型思考模式参数
+- **llm_thinking_enabled**(bool, 可选)：是否开启大模型思考模式。默认值：`False`。该配置仅在 SDK 内部的 `DeepresearchAgent` 初始化 LLM 时生效，用于对支持的厂商注入关闭/开启思考参数；`DeepSearchAgent`、`SimpleReactSearchAgent` 以及 REST API 入参不使用该字段。
+
+**说明**：
+
+- `service_config.llm_thinking_enabled` 不是 `LLMConfig` 字段，也不会作为服务化 REST API 的公开请求参数；如模型厂商不支持思考开关，系统仅记录 warning 并保持原始扩展参数。
+- 若 `LLMConfig.extension` 中已手动配置思考相关字段，内部统一思考开关会覆盖这些字段，并记录 warning 日志。
+
 ### Debug参数
 - **node_debug_enable**(bool, 可选)：节点格式化记录debug日志开关。默认值：`False`。
 - **export_intermediate_results**(bool, 可选)：可视化任务执行中间结果开关。默认值：`False`。
@@ -460,6 +470,7 @@ class openjiuwen_deepsearch.config.config.ServiceConfig()
 >>> service_config = ServiceConfig(
 ...     workflow_execution_timeout=3600,
 ...     llm_timeout=600,
+...     llm_thinking_enabled=False,
 ...     node_debug_enable=True
 ... )
 >>> print(service_config.workflow_execution_timeout, service_config.node_debug_enable)

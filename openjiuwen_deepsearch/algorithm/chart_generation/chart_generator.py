@@ -8,7 +8,6 @@
 2. 执行代码生成图表
 3. 可选的VLM迭代反馈机制
 """
-
 import asyncio
 import logging
 import os
@@ -16,6 +15,10 @@ import re
 import json
 import textwrap
 from typing import Dict, List, Tuple, Optional, Any
+import base64
+import io
+from PIL import Image
+import numpy as np
 
 from openjiuwen_deepsearch.utils.constants_utils.node_constants import AgentLlmName
 from openjiuwen_deepsearch.algorithm.chart_generation.utils import (
@@ -98,7 +101,7 @@ class ChartGenerator:
     async def generate_charts(
         self,
         chart_tasks: Dict[int, List[Dict[str, Any]]],
-    ) -> Dict[str, str]:
+    ) -> List[Dict[int, Dict[str, Any]]]:
         """
         批量生成图表
 
@@ -107,7 +110,7 @@ class ChartGenerator:
             use_vlm_critic: 是否使用VLM评估反馈
 
         Returns:
-            Dict[str, str]: 图表各项信息
+            List[Dict[int, Dict[str, Any]]]: 图表各项信息
         """
         # 并行每个章节的图表生成任务
         section_coroutines: List[asyncio.Future] = []
@@ -247,6 +250,11 @@ class ChartGenerator:
             if not chart_data:
                 logger.warning(f"No data for chart: {chart_task.get('chart_id', '')}")
                 return None
+            # 筛除只有一个数据的图
+            if len(chart_data) <= 1:
+                logger.warning(f"There is only one data to show. "\
+                               f"Filtered data: {json.dumps(chart_data, ensure_ascii=False)}")
+                return None
 
             chart_title = chart_task.get("chart_title", "")
             chart_description = chart_task.get("description", "")
@@ -289,13 +297,18 @@ class ChartGenerator:
                 iterate += 1
                 
                 if score >= self._chart_threshold:
-                    logger.info(f"Chart generated successfully: {figure_id},"
+                    del suggestion_list
+                    del result
+                    # 硬编码筛选存在大面积空白的图片
+                    if self._has_large_blank(chart_base64):
+                        logger.info(f"{self._log_prefix} Filter the chart {figure_id} with large blank.")
+                        del chart_base64
+                        return {}
+                    logger.info(f"{self._log_prefix} Chart generated successfully: {figure_id},"
                                 f"chart title: {chart_title}, score: {score}")
                     final_base64 = chart_base64
                     # 释放内存
                     del chart_base64
-                    del suggestion_list
-                    del result
                     return {"chart_base64": final_base64, "score": score}
                 elif iterate > self._vlm_max_iterations:
                     # 达到最大迭代优化次数，图分数没有达到输出阈值，返回空
@@ -360,10 +373,11 @@ class ChartGenerator:
 
             # 第1步：生成代码
             code = await self._generate_chart_code(gen_chart_input)
-            if not code:
+            if not code or "no code" in code.lower():
                 # 没有生成代码，无法向下执行，本次任务失败
                 logger.warning(f"Failed to generate code for {figure_id}")
                 return {}
+            logger.debug(f"The origin code is: \n%s.", code)
 
             # 第2步：执行代码
             # 在沙箱中执行代码
@@ -428,31 +442,32 @@ class ChartGenerator:
                 call_model_input, detection_func_and_args=detect_func_and_args
             )
 
-            def extract_code(response: str) -> Optional[str]:
-                """
-                从LLM响应中提取Python代码
-                优先提取 ```python 和 ``` 之间的内容；
-                若末尾没有 ```，则提取 ```python 之后的全部内容。
-                """
-                # 先尝试匹配 ```python ... ``` 之间的内容
-                match = re.search(r"```(?:python)?\s*([\s\S]*?)\s*```", response)
-                if match:
-                    return match.group(1).strip()
-                # 若没有闭合的 ```，则提取 ```python 之后的全部内容
-                match = re.search(r"```(?:python)?\s*([\s\S]*)", response)
-                if match:
-                    return match.group(1).strip()
-                # 如果没有代码块标记，直接返回整个响应（可能是纯代码）
-                return response.strip()
-
             # 提取代码
-            code = extract_code(response)
+            code = self._extract_code(response)
             # 代码规范化
             return self._normalize_code(code)
 
         except Exception as e:
             logger.error(f"Error generating chart code: {e}")
             return None
+
+    @staticmethod
+    def _extract_code(response: str) -> Optional[str]:
+        """
+        从LLM响应中提取Python代码
+        优先提取 ```python 和 ``` 之间的内容；
+        若末尾没有 ```，则提取 ```python 之后的全部内容。
+        """
+        # 先尝试匹配 ```python ... ``` 之间的内容
+        match = re.search(r"```(?:python)?\s*([\s\S]*?)\s*```", response)
+        if match:
+            return match.group(1).strip()
+        # 若没有闭合的 ```，则提取 ```python 之后的全部内容
+        match = re.search(r"```(?:python)?\s*([\s\S]*)", response)
+        if match:
+            return match.group(1).strip()
+        # 如果没有代码块标记，直接返回整个响应（可能是纯代码）
+        return response.strip()
 
     @staticmethod
     def _normalize_code(code: str) -> str:
@@ -543,3 +558,60 @@ class ChartGenerator:
     def set_vlm_iteration(self, iteration: int):
         """修改vlm迭代优化最大次数"""
         self._vlm_max_iterations = iteration
+        
+    @staticmethod
+    def _has_large_blank(png_base64: str) -> bool:
+        """
+        判断图片中是否存在大面积连续空白（占画布面积超过90%）
+
+        使用numpy数组运算同时检测水平方向（空白行）和垂直方向（空白列）
+        的最大连续空白面积，任一方向超过阈值即判定为大面积空白。
+
+        Args:
+            png_base64: 图片的base64编码字符串
+
+        Returns:
+            bool: True表示存在大面积连续空白，False表示不存在
+        """
+        try:
+            image_data = base64.b64decode(png_base64)
+            img = Image.open(io.BytesIO(image_data))
+            try:
+                width, height = img.size
+                if width == 0 or height == 0:
+                    return True
+
+                gray = img.convert("L")
+                arr = np.asarray(gray)
+
+                white_threshold = 245
+                blank_ratio_threshold = 0.8
+                large_blank_ratio = 0.9
+
+                white_mask = arr >= white_threshold
+                blank_rows = white_mask.mean(axis=1) >= blank_ratio_threshold
+                blank_cols = white_mask.mean(axis=0) >= blank_ratio_threshold
+
+                def _max_run(mask) -> int:
+                    max_run = 0
+                    current = 0
+                    for is_blank in mask:
+                        if is_blank:
+                            current += 1
+                        else:
+                            max_run = max(max_run, current)
+                            current = 0
+                    return max(max_run, current)
+
+                total_pixels = width * height
+                max_blank_area = max(
+                    _max_run(blank_rows) * width,
+                    _max_run(blank_cols) * height,
+                )
+
+                return max_blank_area > total_pixels * large_blank_ratio
+            finally:
+                img.close()
+        except Exception as e:
+            logger.warning(f"Error checking large blank area: {e}")
+            return True

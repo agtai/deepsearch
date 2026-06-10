@@ -53,6 +53,12 @@ SAFE_ENV_WHITELIST: List[str] = [
     "MPLCONFIGDIR",      # matplotlib 配置目录
     "OPENBLAS_NUM_THREADS",  # numpy 性能优化
     "OMP_NUM_THREADS",       # OpenMP 线程数
+    # Windows 系统环境变量：matplotlib 的 Path.home() / get_configdir() 依赖这些变量
+    "USERPROFILE",       # Windows 用户目录（C:\Users\Username）
+    "HOMEDRIVE",         # Windows 主目录驱动器（C:）
+    "HOMEPATH",          # Windows 主目录路径（\Users\Username）
+    "APPDATA",           # Windows 应用数据目录
+    "LOCALAPPDATA",      # Windows 本地应用数据目录
 ]
 
 # 敏感信息匹配模式（用于脱敏 stdout/stderr）
@@ -120,7 +126,6 @@ RESTRICTED_MODULES = frozenset(
         "gc",         # gc 可能影响内存管理
         "traceback",  # traceback.print_tb 可能泄露信息
         "dis",        # 反汇编模块
-        "inspect",    # 可用于获取源代码等
     }
 )
 
@@ -313,16 +318,28 @@ except Exception:
 
 # ── File write restriction ──────────────────────────────────────
 _write_dirs = [_working_dir, os.path.abspath(tempfile.gettempdir())]
-_home_cache = os.path.join(os.path.expanduser("~"), ".cache")
-if os.path.isdir(_home_cache):
-    _write_dirs.append(os.path.abspath(_home_cache))
+# 获取用户目录（Windows 兼容）
+try:
+    _home_dir = os.path.expanduser("~")
+    if _home_dir and os.path.isdir(_home_dir):
+        _home_cache = os.path.join(_home_dir, ".cache")
+        if os.path.isdir(_home_cache):
+            _write_dirs.append(os.path.abspath(_home_cache))
+except Exception:
+    pass  # Windows 系统可能无法获取 home 目录，跳过
 
 # ── File read restriction ──────────────────────────────────────
 # 安全读取路径白名单：只允许读取工作目录、临时目录、系统库目录等
 _read_dirs = [_working_dir, os.path.abspath(tempfile.gettempdir())]
-# 添加 matplotlib 配置目录
-if os.path.isdir(_home_cache):
-    _read_dirs.append(os.path.abspath(_home_cache))
+# 添加 matplotlib 配置目录（Windows 兼容）
+try:
+    _home_dir = os.path.expanduser("~")
+    if _home_dir and os.path.isdir(_home_dir):
+        _home_cache = os.path.join(_home_dir, ".cache")
+        if os.path.isdir(_home_cache):
+            _read_dirs.append(os.path.abspath(_home_cache))
+except Exception:
+    pass  # Windows 系统可能无法获取 home 目录，跳过
 # 添加 Python 标准库路径（允许 import 加载模块）
 _stdlib_paths = []
 # os.__file__ 指向标准库目录
@@ -544,12 +561,17 @@ def _resolve_font_path() -> str:
     return ""
 
 
-def _build_safe_env() -> dict:
+def _build_safe_env(working_dir: str = "") -> dict:
     """
     构建最小化的安全环境变量字典。
 
     只传递 Python 运行和科学计算库所需的关键环境变量，
     防止敏感信息（API keys、密钥等）通过环境变量泄露给子进程。
+    同时确保 MPLCONFIGDIR 有值，避免 matplotlib 在 Windows 系统上
+    因缺少 USERPROFILE/HOMEDRIVE/HOMEPATH 而 Path.home() 失败。
+
+    Args:
+        working_dir: 沙箱工作目录，用于设置 MPLCONFIGDIR 兜底值
 
     Returns:
         dict: 安全的环境变量字典
@@ -558,6 +580,14 @@ def _build_safe_env() -> dict:
     for key in SAFE_ENV_WHITELIST:
         if key in os.environ:
             safe_env[key] = os.environ[key]
+    # 确保 MPLCONFIGDIR 有值：matplotlib 用它定位配置目录，
+    # 若缺失则回退 Path.home()，在 Windows 无 USERPROFILE 时会崩溃。
+    # 使用工作目录作为兜底（安全：已在 _write_dirs 白名单中）。
+    if "MPLCONFIGDIR" not in safe_env:
+        mpl_dir = os.path.join(working_dir, ".matplotlib") if working_dir else ""
+        if mpl_dir:
+            os.makedirs(mpl_dir, exist_ok=True)
+            safe_env["MPLCONFIGDIR"] = mpl_dir
     return safe_env
 
 
@@ -683,7 +713,7 @@ class AsyncCodeExecutor:
 
             # 安全机制：使用最小化的环境变量，防止敏感信息泄露给子进程
             # 只传递 Python 运行必需的白名单变量，不传递 API keys 等敏感配置
-            env = _build_safe_env()
+            env = _build_safe_env(working_dir=self.working_dir)
             env["_SANDBOX_CFG"] = json.dumps(config, ensure_ascii=False, default=str)
 
             proc = await asyncio.create_subprocess_exec(
