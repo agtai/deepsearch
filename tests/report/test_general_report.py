@@ -5,6 +5,7 @@ import pytest
 from openjiuwen_deepsearch.algorithm.report.config import ReportFormat
 from openjiuwen_deepsearch.algorithm.report.report import Reporter
 from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import (
+    ChapterSidecar,
     Outline,
     Section,
     Report,
@@ -12,6 +13,114 @@ from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import (
     SubReportContent,
 )
 from openjiuwen_deepsearch.common.common_constants import CHINESE
+
+
+@patch("openjiuwen_deepsearch.algorithm.report.report.llm_context", new_callable=MagicMock)
+def test_build_reporter_compact_context_selects_fields_by_target(mock_llm_cls):
+    reporter = Reporter("basic")
+    reporter.gen_report_context = {
+        "report_task": "总报告任务",
+        "current_report": Report(
+            sub_reports=[
+                SubReport(
+                    section_id="2",
+                    section_task="章节标题",
+                    content=SubReportContent(
+                        sub_report_content_summary="兼容摘要",
+                        sub_report_chapter_sidecar=ChapterSidecar(
+                            chapter_summary="结构化摘要",
+                            key_findings=["发现1", "发现2", "发现3", "发现4"],
+                            risk_points=["风险1"],
+                        ),
+                    ),
+                )
+            ]
+        ),
+    }
+
+    abstract_context = reporter._build_reporter_compact_context("abstract")
+    conclusion_context = reporter._build_reporter_compact_context("conclusion")
+
+    assert "总报告任务" in abstract_context
+    assert "2 章节标题" in abstract_context
+    assert "结构化摘要" in abstract_context
+    assert "发现1" in abstract_context
+    assert "发现3" in abstract_context
+    assert "发现4" not in abstract_context
+    assert "风险1" not in abstract_context
+
+    assert "发现4" in conclusion_context
+    assert "风险1" in conclusion_context
+
+
+@patch("openjiuwen_deepsearch.algorithm.report.report.llm_context", new_callable=MagicMock)
+def test_build_reporter_compact_context_uses_summary_fallback_and_skips_empty(mock_llm_cls):
+    reporter = Reporter("basic")
+    reporter.gen_report_context = {
+        "current_report": Report(
+            sub_reports=[
+                SubReport(
+                    section_id=1,
+                    section_task="可用章节",
+                    content=SubReportContent(sub_report_content_summary="全文兜底摘要"),
+                ),
+                SubReport(section_id=2, section_task="空章节"),
+            ]
+        )
+    }
+
+    compact_context = reporter._build_reporter_compact_context("abstract")
+
+    assert "1 可用章节" in compact_context
+    assert "Summary (fallback)" in compact_context
+    assert "全文兜底摘要" in compact_context
+    assert "空章节" not in compact_context
+
+    reporter.gen_report_context = {"current_report": Report(sub_reports=[SubReport()])}
+    assert reporter._build_reporter_compact_context("abstract") == ""
+
+
+@pytest.mark.asyncio
+@patch("openjiuwen_deepsearch.algorithm.report.report.llm_context", new_callable=MagicMock)
+async def test_generate_report_falls_back_to_full_content_when_compact_context_is_empty(
+    mock_llm_cls,
+):
+    reporter = Reporter("basic")
+    reporter.gen_report_context = {
+        "current_outline": Outline(thought="", title="报告标题"),
+        "current_report": Report(sub_reports=[SubReport()]),
+        "language": CHINESE,
+    }
+    sub_report_result = {
+        "sub_reports_content": "完整拼接正文",
+        "sub_references": "",
+        "refreshed_all_classified_contents": [],
+    }
+
+    with patch.object(reporter, "_set_context_variables", return_value=True):
+        with patch.object(
+            reporter,
+            "_process_sub_report",
+            new_callable=AsyncMock,
+            return_value=sub_report_result,
+        ):
+            with patch.object(
+                reporter,
+                "generate_abstract",
+                new_callable=AsyncMock,
+                return_value="摘要",
+            ) as mock_generate_abstract:
+                with patch.object(
+                    reporter,
+                    "generate_conclusion",
+                    new_callable=AsyncMock,
+                    return_value="结论",
+                ) as mock_generate_conclusion:
+                    success, _ = await reporter.generate_report({"language": CHINESE})
+
+    assert success is True
+    mock_generate_abstract.assert_awaited_once_with("完整拼接正文")
+    mock_generate_conclusion.assert_awaited_once_with("完整拼接正文")
 
 
 @pytest.mark.asyncio

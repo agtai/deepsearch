@@ -93,6 +93,7 @@ class AgentLlmName(enum.Enum):
     SUB_REPORTER_CHART_TRACEABILITY = "sub_reporter_chart_traceability"
     SUB_REPORTER_VISUALIZATION_NORMALIZE = "sub_reporter_visualization_normalize"
     SUB_REPORTER_SUMMARY = "sub_reporter_summary"
+    SUB_REPORTER_SIDECAR = "sub_reporter_sidecar"
 
     SOURCE_TRACER_CONTENT_RECOGNITION = "source_tracer_content_recognition"
     SOURCE_TRACER_SOURCE_MATCHING = "source_tracer_source_matching"

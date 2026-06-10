@@ -84,6 +84,14 @@ class Outline(BaseModel):
     sections: List[Section] = Field(default_factory=list, description="最终研究报告的章节")
 
 
+class ChapterSidecar(BaseModel):
+    """章节结构化汇总信息，供 Reporter 复用。"""
+
+    chapter_summary: str = Field(default="", description="章节摘要")
+    key_findings: List[str] = Field(default_factory=list, description="章节关键发现")
+    risk_points: List[str] = Field(default_factory=list, description="风险、限制或不确定性")
+
+
 class SubReportContent(BaseModel):
     """
     子报告内容模型：包含子报告的核心内容及其相关溯源信息
@@ -91,6 +99,10 @@ class SubReportContent(BaseModel):
     classified_content: List[Dict] = Field(default_factory=list, description="子章节筛选的文档信息")
     sub_report_content_text: str = Field(default="", description="子报告内容文本")
     sub_report_content_summary: str = Field(default="", description="子报告内容的总结")
+    sub_report_chapter_sidecar: Optional[ChapterSidecar] = Field(
+        default=None,
+        description="子报告结构化 sidecar 汇总信息",
+    )
     sub_report_trace_source_datas: List[Dict] = Field(default_factory=list, description="子报告的溯源信息")
 
 

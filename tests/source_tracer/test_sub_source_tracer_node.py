@@ -8,7 +8,7 @@ import pytest
 from openjiuwen_deepsearch.algorithm.source_trace.source_tracer import SourceTracer
 from openjiuwen_deepsearch.framework.openjiuwen.agent.reasoning_writing_graph.editor_team_nodes import \
     SubSourceTracerNode
-from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import SubReportContent
+from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import ChapterSidecar, SubReportContent
 from openjiuwen_deepsearch.utils.constants_utils.node_constants import NodeId
 
 
@@ -261,7 +261,8 @@ class TestSubSourceTracerNode:
         # Mock get_global_state to return SubReportContent object
         existing_sub_report = SubReportContent(
             sub_report_content_text="Original content",
-            classified_content=[]
+            classified_content=[],
+            sub_report_chapter_sidecar=ChapterSidecar(chapter_summary="Structured summary"),
         )
 
         def get_global_state_side_effect(key):
@@ -294,6 +295,7 @@ class TestSubSourceTracerNode:
         assert isinstance(updated_sub_report, SubReportContent)
         assert updated_sub_report.sub_report_content_text == "Test modified report"
         assert updated_sub_report.sub_report_trace_source_datas == algorithm_output["trace_source_datas"]
+        assert updated_sub_report.sub_report_chapter_sidecar.chapter_summary == "Structured summary"
 
         # Test with empty trace source datas
         mock_session.reset_mock()

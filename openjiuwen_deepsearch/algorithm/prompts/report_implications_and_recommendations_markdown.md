@@ -41,6 +41,13 @@ Inputs:
 - - Key findings: [{{current_outline}}]
 - - All sub_reports
 
+The provided sub-report input may be compact chapter context containing `Summary`, `Key findings`,
+and `Risk points`. Treat it as the complete grounding boundary. Do not add facts, numbers, entities,
+examples, or judgments that are not explicitly supported by the input. Distinguish clearly between
+supported facts, derived judgments, and proposed actions. Do not present assumptions, illustrative
+details, or proposed outcomes as established facts. Preserve material risks, limitations, evidence
+gaps, and uncertainty.
+
 Formatting and content rules
 - Chapter structure: three main sections — "Conclusion", "Implications" and "Recommendations".
 - Conclusion:
@@ -49,15 +56,17 @@ Formatting and content rules
   - Summary should have depth, clear viewpoints, and avoid vague expressions
   - Extract consistent insights across all sub_reports by synthesizing their conclusions into a unified, high-level summary that emphasizes shared patterns and overarching implications
   - Key information must be highlighted in bold font (e.g., **18%**, **关键信息**).
-  - Must end with "Here are the implications and recommendations for {% if audience_role %}{{ audience_role }}{% else %}{{ user_role | default("the reader") }}{% endif %}." (translated into the corresponding language, e.g., "以下是针对金融分析师的启示和建议：" in Chinese). The role phrase must be inserted into this sentence and translated into the corresponding language, even though it is not shown elsewhere.
+  - End with a natural transition into the implications and recommendations for {% if audience_role %}{{ audience_role }}{% else %}{{ user_role | default("the reader") }}{% endif %}, written in the output language.
 - Implications: 3–5 numbered items. Each item must have a short bold title followed by 3–5 sentences explaining the issue, its cause, and the study evidence linking to it, implications better inspired by Conclusion above
-- Recommendations: 3–5 numbered items. Each item must have a short bold title followed by 3–5 sentences explaining the goal, key actions and expected impact, recommendations better correspond to the Implications above.
+- Recommendations: 3–5 numbered items. Each item must have a short bold title followed by 3–5 sentences explaining the goal, key actions and expected impact. Recommendations must follow logically from the provided findings and risks, and correspond to the Implications above. Do not introduce unsupported constraints, targets, implementation details, or success criteria. When evidence is insufficient, frame the recommendation as a direction for evaluation rather than a definitive prescription.
 - Language: Formal, precise word; avoid slogans and vague platitudes. Use active verbs (e.g., "Strengthen", "Optimize", "Enhance").
-- Tone: Actionable and evidence‑linked; prioritize feasibility and measurable outcomes.
+- Tone: Actionable and evidence‑linked; prioritize feasibility and outcomes that can be evaluated from the available evidence.
 - Do not include citations or footnotes. Do not invent quantitative figures not provided in inputs.
 - Do not generate any first level title (e.g., #).
 - Do not generate any third level or deeper level title (e.g., ###).
-- The language of generated content is specified by language = **{{language}}**
+- Write the entire response in the language specified by `language` = **{{language}}**.
+- Generate transitions naturally in that language.
+- Do not reproduce instructional wording or examples from this prompt.
 
 Output format (exact)
 - Conclusion content: Begin directly with the summary content with no "Conclusion" or "Conclusion, Implications and Recommendations" such Subheading

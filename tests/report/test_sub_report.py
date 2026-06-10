@@ -592,6 +592,13 @@ async def test_generate_sub_report(mock_llm_cls, mock_ainvoke_llm):
             return {"content": "3 企业经营与行业分析\n3.1 经营风险评价\3.2 杠杆风险评估"}
         elif any("write the chapter" in msg.get("content", "") for msg in messages):
             return {"content": "fake subsection report content"}
+        elif any("structured sidecar" in msg.get("content", "") for msg in messages):
+            return {
+                "content": (
+                    '{"chapter_summary":"经营与行业摘要",'
+                    '"key_findings":["经营风险可控"],"risk_points":[]}'
+                )
+            }
         else:
             return {"content": "default response"}
 
@@ -630,6 +637,8 @@ async def test_generate_sub_report(mock_llm_cls, mock_ainvoke_llm):
 
     assert success is True
     assert current_inputs["sub_section_core_content"] == ["fake original_content"]
+    assert current_inputs["sub_report_summary"] == "经营与行业摘要"
+    assert current_inputs["sub_report_chapter_sidecar"].chapter_summary == "经营与行业摘要"
 
 
 @pytest.mark.asyncio
