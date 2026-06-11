@@ -9,7 +9,6 @@ class NodeId(enum.Enum):
     FRAMEWORK = "framework"
 
     # research 相关
-    ENTRY = "entry"
     INTENT_RECOGNITION = "intent_recognition"
     GENERATE_QUESTIONS = "generate_questions"
     FEEDBACK_HANDLER = "feedback_handler"
@@ -74,7 +73,6 @@ class AgentLlmName(enum.Enum):
     COLLECTOR_SUPERVISOR = NodeId.COLLECTOR_SUPERVISOR.value
     COLLECTOR_SUMMARY = NodeId.COLLECTOR_SUMMARY.value
 
-    ENTRY = NodeId.ENTRY.value
     INTENT_RECOGNITION = NodeId.INTENT_RECOGNITION.value
     GENERATE_QUESTIONS = NodeId.GENERATE_QUESTIONS.value
     OUTLINE = NodeId.OUTLINE.value

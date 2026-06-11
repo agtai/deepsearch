@@ -78,7 +78,6 @@ from openjiuwen_deepsearch.framework.openjiuwen.agent.main_graph_nodes import (
     DependencyOutlineNode,
     EndNode,
     IntentRecognitionNode,
-    EntryNode,
     FeedbackHandlerNode,
     FindActionSpaceNode,
     GenerateQuestionsNode,
@@ -715,7 +714,6 @@ class DeepresearchAgent(BaseAgent):
         )
         # 主图节点
         flow.add_workflow_comp(NodeId.INTENT_RECOGNITION.value, IntentRecognitionNode())
-        flow.add_workflow_comp(NodeId.ENTRY.value, EntryNode())
         flow.add_workflow_comp(NodeId.GENERATE_QUESTIONS.value, GenerateQuestionsNode())
         flow.add_workflow_comp(NodeId.FEEDBACK_HANDLER.value, FeedbackHandlerNode())
         flow.add_workflow_comp(NodeId.OUTLINE.value, OutlineNode())
@@ -733,11 +731,9 @@ class DeepresearchAgent(BaseAgent):
         flow.add_connection(NodeId.START.value, NodeId.INTENT_RECOGNITION.value)
 
         # 添加条件边
-        entry_router = init_router(
-            NodeId.ENTRY.value, [NodeId.OUTLINE.value, NodeId.GENERATE_QUESTIONS.value, NodeId.END.value]
-        )
         intent_recognition_router = init_router(
-            NodeId.INTENT_RECOGNITION.value, NodeId.ENTRY.value
+            NodeId.INTENT_RECOGNITION.value,
+            [NodeId.OUTLINE.value, NodeId.GENERATE_QUESTIONS.value, NodeId.END.value],
         )
         generate_questions_router = init_router(
             NodeId.GENERATE_QUESTIONS.value, [NodeId.FEEDBACK_HANDLER.value, NodeId.END.value]
@@ -755,7 +751,6 @@ class DeepresearchAgent(BaseAgent):
             NodeId.USER_FEEDBACK_PROCESSOR.value, [NodeId.USER_FEEDBACK_PROCESSOR.value, NodeId.END.value]
         )
         flow.add_conditional_connection(NodeId.INTENT_RECOGNITION.value, router=intent_recognition_router)
-        flow.add_conditional_connection(NodeId.ENTRY.value, router=entry_router)
         flow.add_conditional_connection(NodeId.GENERATE_QUESTIONS.value, router=generate_questions_router)
         flow.add_conditional_connection(NodeId.OUTLINE.value, router=outline_router)
         flow.add_conditional_connection(NodeId.FEEDBACK_HANDLER.value, router=feedback_handler_router)
@@ -880,7 +875,6 @@ class DeepresearchDependencyAgent(DeepresearchAgent):
         )
         # 添加node
         flow.add_workflow_comp(NodeId.INTENT_RECOGNITION.value, IntentRecognitionNode())
-        flow.add_workflow_comp(NodeId.ENTRY.value, EntryNode())
         flow.add_workflow_comp(NodeId.GENERATE_QUESTIONS.value, GenerateQuestionsNode())
         flow.add_workflow_comp(NodeId.FEEDBACK_HANDLER.value, FeedbackHandlerNode())
         flow.add_workflow_comp(NodeId.OUTLINE.value, DependencyOutlineNode())
@@ -898,11 +892,9 @@ class DeepresearchDependencyAgent(DeepresearchAgent):
         flow.add_connection(NodeId.START.value, NodeId.INTENT_RECOGNITION.value)
 
         # 添加条件边
-        entry_router = init_router(
-            NodeId.ENTRY.value, [NodeId.OUTLINE.value, NodeId.GENERATE_QUESTIONS.value, NodeId.END.value]
-        )
         intent_recognition_router = init_router(
-            NodeId.INTENT_RECOGNITION.value, NodeId.ENTRY.value
+            NodeId.INTENT_RECOGNITION.value,
+            [NodeId.OUTLINE.value, NodeId.GENERATE_QUESTIONS.value, NodeId.END.value],
         )
         generate_questions_router = init_router(
             NodeId.GENERATE_QUESTIONS.value, [NodeId.FEEDBACK_HANDLER.value, NodeId.END.value]
@@ -924,7 +916,6 @@ class DeepresearchDependencyAgent(DeepresearchAgent):
             NodeId.USER_FEEDBACK_PROCESSOR.value, [NodeId.USER_FEEDBACK_PROCESSOR.value, NodeId.END.value]
         )
         flow.add_conditional_connection(NodeId.INTENT_RECOGNITION.value, router=intent_recognition_router)
-        flow.add_conditional_connection(NodeId.ENTRY.value, router=entry_router)
         flow.add_conditional_connection(NodeId.GENERATE_QUESTIONS.value, router=generate_questions_router)
         flow.add_conditional_connection(NodeId.OUTLINE.value, router=outline_router)
         flow.add_conditional_connection(NodeId.FEEDBACK_HANDLER.value, router=feedback_handler_router)

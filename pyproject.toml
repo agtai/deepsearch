@@ -69,11 +69,6 @@ log_cli_level = "DEBUG"
 log_cli_format = "%(asctime)s [%(levelname)8s] %(message)s"
 log_cli_date_format = "%Y-%m-%d %H:%M:%S"
 
-# pytest-asyncio configuration
-[tool.pytest.asyncio]
-default_fixture_loop_scope = "function"
-default_test_loop_scope = "function"
-
 [dependency-groups]
 # 后端依赖，使用uv sync --group backend安装SDK依赖和后端依赖
 backend = [

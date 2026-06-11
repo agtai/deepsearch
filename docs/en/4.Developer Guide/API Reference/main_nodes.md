@@ -10,11 +10,11 @@ class StartNode(Start)
 ```
 Workflow entry: validate/default inputs, init `SearchContext` (`query`, `session_id`, `messages`, `search_mode`, `report_template`), merge `agent_config` + `service_config` into runtime `config`, set `thread_id` and `interrupt_feedback`.
 
-### `EntryNode`
+### `IntentRecognitionNode`
 ```python
-class EntryNode(BaseNode)
+class IntentRecognitionNode(BaseNode)
 ```
-Language detection/routing via `classify_query`, normalize locale (`zh-CN` / `en-US`); on failure set `final_result.exception_info` and stop.
+Report intent recognition and language detection via `classify_and_recognize_intent`; normalizes locale (`zh-CN` / `en-US`); executes initial web search; on failure sets `final_result.exception_info` and stops.
 
 ### `GenerateQuestionsNode`
 ```python
@@ -167,14 +167,14 @@ Emits `final_result` JSON and `"ALL END"`.
 
 ### Parallel main graph
 ```
-StartNode -> EntryNode -> [GenerateQuestionsNode -> FeedbackHandlerNode] -> OutlineNode
+StartNode -> IntentRecognitionNode -> [GenerateQuestionsNode -> FeedbackHandlerNode] -> OutlineNode
 -> [OutlineInteractionNode -> OutlineNode]* -> EditorTeamNode -> ReporterNode -> SourceTracerNode -> EndNode
 -> SourceTracerInferNode -> UserFeedbackProcessorNode -> EndNode
 ```
 
 ### Dependency-driven main graph
 ```text
-StartNode -> EntryNode -> [GenerateQuestionsNode -> FeedbackHandlerNode] -> DependencyOutlineNode
+StartNode -> IntentRecognitionNode -> [GenerateQuestionsNode -> FeedbackHandlerNode] -> DependencyOutlineNode
 -> [DependencyOutlineInteractionNode -> DependencyOutlineNode]*
 -> DependencyEditorTeamNode -> ReporterNode -> SourceTracerNode
 -> SourceTracerInferNode -> UserFeedbackProcessorNode -> EndNode

@@ -24,11 +24,12 @@ from openjiuwen_deepsearch.algorithm.search_nodes.utils import (
 from openjiuwen_deepsearch.utils.log_utils.log_metrics import metrics_logger, TIME_LOGGER_TAG
 from openjiuwen_deepsearch.algorithm.query_understanding.interpreter import query_interpreter
 from openjiuwen_deepsearch.algorithm.query_understanding.intent_recognition import (
+    classify_and_recognize_intent,
     recognize_report_intent,
     resolve_report_type_policy,
+    web_search_for_query,
 )
 from openjiuwen_deepsearch.algorithm.query_understanding.outliner import Outliner
-from openjiuwen_deepsearch.algorithm.query_understanding.router import classify_query, web_search_for_query
 from openjiuwen_deepsearch.algorithm.report.config import ReportFormat, ReportStyle
 from openjiuwen_deepsearch.algorithm.report.report import Reporter
 from openjiuwen_deepsearch.algorithm.search_nodes.find_action import run_find_action_space
@@ -231,7 +232,8 @@ class StartNode(Start):
 
 class IntentRecognitionNode(BaseNode):
     """
-    报告意图识别节点：从原始 query 中拆分研究主题和报告生成约束。
+    报告意图识别节点：从原始 query 中拆分研究主题和报告生成约束，
+    所有查询均进入研究报告生成流程（OUTLINE / GENERATE_QUESTIONS）。
     """
 
     def __init__(self):
@@ -243,16 +245,70 @@ class IntentRecognitionNode(BaseNode):
             original_query=session.get_global_state("search_context.original_query") or "",
             messages=session.get_global_state("search_context.messages") or [],
             llm_model_name=adapt_llm_model_name(session, NodeId.INTENT_RECOGNITION.value),
+            human_in_the_loop=session.get_global_state("config.workflow_human_in_the_loop"),
+            web_search_engine_config=session.get_global_state("config.web_search_engine_config"),
+            info_collector_search_method=session.get_global_state("config.info_collector_search_method") or "web",
         )
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
         current_inputs = self._pre_handle(inputs, session, context)
-        intent_result = await recognize_report_intent(current_inputs)
+
+        # 执行意图识别，获取 research_query 用于网络搜索
+        intent_result = await classify_and_recognize_intent(current_inputs)
+
+        # 检查搜索模式：仅在 web 或 all 模式下执行网络搜索
+        info_collector_search_method = current_inputs.get("info_collector_search_method", "web")
+        if info_collector_search_method in ("web", "all"):
+            # 预搜索前应用域名约束
+            _web_search_engine_config = current_inputs.get("web_search_engine_config")
+            _web_search_engine_name = _web_search_engine_config.search_engine_name if _web_search_engine_config else ""
+            apply_web_search_domain_constraints(
+                search_engine_name=_web_search_engine_name,
+                include_domains=intent_result.research_intent.include_domains,
+                exclude_domains=intent_result.research_intent.exclude_domains,
+            )
+
+            # 使用 research_query 进行网络搜索
+            web_search_engine_name = (
+                current_inputs["web_search_engine_config"].search_engine_name
+                if current_inputs.get("web_search_engine_config") else "petal"
+            )
+            research_query = (intent_result.research_query or "").strip() or current_inputs["original_query"]
+            web_search_input = {
+                "query": research_query,
+                "web_search_engine_name": web_search_engine_name,
+            }
+            web_search_output = await web_search_for_query(web_search_input)
+
+            error_msg = web_search_output.get("error_msg", "")
+            if error_msg:
+                exception_info = f"[{StatusCode.ENTRY_GENERATE_ERROR.code}] {error_msg}"
+                session.update_global_state({
+                    "search_context.final_result.exception_info": exception_info,
+                })
+                add_debug_log_wrapper(session, NodeDebugData(
+                    NodeId.INTENT_RECOGNITION.value, 0, NodeType.MAIN.value,
+                    output_content=exception_info,
+                ))
+                logger.error("[IntentRecognitionNode] Web search failed: %s", error_msg)
+                return dict(next_node=NodeId.END.value)
+            intent_result.entry_search_results = web_search_output.get("search_results", [])
+        else:
+            # 纯本地模式：跳过网络搜索，使用空结果
+            logger.info("[IntentRecognitionNode] Local-only mode, skipping web search.")
+            intent_result.entry_search_results = []
+
         return self._post_handle(inputs, intent_result, session, context)
 
     def _post_handle(self, inputs: Input, algorithm_output: Any, session: Session, context: ModelContext):
         original_q = algorithm_output.original_query
         research_q = (algorithm_output.research_query or "").strip() or original_q
+
+        lang = (algorithm_output.lang or "zh-CN").lower()
+        if "zh" in lang or "chinese" in lang or "中文" in lang:
+            lang = CHINESE
+        if "en" in lang or "english" in lang or "英文" in lang:
+            lang = ENGLISH
 
         report_type = algorithm_output.research_intent.report_type
         report_policy = resolve_report_type_policy(report_type)
@@ -267,14 +323,13 @@ class IntentRecognitionNode(BaseNode):
             "search_context.research_query": research_q,
             "search_context.research_intent": algorithm_output.research_intent.model_dump(),
             "search_context.report_type_policy": report_policy.model_dump(),
+            "search_context.language": lang,
         })
-        web_search_engine_config = session.get_global_state("config.web_search_engine_config")
-        web_search_engine_name = web_search_engine_config.search_engine_name if web_search_engine_config else ""
-        apply_web_search_domain_constraints(
-            search_engine_name=web_search_engine_name,
-            include_domains=algorithm_output.research_intent.include_domains,
-            exclude_domains=algorithm_output.research_intent.exclude_domains,
-        )
+
+        if algorithm_output.entry_search_results:
+            session.update_global_state({
+                "search_context.entry_search_results": algorithm_output.entry_search_results,
+            })
 
         messages = list(session.get_global_state("search_context.messages") or [])
         if messages:
@@ -295,74 +350,11 @@ class IntentRecognitionNode(BaseNode):
             NodeType.MAIN.value,
             output_content=algorithm_output.model_dump_json(),
         ))
-        logger.info("[IntentRecognitionNode] End IntentRecognitionNode.")
-        return dict(next_node=NodeId.ENTRY.value)
 
-
-class EntryNode(BaseNode):
-
-    def __init__(self):
-        super().__init__()
-
-    def _pre_handle(self, inputs: Input, session: Session, context: ModelContext):
-        logger.info(f"[EntryNode] Start EntryNode.")
-
-        messages = session.get_global_state("search_context.messages")
-        llm_model_name = adapt_llm_model_name(session, NodeId.ENTRY.value)
-        query = session.get_global_state("search_context.research_query")
-        web_search_engine_config = session.get_global_state("config.web_search_engine_config")
-        web_search_engine_name = web_search_engine_config.search_engine_name if web_search_engine_config else "petal"
-
-        return dict(messages=messages, llm_model_name=llm_model_name,
-                    query=query, web_search_engine_name=web_search_engine_name)
-
-    async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
-        current_inputs = self._pre_handle(inputs, session, context)
-
-        # Parallel execution of classify_query and web_search_for_query
-        web_search_input = {
-            "query": current_inputs.get("query", ""),
-            "web_search_engine_name": current_inputs.get("web_search_engine_name", "petal")
-        }
-        classify_query_output, web_search_output = await asyncio.gather(
-            classify_query(current_inputs),
-            web_search_for_query(web_search_input)
-        )
-        classify_query_output["entry_search_results"] = web_search_output.get("search_results", [])
-
-        result = self._post_handle(inputs, classify_query_output, session, context)
-        return result
-
-    def _post_handle(self, inputs: Input, algorithm_output: dict, session: Session, context: ModelContext):
         human_in_the_loop = session.get_global_state("config.workflow_human_in_the_loop")
-        lang = algorithm_output.get("lang", "zh-CN").lower()
-        llm_result = algorithm_output.get("llm_result", "")
-        error_msg = algorithm_output.get("error_msg", "")
-        entry_search_results = algorithm_output.get("entry_search_results", [])
-
-        if "zh" in lang or "chinese" in lang or "中文" in lang:
-            lang = CHINESE
-        if "en" in lang or "english" in lang or "英文" in lang:
-            lang = ENGLISH
-
-        # 更新session
-        session.update_global_state({"search_context.language": lang})
-        if entry_search_results:
-            session.update_global_state({"search_context.entry_search_results": entry_search_results})
-
-        # 决定下一个节点
         next_node = NodeId.GENERATE_QUESTIONS.value if human_in_the_loop else NodeId.OUTLINE.value
 
-        if error_msg:
-            session.update_global_state({"search_context.final_result.response_content": llm_result})
-            session.update_global_state({"search_context.final_result.exception_info": error_msg})
-            next_node = NodeId.END.value
-
-        # 添加EntryNode debug日志
-        add_debug_log_wrapper(
-            session, NodeDebugData(NodeId.ENTRY.value, 0, NodeType.MAIN.value, output_content=str(algorithm_output))
-        )
-        logger.info(f"[EntryNode] End EntryNode.")
+        logger.info("[IntentRecognitionNode] End IntentRecognitionNode, next_node=%s", next_node)
         return dict(language=lang, human_in_the_loop=human_in_the_loop, next_node=next_node)
 
 

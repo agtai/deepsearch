@@ -13,7 +13,9 @@ From the user's **original_query** (below), extract:
    - Do not translate the query, do not rewrite it into English keywords, and do not "internationalize" wording.
    - Mixed-language entities (e.g., names like Jensen Huang, product names like Blackwell/Rubin) can be kept as-is.
 
-2. **research_intent** (structured constraints):
+2. **language**: Detect the user's language and emit a locale code (e.g., `zh-CN`, `en-US`, `ja-JP`, `ko-KR`). You MUST always provide this field — never omit it.
+
+3. **research_intent** (structured constraints):
    - **section_count**: positive integer if the user asks for a maximum or fixed number of chapters/sections; otherwise omit.
    - **audience_role**: who the report is for (e.g. CTO, investor), short phrase; omit if not stated.
    - **tone**: map the user's style request to ONE English enum value when possible, e.g. `objective`, `formal`, `analytical`, `informative`, `explanatory`, `persuasive`, `descriptive`, `critical`, `comparative`, `simple`, `casual`. Omit if unclear.
