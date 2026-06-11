@@ -7,7 +7,7 @@ from openjiuwen.core.foundation.tool.base import ToolCard
 from openjiuwen.core.foundation.tool.function.function import LocalFunction
 
 from openjiuwen_deepsearch.algorithm.prompts.template import apply_system_prompt
-from openjiuwen_deepsearch.common.status_code import StatusCode
+from openjiuwen_deepsearch.common.status_code import StatusCode, format_exception_info
 from openjiuwen_deepsearch.framework.openjiuwen.tools.web_search import run_web_search
 from openjiuwen_deepsearch.utils.common_utils import llm_utils
 from openjiuwen_deepsearch.utils.constants_utils.node_constants import AgentLlmName
@@ -76,7 +76,7 @@ async def classify_query(inputs: dict) -> (bool, str):
         tool_calls = response.get('tool_calls', [])
 
     except Exception as e:
-        error_msg = f"[{StatusCode.ENTRY_GENERATE_ERROR.code}]{StatusCode.ENTRY_GENERATE_ERROR.errmsg}: {e}"
+        error_msg = format_exception_info(StatusCode.ENTRY_GENERATE_ERROR, e)
         response = {}
         tool_calls = None
         logger.error(error_msg)

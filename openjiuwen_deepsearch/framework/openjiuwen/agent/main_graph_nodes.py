@@ -72,7 +72,7 @@ from openjiuwen_deepsearch.common.exception import (
     CustomJiuWenBaseException,
     CustomValueException,
 )
-from openjiuwen_deepsearch.common.status_code import StatusCode
+from openjiuwen_deepsearch.common.status_code import StatusCode, format_exception_info
 from openjiuwen_deepsearch.config.config import (
     Config,
     LocalSearchEngineConfig,
@@ -387,12 +387,20 @@ class FeedbackHandlerNode(BaseNode):
         feedback_mode = current_inputs.get("feedback_mode", "cmd")
 
         user_feedback = await self._get_user_feedback(feedback_mode, session)
-        standardized_feedback = truncate_string(user_feedback, max_length=MAX_QUERY_LENGTH)
-        if not standardized_feedback:
-            logger.error("[FeedbackHandlerNode] Invalid feedback, length or type is invalid")
-            standardized_feedback = "Invalid feedback, length is 0 or type is invalid"
+        error_detail = ""
+        if user_feedback == "Invalid feedback_mode":
+            standardized_feedback = user_feedback
+            error_detail = feedback_mode
+        else:
+            standardized_feedback = truncate_string(user_feedback, max_length=MAX_QUERY_LENGTH)
+            if not standardized_feedback:
+                logger.error("[FeedbackHandlerNode] Invalid feedback, length or type is invalid")
+                error_detail = user_feedback or "empty"
+                standardized_feedback = "Invalid feedback, length is 0 or type is invalid"
 
         algorithm_output = dict(user_feedback=standardized_feedback)
+        if error_detail:
+            algorithm_output["error_detail"] = error_detail
         if standardized_feedback not in {
             "Invalid feedback_mode",
             "Invalid feedback, length is 0 or type is invalid",
@@ -520,9 +528,9 @@ class FeedbackHandlerNode(BaseNode):
         user_feedback = algorithm_output.get("user_feedback", "")
 
         if user_feedback == "Invalid feedback_mode":
-            exception_info = (
-                f"[{StatusCode.FEEDBACK_HANDLER_INVALID_MODE_ERROR.code}]"
-                f"{StatusCode.FEEDBACK_HANDLER_INVALID_MODE_ERROR.errmsg}"
+            exception_info = format_exception_info(
+                StatusCode.FEEDBACK_HANDLER_INVALID_MODE_ERROR,
+                algorithm_output.get("error_detail", ""),
             )
             session.update_global_state({"search_context.final_result.exception_info": exception_info})
             # 添加FeedbackHandlerNode debug日志
@@ -537,9 +545,9 @@ class FeedbackHandlerNode(BaseNode):
             )
             return dict(next_node=NodeId.END.value)
         if user_feedback == "Invalid feedback, length is 0 or type is invalid":
-            exception_info = (
-                f"[{StatusCode.FEEDBACK_HANDLER_INVALID_FEEDBACK_ERROR.code}]"
-                f"{StatusCode.FEEDBACK_HANDLER_INVALID_FEEDBACK_ERROR.errmsg}"
+            exception_info = format_exception_info(
+                StatusCode.FEEDBACK_HANDLER_INVALID_FEEDBACK_ERROR,
+                algorithm_output.get("error_detail", ""),
             )
             session.update_global_state({"search_context.final_result.exception_info": exception_info})
             # 添加FeedbackHandlerNode debug日志
@@ -662,7 +670,11 @@ class ReporterNode(BaseNode):
                 current_report.report_content = "error: " + algorithm_output.get("report_str")
                 session.update_global_state({"search_context.current_report": current_report})
             logger.error("[ReporterNode] ReporterNode ended with fail.")
-            exception_info = f"[{StatusCode.REPORT_GENERATE_ERROR.code}] {algorithm_output.get('report_str')}"
+            report_str = algorithm_output.get("report_str", "")
+            if report_str.startswith(f"[{StatusCode.REPORT_GENERATE_ERROR.code}]"):
+                exception_info = report_str
+            else:
+                exception_info = format_exception_info(StatusCode.REPORT_GENERATE_ERROR, report_str)
             session.update_global_state({"search_context.final_result.exception_info": exception_info})
             add_debug_log_wrapper(
                 session, NodeDebugData(NodeId.REPORTER.value, 0, NodeType.MAIN.value, output_content=exception_info)
@@ -826,7 +838,9 @@ class GenerateQuestionsNode(BaseNode):
             )
             return dict(next_node=NodeId.END.value)
         if not algorithm_output.get("result"):
-            exception_info = "Query Interpreter result is empty."
+            exception_info = format_exception_info(
+                StatusCode.INTERPRETATION_GENERATE_ERROR, "Query Interpreter result is empty."
+            )
             session.update_global_state({"search_context.final_result.exception_info": exception_info})
             logger.error(f"[GenerateQuestionsNode] {exception_info}")
             add_debug_log_wrapper(
@@ -948,7 +962,11 @@ class OutlineNode(BaseNode):
         algorithm_output = None
         while not success_flag:
             if outline_executed_num >= max_outline_retry_num:
-                error_msg += f"{self.log_prefix} Reached max outline retry num: {max_outline_retry_num}"
+                last_error = algorithm_output.get("error_msg") if algorithm_output else ""
+                detail = last_error or f"Reached max outline retry num: {max_outline_retry_num}"
+                error_msg = format_exception_info(
+                    StatusCode.OUTLINER_GENERATE_ERROR, detail, prefix=self.log_prefix
+                )
                 logger.error(error_msg)
                 algorithm_output = {
                     "llm_result": "",
@@ -1144,15 +1162,19 @@ class SourceTracerNode(BaseNode):
                 logger.error(f"[SourceTracerNode] trace source failed.")
             else:
                 logger.error(f"[SourceTracerNode] trace source failed. {str(e)}")
-            check_result_dict = {"check_result": False, "citation_checker_result_str": str(e)}
+            check_result_dict = {
+                "check_result": False,
+                "citation_checker_result_str": format_exception_info(StatusCode.SOURCE_TRACER_NODE_ERROR, e),
+            }
         except Exception as e:
             if LogManager.is_sensitive():
                 logger.error(f"[SourceTracerNode] trace source failed.")
             else:
                 logger.error(f"[SourceTracerNode] trace source failed. {str(e)}")
-            errmsg = StatusCode.SOURCE_TRACER_NODE_ERROR.errmsg.format(e=e)
-            errmsg = f"[{StatusCode.SOURCE_TRACER_NODE_ERROR.code}] {errmsg}\t"
-            check_result_dict = {"check_result": False, "citation_checker_result_str": errmsg}
+            check_result_dict = {
+                "check_result": False,
+                "citation_checker_result_str": format_exception_info(StatusCode.SOURCE_TRACER_NODE_ERROR, e),
+            }
 
         algorithm_output = {"check_result_dict": check_result_dict, "origin_report": current_inputs.get("report", "")}
         result = self._post_handle(inputs, algorithm_output, session, context)
@@ -1314,11 +1336,8 @@ class OutlineInteractionNode(BaseNode):
         try:
             logger.info(f"{self.log_prefix} Received user input: {'***' if LogManager.is_sensitive() else user_input}")
             return json.loads(user_input)
-        except json.JSONDecodeError:
-            exception_info = (
-                f"[{StatusCode.FEEDBACK_HANDLER_INVALID_MODE_ERROR.code}]"
-                f"{StatusCode.FEEDBACK_HANDLER_INVALID_MODE_ERROR.errmsg}"
-            )
+        except json.JSONDecodeError as e:
+            exception_info = format_exception_info(StatusCode.USER_FEEDBACK_PROCESSOR_INVALID_JSON, e)
             session.update_global_state({"search_context.final_result.exception_info": exception_info})
             # 添加FeedbackHandlerNode debug日志
             add_debug_log_wrapper(
@@ -1489,14 +1508,12 @@ class SourceTracerInferNode(BaseNode):
                 logger.error(f"{self.log_prefix} {error_msg}")
             else:
                 logger.error(f"{self.log_prefix} {error_msg} {e}")
-            errcode = StatusCode.SOURCE_TRACER_INFER_ERROR.code
-            errmsg = StatusCode.SOURCE_TRACER_INFER_ERROR.errmsg.format(e=e)
             infer_result_dict = dict(
                 infer_success=False,
                 response=current_inputs.get("source_tracer_response", ""),
                 infer_messages=[],
                 scores=[(0, 0)],
-                error_msg=f"[{errcode}] {errmsg}",
+                error_msg=format_exception_info(StatusCode.SOURCE_TRACER_INFER_ERROR, e, prefix=self.log_prefix),
                 source_tracer_infer_switch=current_inputs.get("source_tracer_infer_switch", False),
             )
         else:
@@ -1653,7 +1670,7 @@ class UserFeedbackProcessorNode(BaseNode):
                 interaction_count=interaction_count,
                 consume_interaction=consume_interaction,
                 mark_feedback_snapshot_sent=mark_feedback_snapshot_sent,
-                exception_info=str(e),
+                exception_info=format_exception_info(StatusCode.USER_FEEDBACK_PROCESSOR_REWRITE_ERROR, e),
             )
         except Exception as e:
             if interaction_count >= max_interactions and consume_interaction:
@@ -1674,7 +1691,7 @@ class UserFeedbackProcessorNode(BaseNode):
                 interaction_count=interaction_count,
                 consume_interaction=consume_interaction,
                 mark_feedback_snapshot_sent=mark_feedback_snapshot_sent,
-                exception_info=str(wrapped_error),
+                exception_info=format_exception_info(StatusCode.USER_FEEDBACK_PROCESSOR_REWRITE_ERROR, e),
             )
 
         stream_result = UserFeedbackProcessor.build_stream_result(feedback, action_result)
@@ -1923,8 +1940,7 @@ class VLMChartGeneratorNode(BaseNode):
             else:
                 logger.error(f"[VLMChartGeneratorNode] vlm_chart_generator failed: {str(e)}")
             vlm_chart_generator_output = {
-                "error_msg": f"[{StatusCode.CHART_GENERATION_ERROR.code}] \
-                    {StatusCode.CHART_GENERATION_ERROR.errmsg.format(e=e)}",
+                "error_msg": format_exception_info(StatusCode.CHART_GENERATION_ERROR, e),
             }
         except Exception as e:
             if LogManager.is_sensitive():
@@ -1932,8 +1948,7 @@ class VLMChartGeneratorNode(BaseNode):
             else:
                 logger.error(f"[VLMChartGeneratorNode] vlm_chart_generator failed: {str(e)}")
             vlm_chart_generator_output = {
-                "error_msg": f"[{StatusCode.CHART_GENERATION_ERROR.code}] \
-                    {StatusCode.CHART_GENERATION_ERROR.errmsg.format(e=e)}",
+                "error_msg": format_exception_info(StatusCode.CHART_GENERATION_ERROR, e),
             }
 
         algorithm_output = {

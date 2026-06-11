@@ -10,7 +10,7 @@ from openjiuwen_deepsearch.algorithm.user_feedback_processor.action_definitions 
     UserFeedbackRewriteStreamResult,
 )
 from openjiuwen_deepsearch.common.exception import CustomValueException
-from openjiuwen_deepsearch.common.status_code import StatusCode
+from openjiuwen_deepsearch.common.status_code import StatusCode, format_exception_info
 from openjiuwen_deepsearch.config.config import AgentConfig
 from openjiuwen_deepsearch.framework.openjiuwen.agent.main_graph_nodes import UserFeedbackProcessorNode
 from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import Report
@@ -173,7 +173,11 @@ class TestUserFeedbackProcessorNode:
         mock_send_error.assert_awaited_once()
         session.update_global_state.assert_any_call({"search_context.feedback_interaction_count": 1})
         error = mock_send_error.await_args.args[1]
-        session.update_global_state.assert_any_call({"search_context.final_result.exception_info": str(error)})
+        session.update_global_state.assert_any_call({
+            "search_context.final_result.exception_info": format_exception_info(
+                StatusCode.USER_FEEDBACK_PROCESSOR_REWRITE_ERROR, error
+            )
+        })
 
     @pytest.mark.asyncio
     async def test_do_invoke_validation_error_loops_back(self, node):
@@ -194,7 +198,11 @@ class TestUserFeedbackProcessorNode:
         mock_send_error.assert_awaited_once()
         session.update_global_state.assert_any_call({"search_context.feedback_interaction_count": 1})
         error = mock_send_error.await_args.args[1]
-        session.update_global_state.assert_any_call({"search_context.final_result.exception_info": str(error)})
+        session.update_global_state.assert_any_call({
+            "search_context.final_result.exception_info": format_exception_info(
+                StatusCode.USER_FEEDBACK_PROCESSOR_REWRITE_ERROR, error
+            )
+        })
 
     @pytest.mark.asyncio
     async def test_do_invoke_max_interactions_reached(self, node):
@@ -326,7 +334,11 @@ class TestUserFeedbackProcessorNode:
         assert isinstance(error, CustomValueException)
         assert error.error_code == StatusCode.USER_FEEDBACK_PROCESSOR_REWRITE_ERROR.code
         session.update_global_state.assert_any_call({"search_context.feedback_interaction_count": 1})
-        session.update_global_state.assert_any_call({"search_context.final_result.exception_info": str(error)})
+        session.update_global_state.assert_any_call({
+            "search_context.final_result.exception_info": format_exception_info(
+                StatusCode.USER_FEEDBACK_PROCESSOR_REWRITE_ERROR, RuntimeError("boom")
+            )
+        })
 
     @pytest.mark.asyncio
     async def test_do_invoke_rewrite_success_updates_session_state(self, node):

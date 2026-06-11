@@ -45,7 +45,7 @@ from openjiuwen_deepsearch.algorithm.report.report_utils import (
 )
 from openjiuwen_deepsearch.algorithm.report.table_caption_utils import ensure_markdown_table_captions
 from openjiuwen_deepsearch.common.exception import CustomValueException
-from openjiuwen_deepsearch.common.status_code import StatusCode
+from openjiuwen_deepsearch.common.status_code import StatusCode, format_exception_info
 from openjiuwen_deepsearch.config.config import Config
 from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import ChapterSidecar, Outline
 from openjiuwen_deepsearch.common.common_constants import CHINESE, ENGLISH
@@ -56,6 +56,15 @@ from openjiuwen_deepsearch.utils.constants_utils.node_constants import AgentLlmN
 from openjiuwen_deepsearch.utils.constants_utils.session_contextvars import llm_context, session_context
 
 logger = logging.getLogger(__name__)
+
+
+def _format_report_error(detail: str | BaseException) -> str:
+    return format_exception_info(StatusCode.REPORT_GENERATE_ERROR, detail)
+
+
+def _format_sub_report_error(detail: str | BaseException) -> str:
+    return format_exception_info(StatusCode.SUB_REPORT_GENERATE_ERROR, detail)
+
 
 EFFECT_SUB_REPORT_TAG = "### sub_report_tag ###"
 MAX_LOOP_ROUND = 10
@@ -592,7 +601,7 @@ class Reporter:
             )
         if not self._set_context_variables(gen_report_context):
             logger.error(f"[generate_report] Error: Set context variables failed")
-            return False, "Error: Set context variables failed"
+            return False, _format_report_error("Set context variables failed")
 
         self.gen_report_context["current_outline"] = self.export_outline_without_plans(
             self.gen_report_context.get("current_outline", {})
@@ -600,7 +609,7 @@ class Reporter:
         sub_report_res = await self._process_sub_report()
         if not sub_report_res.get("sub_reports_content"):
             logger.error(f"[generate_report] Error: No sub-reports content found")
-            return False, "Error: No sub-reports content found"
+            return False, _format_report_error("No sub-reports content found")
         gen_report_context["all_classified_contents"] = sub_report_res.get(
             "refreshed_all_classified_contents"
         )
@@ -622,23 +631,23 @@ class Reporter:
             logger.error(
                 f"[generate_report] Report generation failed after retries: {retry_err}"
             )
-            return False, f"Report generation failed after retries: {retry_err}"
+            return False, _format_report_error(retry_err)
         except Exception as e:
             if LogManager.is_sensitive():
                 logger.error(
                     f"[generate_report] Unexpected error during report generation"
                 )
-                return False, f"Unexpected error during report generation"
+                return False, _format_report_error("Unexpected error during report generation")
             logger.error(
                 f"[generate_report] Unexpected error during report generation: {e}"
             )
-            return False, f"Unexpected error during report generation: {e}"
+            return False, _format_report_error(e)
 
         current_outline = self.gen_report_context.get("current_outline", "")
         if not current_outline:
             error_message = "has no current outline"
             logger.error(f"[generate_report] Generate report error: {error_message}")
-            return False, error_message
+            return False, _format_report_error(error_message)
 
         report_content = (
             f"{'# ' + current_outline.title}\n\n"  # Use outline title directly for report title
@@ -660,7 +669,7 @@ class Reporter:
 
         if not report_content.strip():
             logger.error("[generate_report] md report content is empty.")
-            return False, "md report content empty."
+            return False, _format_report_error("md report content empty")
 
         return True, "success"
 
@@ -750,7 +759,7 @@ class Reporter:
                     f"{EFFECT_SUB_REPORT_TAG} [generate_sub_report] fail to generate subsection report, "
                     f"section_idx: [{section_idx}], not found doc infos"
                 )
-                return False, "Not found doc infos", "", []
+                return False, _format_sub_report_error("Not found doc infos"), "", []
             logger.info(
                 "%s [generate_sub_report] section_idx: [%s], no doc_infos found, "
                 "use dependency background knowledge as fallback.",
@@ -787,7 +796,7 @@ class Reporter:
                         f"{EFFECT_SUB_REPORT_TAG} [generate_sub_report] section_idx: [{section_idx}], "
                         "no selected urls returned from classification"
                     )
-                    return False, "no selected urls from classification", "", []
+                    return False, _format_sub_report_error("no selected urls from classification"), "", []
                 classify_doc_infos_res_top_k_num = current_inputs.get(
                     "classify_doc_infos_res_top_k_num", 10
                 )
@@ -812,7 +821,7 @@ class Reporter:
                     f"{EFFECT_SUB_REPORT_TAG} [generate_sub_report] Error: Classify doc information failed for "
                     f"[{classified_content}], section_idx: [{section_idx}]"
                 )
-                return False, "classify_doc_infos fail", "", []
+                return False, _format_sub_report_error("classify_doc_infos fail"), "", []
         classified_content = current_inputs.get("classified_content", [])
         if not LogManager.is_sensitive():
             logger.debug(
@@ -858,7 +867,7 @@ class Reporter:
                     f"{EFFECT_SUB_REPORT_TAG} [generate_sub_report] section_idx: [{section_idx}], "
                     f"Error: Generate section outline failed, reach the max_attempt_num: {max_attempt_num}."
                 )
-                return False, "generate section outline fail", "", classified_content
+                return False, _format_sub_report_error("generate section outline fail"), "", classified_content
 
         if current_inputs.get("visualization_enable", True):
             try:
@@ -914,7 +923,7 @@ class Reporter:
                     f"{EFFECT_SUB_REPORT_TAG} [generate_sub_report] section_idx: [{section_idx}], "
                     f"Error: Generate section report failed, reach the max_attempt_num: {max_attempt_num}."
                 )
-        return False, "generate section report fail", "", classified_content
+        return False, _format_sub_report_error("generate section report fail"), "", classified_content
 
     async def _generate_with_llm(self, task_type, prompt, content):
         if isinstance(self.gen_report_context, dict):
