@@ -18,15 +18,16 @@ class StartNode(Start)
 
 ---
 
-### class EntryNode
+### class IntentRecognitionNode
 ```python
-class EntryNode(BaseNode)
+class IntentRecognitionNode(BaseNode)
 ```
-**EntryNode** 负责语言识别与路由。
+**IntentRecognitionNode** 负责报告意图识别与语言检测。
 
 **功能**：
-- 调用 `classify_query` 判断用户需求语言类型。
-- 统一语言标识（`zh-CN` / `en-US`）。
+- 调用 `classify_and_recognize_intent` 解析用户查询意图。
+- 检测用户语言并统一语言标识（`zh-CN` / `en-US`）。
+- 执行网络搜索获取初始结果。
 - 失败或异常写入 `final_result.exception_info` 并结束。
 
 ---
@@ -289,14 +290,14 @@ class EndNode(End)
 
 ### 主工作流（并行）
 ```
-StartNode -> EntryNode -> [GenerateQuestionsNode -> FeedbackHandlerNode] -> OutlineNode
+StartNode -> IntentRecognitionNode -> [GenerateQuestionsNode -> FeedbackHandlerNode] -> OutlineNode
 -> [OutlineInteractionNode -> OutlineNode]* -> EditorTeamNode -> ReporterNode -> SourceTracerNode -> EndNode
 -> SourceTracerInferNode -> UserFeedbackProcessorNode -> EndNode
 ```
 
 ### 主工作流（依赖驱动）
 ```text
-StartNode -> EntryNode -> [GenerateQuestionsNode -> FeedbackHandlerNode] -> DependencyOutlineNode
+StartNode -> IntentRecognitionNode -> [GenerateQuestionsNode -> FeedbackHandlerNode] -> DependencyOutlineNode
 -> [DependencyOutlineInteractionNode -> DependencyOutlineNode]*
 -> DependencyEditorTeamNode -> ReporterNode -> SourceTracerNode
 -> SourceTracerInferNode -> UserFeedbackProcessorNode -> EndNode

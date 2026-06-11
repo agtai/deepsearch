@@ -12,7 +12,6 @@ from openjiuwen_deepsearch.framework.openjiuwen.agent.base_node import BaseNode
 from openjiuwen_deepsearch.framework.openjiuwen.agent.editor_team_manager_node import EditorTeamNode
 from openjiuwen_deepsearch.framework.openjiuwen.agent.main_graph_nodes import (
     EndNode,
-    EntryNode,
     IntentRecognitionNode,
     FeedbackHandlerNode,
     GenerateQuestionsNode,
@@ -151,8 +150,7 @@ def test_create_section_state():
                       'search_mode': 'research', 'current_step': None, 'planner_agent_messages': None,
                       'source_tracer': '', 'trace_source_datas': [], 'merged_trace_source_datas': [],
                       'all_classified_contents': [], 'doc_infos': [], 'gathered_info': [],
-                      'debug_pre_step': 'outline-c615f84c-d865-41f6-b7c3-354703c51732', 'go_deepsearch': True,
-                      'debug_cur_step': 'outline-c615f84c-d865-41f6-b7c3-354703c51732'}
+                       'debug_pre_step': 'outline-c615f84c-d865-41f6-b7c3-354703c51732', 'debug_cur_step': 'outline-c615f84c-d865-41f6-b7c3-354703c51732'}
     search_context["research_intent"] = {
         "section_count": 4,
         "audience_role": "企业CTO",
@@ -219,38 +217,9 @@ async def test_base_node_invoke_injects_session_context():
     assert output["same_session"] is True
 
 
-def test_entry_node_routes_to_outline_after_intent_recognition():
-    """验证 EntryNode 保留入口逻辑，并在意图识别后按 HITL 配置路由到大纲。"""
-    session = Mock(spec=Session)
-    session.get_global_state.return_value = False
-    session.update_global_state = Mock()
-    node = EntryNode()
-
-    with patch(
-        "openjiuwen_deepsearch.framework.openjiuwen.agent.main_graph_nodes.add_debug_log_wrapper"
-    ):
-        output = node._post_handle(
-            {},
-            {
-                "go_deepsearch": True,
-                "lang": "zh-CN",
-                "llm_result": "",
-                "error_msg": "",
-                "entry_search_results": [{"title": "result"}],
-            },
-            session,
-            Context(),
-        )
-
-    assert output["next_node"] == NodeId.OUTLINE.value
-    session.update_global_state.assert_any_call({
-        "search_context.entry_search_results": [{"title": "result"}]
-    })
-
-
 @pytest.mark.asyncio
-async def test_intent_recognition_node_updates_context_and_routes_to_entry():
-    """验证独立意图识别节点先写回上下文，再交给 EntryNode 保留原入口逻辑。"""
+async def test_intent_recognition_node_updates_context_and_routes_to_outline():
+    """验证 IntentRecognitionNode 合并路由与意图识别后，研究请求路由到大纲节点。"""
     session = AsyncMock(spec=Session)
     original_query = "请写一份正式报告：AI Agent 趋势"
     messages = [{"role": "user", "content": original_query}]
@@ -264,6 +233,7 @@ async def test_intent_recognition_node_updates_context_and_routes_to_entry():
             include_domains=["example.com"],
             exclude_domains=["bad.com"],
         ),
+        lang="zh-CN",
     )
     web_search_engine_config = Mock()
     web_search_engine_config.search_engine_name = "tavily"
@@ -285,19 +255,30 @@ async def test_intent_recognition_node_updates_context_and_routes_to_entry():
         "openjiuwen_deepsearch.framework.openjiuwen.agent.main_graph_nodes.adapt_llm_model_name",
         return_value="basic",
     ), patch(
-        "openjiuwen_deepsearch.framework.openjiuwen.agent.main_graph_nodes.recognize_report_intent",
+        "openjiuwen_deepsearch.framework.openjiuwen.agent.main_graph_nodes.classify_and_recognize_intent",
         new_callable=AsyncMock,
         return_value=intent_result,
-    ) as mock_recognize, patch(
+    ) as mock_classify, patch(
+        "openjiuwen_deepsearch.framework.openjiuwen.agent.main_graph_nodes.web_search_for_query",
+        new_callable=AsyncMock,
+        return_value={"search_results": [{"title": "test"}], "error_msg": ""},
+    ) as mock_web_search, patch(
         "openjiuwen_deepsearch.framework.openjiuwen.agent.main_graph_nodes.apply_web_search_domain_constraints",
     ) as mock_apply_domain_constraints:
         output = await node.invoke({}, session, Context())
 
-    assert output["next_node"] == NodeId.ENTRY.value
-    mock_recognize.assert_awaited_once_with({
+    assert output["next_node"] == NodeId.OUTLINE.value
+    mock_classify.assert_awaited_once_with({
         "original_query": original_query,
         "messages": messages,
         "llm_model_name": "basic",
+        "human_in_the_loop": False,
+        "web_search_engine_config": web_search_engine_config,
+        "info_collector_search_method": "web",
+    })
+    mock_web_search.assert_awaited_once_with({
+        "query": "AI Agent 趋势",
+        "web_search_engine_name": "tavily",
     })
     update_payloads = [call.args[0] for call in session.update_global_state.call_args_list]
     intent_update = next(
@@ -308,9 +289,6 @@ async def test_intent_recognition_node_updates_context_and_routes_to_entry():
     assert intent_update["search_context.research_query"] == "AI Agent 趋势"
     assert intent_update["search_context.research_intent"] == intent_result.research_intent.model_dump()
     assert "search_context.report_type_policy" in intent_update
-    session.update_global_state.assert_any_call({
-        "search_context.messages": [{"role": "user", "content": "AI Agent 趋势"}]
-    })
     mock_apply_domain_constraints.assert_called_once_with(
         search_engine_name="tavily",
         include_domains=["example.com"],
