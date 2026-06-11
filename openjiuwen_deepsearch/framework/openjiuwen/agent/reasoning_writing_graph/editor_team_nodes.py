@@ -18,7 +18,7 @@ from openjiuwen_deepsearch.algorithm.report.doc_prefilter import deduplicate_doc
 from openjiuwen_deepsearch.algorithm.report.report import Reporter
 from openjiuwen_deepsearch.algorithm.source_trace.source_tracer import SourceTracer
 from openjiuwen_deepsearch.common.common_constants import CHINESE
-from openjiuwen_deepsearch.common.status_code import StatusCode
+from openjiuwen_deepsearch.common.status_code import StatusCode, format_exception_info
 from openjiuwen_deepsearch.framework.openjiuwen.agent.base_node import BaseNode, init_router
 from openjiuwen_deepsearch.framework.openjiuwen.agent.collector_graph.collector_execution_service import (
     CollectorExecutionService,
@@ -170,8 +170,9 @@ class BasePlanReasoningNode(BaseNode):
             else:
                 # 未收集到信息，跳转到End结束工作流
                 next_node = NodeId.END.value
-                error_msg = (f"[{StatusCode.SECTION_INFOS_EMPTY.code}] "
-                             f"{self.log_prefix} {limited_msg} {StatusCode.SECTION_INFOS_EMPTY.errmsg}")
+                error_msg = format_exception_info(
+                    StatusCode.SECTION_INFOS_EMPTY, limited_msg, prefix=self.log_prefix
+                )
                 _handle_warning_exception_info(session, added_warning=error_msg, added_exception=error_msg)
                 logger.info(f"{self.log_prefix} End {self.__class__.__name__}.")
             return dict(next_node=next_node)
@@ -228,8 +229,9 @@ class BasePlanReasoningNode(BaseNode):
                 logger.info(
                     f"{log_prefix} Research completed, go to {next_node}")
         else:
-            error_msg = (f"[{StatusCode.PLANNER_GENERATE_ERROR.code}] {log_prefix} "
-                         f"{StatusCode.PLANNER_GENERATE_ERROR.errmsg.format(e=error_detail)}")
+            error_msg = error_detail or format_exception_info(
+                StatusCode.PLANNER_GENERATE_ERROR, prefix=log_prefix
+            )
             _handle_warning_exception_info(session, added_warning=error_msg, added_exception=error_msg)
             next_node = NodeId.END.value
 
@@ -288,8 +290,9 @@ class ResearchPlanReasoningNode(BasePlanReasoningNode):
         # 2. plan生成失败时
         else:
             debug_info = algorithm_output.get("error_msg")
-            failed_info = (f"[{StatusCode.PLANNER_GENERATE_ERROR.code}] {log_prefix} "
-                           f"{StatusCode.PLANNER_GENERATE_ERROR.errmsg.format(e=debug_info)}")
+            failed_info = debug_info or format_exception_info(
+                StatusCode.PLANNER_GENERATE_ERROR, prefix=log_prefix
+            )
             if collected_doc_num > 0:
                 # 已经收集到信息
                 _handle_warning_exception_info(session, added_warning=failed_info)
@@ -298,8 +301,9 @@ class ResearchPlanReasoningNode(BasePlanReasoningNode):
             else:
                 # 未收集到信息
                 _handle_warning_exception_info(session, added_warning=failed_info, added_exception=failed_info)
-                error_msg = (f"[{StatusCode.SECTION_INFOS_EMPTY.code}] {log_prefix} "
-                             f"{StatusCode.SECTION_INFOS_EMPTY.errmsg}")
+                error_msg = format_exception_info(
+                    StatusCode.SECTION_INFOS_EMPTY, failed_info, prefix=log_prefix
+                )
                 _handle_warning_exception_info(session, added_warning=error_msg, added_exception=error_msg)
                 next_node = NodeId.END.value
 
@@ -391,8 +395,13 @@ class SubReporterNode(BaseNode):
             next_node = NodeId.SUB_SOURCE_TRACER.value
             logger.info(f"{self.log_prefix} Success to generate sub_report, detail: {detail_msg}, go to {next_node}")
         else:
-            error_msg = (f"[{StatusCode.SUB_REPORT_GENERATE_ERROR.code}] {self.log_prefix} "
-                         f"{StatusCode.SUB_REPORT_GENERATE_ERROR.errmsg.format(e=detail_msg)}")
+            msg = algorithm_output.get("msg", "")
+            if msg.startswith(f"[{StatusCode.SUB_REPORT_GENERATE_ERROR.code}]"):
+                error_msg = msg
+            else:
+                error_msg = format_exception_info(
+                    StatusCode.SUB_REPORT_GENERATE_ERROR, detail_msg, prefix=self.log_prefix
+                )
             _handle_warning_exception_info(session, added_warning=error_msg, added_exception=error_msg)
             next_node = NodeId.END.value
 
@@ -587,8 +596,9 @@ class InfoCollectorNode(BaseNode):
 
         current_doc_num = execution_result.collected_doc_num
         if current_doc_num == 0:
-            collector_warning = (f"[{StatusCode.INFO_COLLECTING_EMPTY.code}] {self.log_prefix} "
-                                 f"{StatusCode.INFO_COLLECTING_EMPTY.errmsg}")
+            collector_warning = format_exception_info(
+                StatusCode.INFO_COLLECTING_EMPTY, prefix=self.log_prefix
+            )
             warning_infos = state.get("warning_infos", [])
             warning_infos.append(collector_warning)
             logger.warning(collector_warning)
