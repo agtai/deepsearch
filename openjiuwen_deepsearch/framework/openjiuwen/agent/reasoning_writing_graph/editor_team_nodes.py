@@ -490,7 +490,21 @@ class SubSourceTracerNode(BaseNode):
         source_tracer = SourceTracer(current_inputs)
         # 细粒度开关关闭时，仍保留原文已有引用，只跳过基于搜索结果生成新增引用。
         if generated_citation_switch is not False:
-            await source_tracer.research_trace_source()
+            # 预检查原文引用覆盖率
+            pre_check_result = source_tracer.pre_check_origin_coverage()
+            logger.info(f"{self.log_prefix} 溯源预检查结果: "
+                        f"need_generate={pre_check_result.get('need_generate')}, "
+                        f"origin_count={pre_check_result.get('origin_count')}, "
+                        f"total_sentences={pre_check_result.get('total_sentences')}, "
+                        f"coverage={pre_check_result.get('coverage'):.4f}, "
+                        f"reason={pre_check_result.get('reason')}")
+
+            if pre_check_result.get("need_generate") is False:
+                logger.info(f"{self.log_prefix} 原文引用覆盖率达标，跳过新增引用生成。"
+                            f"origin_count={pre_check_result.get('origin_count')}, "
+                            f"coverage={pre_check_result.get('coverage'):.4f}")
+            else:
+                await source_tracer.research_trace_source()
         else:
             logger.info(
                 f"{self.log_prefix} source_tracer_generated_citation_switch is False, "
