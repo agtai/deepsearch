@@ -194,14 +194,15 @@ class SourceTracerNode(BaseNode)
 ```python
 class UserFeedbackProcessorNode(BaseNode)
 ```
-**UserFeedbackProcessorNode** 在报告生成完成后，处理用户对局部文本的迭代改写请求。
+**UserFeedbackProcessorNode** 在报告生成完成后，处理用户对局部文本的迭代改写请求，以及选中内容的真实性核验。
 
 **功能**：
 - 根据 `user_feedback_processor_enable` 决定是否启用报告后局部优化。
 - 首次进入时先向前端发送完整的 `final_result` 快照，并通过 `search_context.feedback_snapshot_sent` 保证只发送一次。
-- 读取用户 JSON 反馈，支持 `expand`、`shorten`、`polish`、`supplementary_search`、`new_task`、`sync`、`finish`。
+- 读取用户 JSON 反馈，支持 `expand`、`shorten`、`polish`、`supplementary_search`、`new_task`、`truth_verification`、`sync`、`finish`。
 - 对改写类动作解析并校验 `action`、`rewrite_scope`、`selected_text`、偏移量等字段。
 - `supplementary_search` 支持 `selected_only` 与 `selected_and_related` 两种改写范围。
+- `truth_verification` 为只读动作：校验选区后返回 Markdown 核验结果，不更新 `final_result.response_content`，不写入 `search_context.rewrite_history`。
 - `sync` 会以轻量 ack 回传整篇报告更新结果，不消耗 `feedback_interaction_count`；只有整篇报告内容实际变化时才会追加一条 `rewrite_history` 记录。
 - 调用 `UserFeedbackProcessor` 完成局部改写并更新 `final_result.response_content`。
 - 当 `source_tracer_research_trace_source_switch` 开启时，普通 rewrite、`supplementary_search` 和 `new_task` 会对变化片段执行差异感知局部溯源；未变化片段保留原引用，新增引用会同步更新 `citation_messages` 并在文末追加参考文献。

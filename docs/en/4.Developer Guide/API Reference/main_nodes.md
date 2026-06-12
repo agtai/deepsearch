@@ -109,14 +109,15 @@ class SourceTracerNode(BaseNode)
 ```python
 class UserFeedbackProcessorNode(BaseNode)
 ```
-**UserFeedbackProcessorNode** handles iterative local rewrite requests after report generation is complete.
+**UserFeedbackProcessorNode** handles iterative local rewrite requests and selected-content fact verification after report generation is complete.
 
 **Functions**:
 - Decide whether to enable post-report local editing based on `user_feedback_processor_enable`.
 - On first entry, send a full `final_result` snapshot to the frontend and use `search_context.feedback_snapshot_sent` to ensure it is sent only once.
-- Read JSON user feedback and support `expand`, `shorten`, `polish`, `supplementary_search`, `new_task`, `sync`, and `finish`.
+- Read JSON user feedback and support `expand`, `shorten`, `polish`, `supplementary_search`, `new_task`, `truth_verification`, `sync`, and `finish`.
 - Parse and validate rewrite payload fields such as `action`, `rewrite_scope`, `selected_text`, and offsets.
 - Support both `selected_only` and `selected_and_related` as rewrite scopes for `supplementary_search`.
+- Treat `truth_verification` as read-only: validate the selection, return a Markdown verification result, and do not update `final_result.response_content` or `search_context.rewrite_history`.
 - Return a lightweight ack for `sync`, without consuming `feedback_interaction_count`; successful sync appends a rewrite-history record only when the full report content actually changes.
 - Call `UserFeedbackProcessor` to complete the local rewrite and update `final_result.response_content`.
 - When `source_tracer_research_trace_source_switch` is enabled, normal rewrite, `supplementary_search`, and `new_task` actions run diff-aware local source tracing on changed spans; unchanged spans keep their existing citations, and newly traced citations update `citation_messages` and append reference entries at the end of the report.

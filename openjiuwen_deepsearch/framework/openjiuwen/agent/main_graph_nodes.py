@@ -1549,6 +1549,7 @@ class UserFeedbackProcessorNode(BaseNode):
             feedback_snapshot_sent=session.get_global_state("search_context.feedback_snapshot_sent") or False,
             language=session.get_global_state("search_context.language"),
             final_result=session.get_global_state("search_context.final_result"),
+            current_report=session.get_global_state("search_context.current_report"),
             llm_model_name=adapt_llm_model_name(session, NodeId.USER_FEEDBACK_PROCESSOR.value),
             enable_local_source_trace=(
                 session.get_global_state("config.source_tracer_research_trace_source_switch") is not False
@@ -1646,6 +1647,7 @@ class UserFeedbackProcessorNode(BaseNode):
                 final_result=final_result,
                 language=current_inputs["language"],
                 enable_local_source_trace=current_inputs["enable_local_source_trace"],
+                current_report=current_inputs.get("current_report"),
             )
         except CustomException as e:
             if interaction_count >= max_interactions and consume_interaction:
@@ -1687,12 +1689,15 @@ class UserFeedbackProcessorNode(BaseNode):
             )
 
         stream_result = UserFeedbackProcessor.build_stream_result(feedback, action_result)
-        updated_final_result = dict(final_result or {})
-        updated_final_result.update(
-            {
-                "response_content": action_result["new_report"],
-            }
-        )
+        if action_result.get("read_only_result", False):
+            updated_final_result = final_result
+        else:
+            updated_final_result = dict(final_result or {})
+            updated_final_result.update(
+                {
+                    "response_content": action_result["new_report"],
+                }
+            )
         if "citation_messages" in action_result:
             updated_final_result["citation_messages"] = action_result["citation_messages"]
         if "warning_info" in action_result:

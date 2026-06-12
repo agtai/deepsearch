@@ -114,6 +114,12 @@ class AgentLlmName(enum.Enum):
     )
     USER_FEEDBACK_PROCESSOR_NEW_TASK_ASSESSMENT = "user_feedback_processor_new_task_assessment"
     USER_FEEDBACK_PROCESSOR_NEW_TASK_REWRITE_SECTION = "user_feedback_processor_new_task_rewrite_section"
+    USER_FEEDBACK_PROCESSOR_TRUTH_VERIFICATION_ASSESSMENT = (
+        "user_feedback_processor_truth_verification_assessment"
+    )
+    USER_FEEDBACK_PROCESSOR_TRUTH_VERIFICATION_SEARCH_TASK = (
+        "user_feedback_processor_truth_verification_search_task"
+    )
 
     VLM_CHART_GENERATOR = NodeId.VLM_CHART_GENERATOR.value
     VLM_CHART_GENERATOR_FIND_INSERT_POINT = "vlm_chart_generator_find_inserPoint"

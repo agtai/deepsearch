@@ -499,6 +499,46 @@ class TestUserFeedbackProcessorNode:
         assert mock_execute.await_args.kwargs["enable_local_source_trace"] is False
 
     @pytest.mark.asyncio
+    async def test_do_invoke_truth_verification_read_only_does_not_update_report_or_history(self, node):
+        session = make_mock_session(search_context_overrides={"feedback_snapshot_sent": True})
+        selected_text = "这是一段"
+        feedback_payload = {
+            "action": "truth_verification",
+            "selected_text": selected_text,
+            "start_offset": 0,
+            "end_offset": len(selected_text),
+            "user_instruction": "核验真实性",
+        }
+        session.interact.return_value = json.dumps(feedback_payload)
+
+        execute_return = {
+            "read_only_result": True,
+            "verification_result": {
+                "display_text": "有充分证据支持。",
+            },
+        }
+
+        with patch(f"{ALGO_CLASS_PATH}.execute", new_callable=AsyncMock, return_value=execute_return):
+            with patch(f"{ALGO_CLASS_PATH}.send_result", new_callable=AsyncMock) as mock_send_result:
+                result = await node._do_invoke(None, session, None)
+
+        assert result["next_node"] == NodeId.USER_FEEDBACK_PROCESSOR.value
+        send_result_kwargs = mock_send_result.await_args.kwargs
+        assert send_result_kwargs["final_result"]["response_content"] == "这是一段测试报告[[1]](https://a.com)内容结束"
+        assert send_result_kwargs["result"] == "有充分证据支持。"
+
+        assert not any(
+            "search_context.final_result.response_content" in call.args[0]
+            for call in session.update_global_state.call_args_list
+        )
+        assert not any(
+            "search_context.rewrite_history" in call.args[0]
+            for call in session.update_global_state.call_args_list
+        )
+        assert send_result_kwargs["feedback_interaction_count"] == 1
+        session.update_global_state.assert_any_call({"search_context.feedback_interaction_count": 1})
+
+    @pytest.mark.asyncio
     async def test_do_invoke_supplementary_search_success_updates_final_result_and_history(self, node):
         session = make_mock_session(search_context_overrides={
             "final_result": {
