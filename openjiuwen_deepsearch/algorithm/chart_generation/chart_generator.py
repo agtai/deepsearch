@@ -562,7 +562,7 @@ class ChartGenerator:
     @staticmethod
     def _has_large_blank(png_base64: str) -> bool:
         """
-        判断图片中是否存在大面积连续空白（占画布面积超过90%）
+        判断图片中是否存在大面积连续空白
 
         使用numpy数组运算同时检测水平方向（空白行）和垂直方向（空白列）
         的最大连续空白面积，任一方向超过阈值即判定为大面积空白。
@@ -584,9 +584,9 @@ class ChartGenerator:
                 gray = img.convert("L")
                 arr = np.asarray(gray)
 
-                white_threshold = 245
-                blank_ratio_threshold = 0.8
-                large_blank_ratio = 0.9
+                white_threshold = 255
+                blank_ratio_threshold = 1.0
+                large_blank_ratio = 0.5
 
                 white_mask = arr >= white_threshold
                 blank_rows = white_mask.mean(axis=1) >= blank_ratio_threshold
