@@ -31,6 +31,7 @@ dependencies = [
     'matplotlib',
     'seaborn',
     'numpy>=2.4.2',
+    'tldextract>=5.0.0',
 ]
 
 # 1. 告诉 setuptools 把 openjiuwen_deepsearch 当成一个「命名空间包」
@@ -48,6 +49,7 @@ openjiuwen_deepsearch = ["**/*"]  # 递归收录所有文件，包括 .md、.jso
 pythonpath = ["."]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
+asyncio_default_test_loop_scope = "function"
 addopts = ["-ra -q"]
 testpaths = ["tests"]
 filterwarnings = [
