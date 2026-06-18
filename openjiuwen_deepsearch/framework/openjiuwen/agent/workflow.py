@@ -1634,6 +1634,14 @@ class DeepSearchAgent(BaseAgent):
             self._build_agent()
 
             result: SearchFinalResult = await self._run_internal()
+            try:
+                await self.action_pool.flush_snapshot()
+            except Exception as e:
+                logger.warning(
+                    "[DeepSearchAgent] Failed to flush action pool snapshot before final result: %s",
+                    e,
+                    exc_info=not LogManager.is_sensitive(),
+                )
             if hasattr(result, "model_dump"):
                 yield json.dumps(to_json_safe(result.model_dump()), ensure_ascii=False)
             elif isinstance(result, dict):
@@ -1641,6 +1649,14 @@ class DeepSearchAgent(BaseAgent):
             else:
                 yield json.dumps({"result": str(result)}, ensure_ascii=False)
         finally:
+            try:
+                await self.action_pool.flush_snapshot()
+            except Exception as e:
+                logger.warning(
+                    "[DeepSearchAgent] Failed to flush action pool snapshot during cleanup: %s",
+                    e,
+                    exc_info=not LogManager.is_sensitive(),
+                )
             if llm_token is not None:
                 llm_context.reset(llm_token)
             if tool_token is not None:
