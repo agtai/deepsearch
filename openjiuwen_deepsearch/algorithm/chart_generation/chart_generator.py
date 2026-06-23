@@ -14,6 +14,7 @@ import os
 import re
 import json
 import textwrap
+import weakref
 from typing import Dict, List, Tuple, Optional, Any
 import base64
 import io
@@ -44,21 +45,26 @@ MAX_SECTION_CONCURRENT_CHART_TASKS = 5
 CHART_THRESHOLD = 85
 
 
-# 全局信号量：跨所有ChartGenerator实例共享，确保总并发不超过全局预算
-_global_chart_semaphore: Optional[asyncio.Semaphore] = None
+# 全局信号量缓存：同一事件循环内共享，空闲后允许回收，避免跨loop复用已绑定对象
+_global_chart_semaphores: "weakref.WeakValueDictionary[int, asyncio.Semaphore]" = (
+    weakref.WeakValueDictionary()
+)
 
 
 def _get_global_chart_semaphore() -> asyncio.Semaphore:
     """
-    获取全局图表生成信号量（懒加载，确保在asyncio事件循环中创建）
+    获取当前事件循环内共享的图表生成信号量。
 
     Returns:
-        asyncio.Semaphore: 全局并发控制信号量
+        asyncio.Semaphore: 当前事件循环内的全局并发控制信号量
     """
-    global _global_chart_semaphore
-    if _global_chart_semaphore is None:
-        _global_chart_semaphore = asyncio.Semaphore(MAX_GLOBAL_CONCURRENT_CHART_TASKS)
-    return _global_chart_semaphore
+    loop = asyncio.get_running_loop()
+    loop_id = id(loop)
+    semaphore = _global_chart_semaphores.get(loop_id)
+    if semaphore is None:
+        semaphore = asyncio.Semaphore(MAX_GLOBAL_CONCURRENT_CHART_TASKS)
+        _global_chart_semaphores[loop_id] = semaphore
+    return semaphore
 
 
 class ChartGenerator:
