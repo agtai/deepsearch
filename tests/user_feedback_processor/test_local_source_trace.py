@@ -494,3 +494,46 @@ async def test_apply_local_source_trace_traces_insert_only_rewrite_without_origi
     )
     assert "新增内容[checked_citation:0][[1]](https://b.com)" in updated["new_report"]
     assert "[1]. [标题B](https://b.com)" in updated["new_report"]
+
+
+@pytest.mark.asyncio
+async def test_apply_local_source_trace_preserves_insert_boundary_before_next_heading():
+    """验证零长度插入溯源后仍保留下一章节标题前的换行边界。"""
+    prefix = "# 1. 第一章\n已有内容\n\n"
+    inserted_text = "## 1.5 新增小节\n新增内容。\n\n"
+    suffix = "# 2. 第二章\n原有内容"
+    final_result = {
+        "response_content": prefix + suffix,
+        "citation_messages": {"data": []},
+    }
+    action_result = {
+        "new_report": prefix + inserted_text + suffix,
+        "original_text": "",
+        "original_start_offset": len(prefix),
+        "original_end_offset": len(prefix),
+        "original_text_clean": "",
+        "rewritten_text": inserted_text,
+        "rewritten_start_offset": len(prefix),
+        "rewritten_end_offset": len(prefix) + len(inserted_text),
+        "source_trace_doc_infos": [{"title": "标题B", "url": "https://b.com", "original_content": "来源B"}],
+    }
+
+    with patch(
+        "openjiuwen_deepsearch.algorithm.user_feedback_processor.local_source_trace.run_local_source_trace",
+        new_callable=AsyncMock,
+        return_value=LocalTraceResult(
+            text="## 1.5 新增小节\n新增内容[checked_citation:0][[1]](https://b.com)。",
+            citation_data=[{"id": 0, "reference_index": 1, "title": "标题B", "url": "https://b.com"}],
+        ),
+    ):
+        updated = await apply_local_source_trace_to_action_result(
+            feedback={"action": "new_task"},
+            action_result=action_result,
+            final_result=final_result,
+            llm_model_name="mock",
+            language="zh-CN",
+        )
+
+    assert "新增内容[checked_citation:0][[1]](https://b.com)。\n\n# 2. 第二章" in updated["new_report"]
+    assert "新增内容[checked_citation:0][[1]](https://b.com)。# 2. 第二章" not in updated["new_report"]
+    assert updated["rewritten_text"].endswith("\n\n")

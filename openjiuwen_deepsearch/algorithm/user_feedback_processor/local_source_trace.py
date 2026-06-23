@@ -691,6 +691,25 @@ def _merge_source_records(*record_groups: list[dict]) -> list[dict]:
     return merged
 
 
+def _restore_segment_boundary_whitespace(original_text: str, traced_text: str) -> str:
+    """恢复局部溯源片段的首尾空白边界。
+
+    Args:
+        original_text: diff 片段进入局部溯源前的原始文本。
+        traced_text: 局部溯源和 citation checker 处理后的文本。
+
+    Returns:
+        保留原片段首尾空白后的溯源文本。
+    """
+    leading_whitespace = original_text[: len(original_text) - len(original_text.lstrip())]
+    trailing_whitespace = original_text[len(original_text.rstrip()):]
+    if leading_whitespace:
+        traced_text = leading_whitespace + traced_text.lstrip()
+    if trailing_whitespace:
+        traced_text = traced_text.rstrip() + trailing_whitespace
+    return traced_text
+
+
 def _resolve_diff_original_text_clean(action_result: dict, stripped_original_text: str) -> str:
     """选择用于 diff 的完整原文 clean 文本。
 
@@ -832,8 +851,9 @@ async def apply_local_source_trace_to_action_result(
             raise KeyError(f"missing local source trace result for segment index {segment_index}")
         if trace_result.warning_info:
             warning_parts.append(trace_result.warning_info)
+        local_traced_text = _restore_segment_boundary_whitespace(segment.text, trace_result.text)
         traced_text, traced_data = apply_global_citation_numbering(
-            local_text=trace_result.text,
+            local_text=local_traced_text,
             local_citation_data=trace_result.citation_data,
             existing_citation_messages={"data": [*existing_citation_data, *new_citation_data]},
             existing_reference_map=existing_reference_map,
