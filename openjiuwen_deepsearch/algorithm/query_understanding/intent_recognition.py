@@ -2,6 +2,7 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
 
 import logging
+import re
 from typing import Dict, List
 
 from pydantic import BaseModel, Field
@@ -85,6 +86,24 @@ def _default_fallback(original_query: str | None) -> IntentRecognitionResult:
     )
 
 
+def _to_str_list(raw) -> list[str]:
+    """Safely convert a value to a list of strings.
+
+    Handles the case where LLM returns a comma-separated string instead of a list.
+    Supports Chinese punctuation: ，、；and English separators: , ; \n
+    """
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str):
+        raw = raw.strip()
+        if not raw:
+            return []
+        return [item.strip() for item in re.split(r'[,，、;；\n]', raw) if item.strip()]
+    return []
+
+
 def _dedupe_preserve_order(items: list[str]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
@@ -95,6 +114,26 @@ def _dedupe_preserve_order(items: list[str]) -> list[str]:
         seen.add(s)
         out.append(s)
     return out
+
+
+def _normalize_task_type(raw: str | None) -> str | None:
+    if raw is None:
+        return None
+    value = str(raw).strip().lower().replace("-", "_").replace(" ", "_")
+    if not value:
+        return None
+    aliases = {
+        "compare": "comparison",
+        "comparison_analysis": "comparison",
+        "classify": "classification",
+        "categorization": "classification",
+        "trend_judgment": "trend_judgement",
+        "trend_judgement": "trend_judgement",
+        "trend_judgement_analysis": "trend_judgement",
+        "feasibility_judgement": "trend_judgement",
+        "feasibility_assessment": "trend_judgement",
+    }
+    return aliases.get(value, value)
 
 
 def _normalize_research_intent(data: dict) -> ResearchIntent:
@@ -117,13 +156,13 @@ def _normalize_research_intent(data: dict) -> ResearchIntent:
     ar_raw = data.get("audience_role")
     audience_role = str(ar_raw).strip() if ar_raw is not None and str(ar_raw).strip() else None
 
-    include_url = _dedupe_preserve_order(list(data.get("include_url") or []))
-    exclude_url = _dedupe_preserve_order(list(data.get("exclude_url") or []))
+    include_url = _dedupe_preserve_order(_to_str_list(data.get("include_url")))
+    exclude_url = _dedupe_preserve_order(_to_str_list(data.get("exclude_url")))
     include_domains = _dedupe_preserve_order(
-        [str(d).strip() for d in (data.get("include_domains") or []) if str(d).strip()]
+        [str(d).strip() for d in _to_str_list(data.get("include_domains")) if str(d).strip()]
     )
     exclude_domains = _dedupe_preserve_order(
-        [str(d).strip() for d in (data.get("exclude_domains") or []) if str(d).strip()]
+        [str(d).strip() for d in _to_str_list(data.get("exclude_domains")) if str(d).strip()]
     )
 
     for url in include_url:
@@ -133,6 +172,9 @@ def _normalize_research_intent(data: dict) -> ResearchIntent:
     include_domains = _dedupe_preserve_order(include_domains)
 
     return ResearchIntent(
+        task_type=_normalize_task_type(data.get("task_type")),
+        required_dimensions=_dedupe_preserve_order(_to_str_list(data.get("required_dimensions"))),
+        comparison_targets=_dedupe_preserve_order(_to_str_list(data.get("comparison_targets"))),
         section_count=section_count,
         audience_role=audience_role,
         tone=tone,
@@ -180,6 +222,23 @@ def _create_emit_intent_tool() -> LocalFunction:
                 "language": {
                     "type": "string",
                     "description": "The user's detected language locale (e.g., zh-CN, en-US, ja-JP).",
+                },
+                "task_type": {
+                    "type": "string",
+                    "description": (
+                        "Primary task type as a concise English enum-like label, such as "
+                        "comparison, classification, trend_judgement, recommendation, evaluation."
+                    ),
+                },
+                "required_dimensions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Named comparison or analysis dimensions that must be covered.",
+                },
+                "comparison_targets": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Named entities, options, or categories that should be compared explicitly.",
                 },
                 "section_count": {
                     "type": "integer",

@@ -5,6 +5,7 @@ import pytest
 
 from openjiuwen_deepsearch.algorithm.query_understanding.intent_recognition import (
     IntentRecognitionResult,
+    _to_str_list,
     classify_and_recognize_intent,
     recognize_report_intent,
     web_search_for_query,
@@ -427,5 +428,70 @@ async def test_web_search_empty_engine_name_uses_default():
 
     assert result["search_results"] == mock_results
     assert mock_search.call_args[0][1] == "petal"
+
+
+# ──────────────────────────────────────────────
+# _to_str_list 测试
+# ──────────────────────────────────────────────
+
+
+def test_to_str_list_none():
+    """None 输入返回空列表"""
+    assert _to_str_list(None) == []
+
+
+def test_to_str_list_list_passthrough():
+    """列表直接返回"""
+    assert _to_str_list(["a", "b"]) == ["a", "b"]
+
+
+def test_to_str_list_empty_string():
+    """空字符串返回空列表"""
+    assert _to_str_list("") == []
+
+
+def test_to_str_list_english_comma():
+    """英文逗号分隔"""
+    assert _to_str_list("成本,性能") == ["成本", "性能"]
+
+
+def test_to_str_list_chinese_comma():
+    """中文逗号分隔"""
+    assert _to_str_list("成本，性能") == ["成本", "性能"]
+
+
+def test_to_str_list_chinese_enumeration_comma():
+    """顿号分隔"""
+    assert _to_str_list("成本、性能、安全") == ["成本", "性能", "安全"]
+
+
+def test_to_str_list_english_semicolon():
+    """英文分号分隔"""
+    assert _to_str_list("成本;性能") == ["成本", "性能"]
+
+
+def test_to_str_list_chinese_semicolon():
+    """中文分号分隔"""
+    assert _to_str_list("成本；性能") == ["成本", "性能"]
+
+
+def test_to_str_list_newline():
+    """换行符分隔"""
+    assert _to_str_list("成本\n性能") == ["成本", "性能"]
+
+
+def test_to_str_list_mixed_separators():
+    """混合分隔符"""
+    assert _to_str_list("成本，性能、安全;可靠\n稳定") == ["成本", "性能", "安全", "可靠", "稳定"]
+
+
+def test_to_str_list_extra_spaces_and_empty_items():
+    """多余空格和空项被过滤"""
+    assert _to_str_list("成本, , 性能") == ["成本", "性能"]
+
+
+def test_to_str_list_non_list_str_none():
+    """非 list/str/None 类型返回空列表"""
+    assert _to_str_list(123) == []
 
 
