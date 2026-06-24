@@ -2,6 +2,7 @@
 # Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import base64
 import io
+import logging
 import re
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -20,6 +21,8 @@ from docx.text.paragraph import Paragraph
 from latex2mathml.converter import convert as latex2mathml_convert
 from mathml2omml import convert
 
+logger = logging.getLogger(__name__)
+
 # NOTE:
 # python-docx does not expose public APIs for a subset of low-level XML operations.
 # The internal members accessed below are intentionally constrained to formatting helpers.
@@ -31,7 +34,7 @@ OMML_URI = "http://schemas.openxmlformats.org/officeDocument/2006/math"  # URI f
 MAX_HTML_BLOCK_DEPTH = 100
 HEADING_TAGS = frozenset(f"h{i}" for i in range(1, 9))
 REMOTE_IMAGE_SCHEMES = frozenset({"http", "https"})
-LATEX_TOKEN_RE = re.compile(r"(\$\$.*?\$\$|\$.+?\$)", re.DOTALL)
+LATEX_TOKEN_RE = re.compile(r"(\$\$.*?\$\$|\\\(.*?\\\))", re.DOTALL)
 HTML_FORMATTING_WHITESPACE_RE = re.compile(r"[ \t]*\n[ \t]*")
 DOCX_LIST_LEVELS = 9
 DOCX_BULLET_SYMBOLS = ("•", "◦", "▪")
@@ -367,7 +370,7 @@ def _resolve_local_image(src: str, base_path: Path | None) -> Path | None:
 
 
 def _process_text_inline(p, text: str, style_r_fonts, current_run=None, superscript: bool = False) -> None:
-    if "$" not in text:
+    if "$" not in text and "\\(" not in text:
         _add_text_run(p, text, style_r_fonts, current_run=current_run, superscript=superscript)
         return
 
@@ -384,10 +387,31 @@ def _process_text_inline(p, text: str, style_r_fonts, current_run=None, superscr
             )
             reusable_run = None
 
-        latex = match.group(0).strip("$").strip()
+        token = match.group(0)
+        latex = (
+            token[2:-2].strip()
+            if token.startswith("\\(") and token.endswith("\\)")
+            else token.strip("$").strip()
+        )
         if latex:
-            omml = _latex_to_omml(latex)
-            _insert_omml(p, omml)
+            try:
+                omml = _latex_to_omml(latex)
+                _insert_omml(p, omml)
+            except ValueError:
+                # Fallback: render raw LaTeX text when conversion fails
+                # (e.g., unbalanced \left...\right, unsupported commands)
+                logger.warning(
+                    "LaTeX-to-OMML conversion failed, falling back to raw text. "
+                    "latex=%s",
+                    latex[:200],
+                )
+                _add_text_run(
+                    p,
+                    match.group(0),
+                    style_r_fonts,
+                    current_run=reusable_run,
+                    superscript=superscript,
+                )
         cursor = match.end()
 
     if cursor < len(text):

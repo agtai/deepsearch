@@ -87,6 +87,12 @@ Even if `section_iscore` is true, keep analysis compact:
 - Output language must be **{{language}}**.
 - Tone should be formal, direct, and actionable.
 
+## 7) Mathematical Formula Syntax
+- When the content involves mathematical formulas, use standard LaTeX: inline math in `$...$`, block math in `$$...$$`.
+- **Balance every delimiter pair**: each `\left` MUST have a matching `\right`, and every `{`, `(`, `[` its closing counterpart. If a resizable delimiter is not needed, use plain `(` `)` instead of `\left( \right)`.
+- Use only widely-supported LaTeX commands and wrap multi-character sub/superscripts in braces (`x^{2n}`, `\pi_{\theta_{old}}`).
+- Verify each formula is syntactically valid before output: a malformed formula breaks HTML and DOCX rendering.
+
 # Output Example (format only)
 # 1 Chapter title
 ## 1.1 Sub chapter title 1
