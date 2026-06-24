@@ -114,6 +114,14 @@ This is a core part of the report. You must:
 | Content 1 | Content 2 | Content 3 | Content 4 |
 | Content 5 | Content 6 | Content 7 | Content 8 |
 
+## Mathematical Formula Syntax
+- When the content involves mathematical formulas, use standard LaTeX syntax: inline math wrapped in single dollars `$...$`, and block (display) math wrapped in double dollars `$$...$$`.
+- **Balance every delimiter pair**: each `\left` MUST have a matching `\right`, each `{` a matching `}`, and each opening bracket `( [ \{` its closing counterpart. Do NOT leave an unmatched `\left` or `\right`. If you do not need a resizable delimiter, use a plain `(` `)` instead of `\left( \right)`.
+- Use only widely-supported LaTeX commands (e.g., `\frac`, `\sum`, `\int`, `\sqrt`, `\mathbb`, `\mathcal`, `\text`, `\alpha`, `\beta`). Avoid package-specific or non-standard macros that a basic LaTeX renderer cannot parse.
+- Wrap multi-character subscripts and superscripts in braces (`x^{2n}`, `\pi_{\theta_{old}}`), not bare (`x^2n`).
+- Keep each formula self-contained and verify it is syntactically valid before output: a malformed formula breaks HTML and DOCX rendering.
+- Do not escape characters inside math (e.g., do not write `\$` or backslash-escape `*`); only use `$`/`$$` as the outer delimiters.
+
 ## Output Structure Example
 
 English Output Format Example:
