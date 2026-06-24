@@ -83,6 +83,7 @@ from openjiuwen_deepsearch.config.config import (
 from openjiuwen_deepsearch.framework.openjiuwen.agent.base_node import BaseNode
 from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import (
     Action,
+    build_research_intent_prompt_context,
     Message,
     Outline,
     OutlineInteraction,
@@ -623,7 +624,7 @@ class ReporterNode(BaseNode):
         research_intent = session.get_global_state("search_context.research_intent") or {}
         audience_role = (research_intent.get("audience_role", "") or "").strip()
         tone = (research_intent.get("tone", "") or "").strip()
-        return dict(
+        result = dict(
             thread_id=session.get_global_state("config.thread_id") or "",
             report_style=session.get_global_state("config.report_style") or ReportStyle.SCHOLARLY.value,
             report_format=session.get_global_state("config.report_format") or ReportFormat.MARKDOWN,
@@ -637,9 +638,13 @@ class ReporterNode(BaseNode):
             visualization_enable=visualization_enable,
             report_type=rtp.get("report_type", "professional"),
             paragraph_style=rtp.get("paragraph_style", "detailed"),
+            report_type_policy=rtp,
+            research_intent=research_intent,
             audience_role=audience_role,
             tone=tone,
         )
+        result.update(build_research_intent_prompt_context(research_intent))
+        return result
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext):
         current_inputs = self._pre_handle(inputs, session, context)
@@ -916,8 +921,7 @@ class OutlineNode(BaseNode):
             section_num = configured_section_num
         audience_role = research_intent.get("audience_role") or ""
         tone = research_intent.get("tone") or ""
-
-        return dict(
+        result = dict(
             messages=messages,
             user_feedback=user_feedback,
             questions=questions,
@@ -939,6 +943,8 @@ class OutlineNode(BaseNode):
             audience_role=audience_role,
             tone=tone,
         )
+        result.update(build_research_intent_prompt_context(research_intent))
+        return result
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
         session_context.set(session)
