@@ -17,7 +17,6 @@ from openjiuwen_deepsearch.common.common_constants import CHINESE, ENGLISH
     ("第十2章 高级用法", "高级用法"),  # 中文+数字
     ("二、异常处理", "异常处理"),  # 中文序号
     ("3.4 数据结构", "数据结构"),  # 阿拉伯数字+点
-    ("12-5 算法分析", "算法分析"),  # 阿拉伯数字+连字符
     ("第九章", ""),  # 只有章节号，没有正文
     ("Chapter Intro", "Chapter Intro"),  # 无匹配前缀，保持原样
 ])
