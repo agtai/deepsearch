@@ -531,7 +531,7 @@ Notes:
 - `sync` only updates `final_result.response_content`, does not consume `feedback_interaction_count`, and appends a `search_context.rewrite_history` record only when the full report content actually changes.
 - The backend keeps only the latest 10 `sync` history records; unchanged `sync` requests do not create history entries.
 - Each successful normal local rewrite appends one record to `search_context.rewrite_history`, including `action`, `rewrite_scope` (when present), offsets, and related information for debugging and auditing.
-- `truth_verification` does not update `final_result.response_content` or write `rewrite_history`.
+- `truth_verification` does not update `final_result.response_content` or write `rewrite_history`. The streaming `SUMMARY_RESPONSE` `content` is JSON with `display_text` and `feedback_interaction_count`, and it consumes one `feedback_interaction_count`.
 - **Compatibility**: omitting `rewrite_scope` is equivalent to explicitly sending `selected_only`; **`action` cannot be omitted or be an empty string**. If an older frontend still relies on backend inference, it must be updated to send a valid explicit `action`.
 
 # Further reading
