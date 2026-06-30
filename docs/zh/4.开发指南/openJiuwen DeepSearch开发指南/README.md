@@ -80,7 +80,7 @@ openJiuwen-DeepSearch 当前支持以下内置联网增强引擎，均通过 `we
 
 不同引擎的接入方式与配置重点如下：
 
-- `jina` 使用项目内置的直接 HTTP API Wrapper；当 `search_url` 为空时，会自动回退到 `https://s.jina.ai`。可通过 `extension` 传入 `gl`、`hl`、`location`、`page` 等查询参数。
+- `jina` 使用项目内置的直接 HTTP API Wrapper；当 `search_url` 为空时，会自动回退到 `https://s.jina.ai`。国内网络环境如无法访问该默认地址，可显式将 `search_url` 配置为 `https://s.jinaai.cn`。可通过 `extension` 传入 `gl`、`hl`、`location`、`page` 等查询参数。
 - `bocha`、`perplexity` 使用 harness `web_tools` 适配层；支持通过 `extension.timeout_seconds` 控制调用超时，通过 `extension.fetch_webpage` 控制是否继续抓取网页正文。仅当底层 provider 支持 URL 覆盖时，`search_url` 才会生效。
 - `serper` 在研究态 `web_search_tool` 中映射到 Google/Serper Wrapper，便于与服务端配置名称保持一致。
 - `tavily`、`google/serper`、`xunfei`、`petal` 保持原有接入方式，其中公共引擎允许 `search_url=""`，此时使用内置默认地址或 provider 默认行为。
@@ -91,7 +91,7 @@ openJiuwen-DeepSearch 当前支持以下内置联网增强引擎，均通过 `we
 - Collector 在 `_structure_result` 阶段会再次按同一上限裁剪传给 `run_doc_evaluation` 的内容。
 - `web_page_search_record` 会统一保留标准化字段 `title`、`url`、`content`、`type`，兼容不同引擎返回的 `link`、`source_url`、`snippet`、`summary`、`answer` 等别名字段。
 
-> 说明：用户需要自行前往相应联网增强引擎的官网注册账号，以便获取 `search_api_key`。对于 Jina 等公共搜索接口，`search_url` 可以留空使用系统默认地址；如需私有化部署或 vendor 提供自定义地址，再显式传入 `search_url`。
+> 说明：用户需要自行前往相应联网增强引擎的官网注册账号，以便获取 `search_api_key`。对于 Jina 等公共搜索接口，`search_url` 可以留空使用系统默认地址；国内网络环境建议为 Jina 显式配置 `search_url="https://s.jinaai.cn"`。如需私有化部署、代理转发或 vendor 提供自定义地址，也可显式传入 `search_url`。
 
 ## ssl证书配置说明
 
