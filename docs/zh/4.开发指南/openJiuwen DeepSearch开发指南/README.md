@@ -658,7 +658,7 @@ async for chunk in agent.run(message=finish_message, conversation_id=conversatio
 - `sync` 仅更新 `final_result.response_content`，不消耗 `feedback_interaction_count`，且只有整篇报告内容实际变化时才会追加一条 `search_context.rewrite_history` 记录。
 - 后端仅保留最近 10 条 `sync` 历史；内容未变化的 `sync` 不会新增历史记录。
 - 每次成功的普通局部改写会在 `search_context.rewrite_history` 中追加一条记录，其中包含 `action`、`rewrite_scope`（若有）及偏移等信息，便于排查与审计。
-- `truth_verification`不更新 `final_result.response_content`，也不写入 `rewrite_history`。
+- `truth_verification` 不更新 `final_result.response_content`，也不写入 `rewrite_history`；流式 `SUMMARY_RESPONSE` 的 `content` 为 JSON，包含 `display_text` 与 `feedback_interaction_count`，并消耗一次 `feedback_interaction_count`。
 - **兼容性**：省略 `rewrite_scope` 时与显式传 `selected_only` 等价；**`action` 不可省略或为空字符串**，若旧版前端仍依赖后端推断动作，需改为显式传入合法 `action`。
 
 
