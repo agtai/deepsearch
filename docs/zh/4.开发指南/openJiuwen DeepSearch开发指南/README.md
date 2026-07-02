@@ -81,7 +81,7 @@ openJiuwen-DeepSearch 当前支持以下内置联网增强引擎，均通过 `we
 不同引擎的接入方式与配置重点如下：
 
 - `jina` 使用项目内置的直接 HTTP API Wrapper；当 `search_url` 为空时，会自动回退到 `https://s.jina.ai`。国内网络环境如无法访问该默认地址，可显式将 `search_url` 配置为 `https://s.jinaai.cn`。可通过 `extension` 传入 `gl`、`hl`、`location`、`page` 等查询参数。
-- `bocha`、`perplexity` 使用 harness `web_tools` 适配层；支持通过 `extension.timeout_seconds` 控制调用超时，通过 `extension.fetch_webpage` 控制是否继续抓取网页正文。仅当底层 provider 支持 URL 覆盖时，`search_url` 才会生效。
+- `bocha`、`perplexity` 使用 harness `web_tools` 适配层；支持通过 `extension.timeout_seconds` 控制调用超时，通过 `extension.fetch_webpage` 控制是否继续抓取网页正文。仅当底层 provider 支持 URL 覆盖时，`search_url` 才会生效。国内网络环境如无法访问 Perplexity 默认服务，需要配置可访问的代理或转发地址，并通过 `search_url` 显式覆盖。
 - `serper` 在研究态 `web_search_tool` 中映射到 Google/Serper Wrapper，便于与服务端配置名称保持一致。
 - `tavily`、`google/serper`、`xunfei`、`petal` 保持原有接入方式，其中公共引擎允许 `search_url=""`，此时使用内置默认地址或 provider 默认行为。
 
