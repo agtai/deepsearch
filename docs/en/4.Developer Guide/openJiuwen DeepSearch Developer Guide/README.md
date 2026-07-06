@@ -81,8 +81,8 @@ Supported engines (set `web_search_engine_config.search_engine_name`):
 
 Integration notes:
 
-- `jina` uses the built-in direct HTTP wrapper. When `search_url=""`, the runtime falls back to `https://s.jina.ai`. Provider-specific query options such as `gl`, `hl`, `location`, and `page` are carried through `extension`.
-- `bocha` and `perplexity` use the harness `web_tools` adapter layer. They support `extension.timeout_seconds` and `extension.fetch_webpage`. `search_url` is only honored when the underlying provider supports URL override in `web_tools`.
+- `jina` uses the built-in direct HTTP wrapper. When `search_url=""`, the runtime falls back to `https://s.jina.ai`. In China network environments where the default endpoint is unreachable, explicitly set `search_url` to `https://s.jinaai.cn`. Provider-specific query options such as `gl`, `hl`, `location`, and `page` are carried through `extension`.
+- `bocha` and `perplexity` use the harness `web_tools` adapter layer. They support `extension.timeout_seconds` and `extension.fetch_webpage`. `search_url` is only honored when the underlying provider supports URL override in `web_tools`. In China network environments where the default Perplexity service is unreachable, configure an accessible proxy or forwarding endpoint and explicitly set it through `search_url`.
 - `serper` is exposed as a dedicated engine name so server-side configuration can use `serper`, while research-mode `web_search_tool` still reuses the Google/Serper wrapper internally.
 - Public engines may keep `search_url` empty and rely on built-in defaults or provider defaults.
 
@@ -92,7 +92,7 @@ Search results are also bounded before they reach the collector LLM path:
 - `InfoRetrievalNode._structure_result` applies the same bound again before passing `contents` into `run_doc_evaluation`.
 - Collector-side normalization stores web results in a stable `title` / `url` / `content` / `type` shape and accepts aliases such as `link`, `source_url`, `snippet`, `summary`, and `answer`.
 
-> Register with the vendor for `search_api_key`. For public engines such as Jina, `search_url` can be left empty to use the built-in default endpoint; provide it only when you need a vendor-specific or privately deployed URL.
+> Register with the vendor for `search_api_key`. For public engines such as Jina, `search_url` can be left empty to use the built-in default endpoint. In China network environments, set Jina `search_url` to `https://s.jinaai.cn`; also provide `search_url` when you need a vendor-specific, privately deployed, or proxy-forwarded URL.
 
 ## TLS / SSL
 
@@ -412,7 +412,7 @@ Agent cache keys hash stable JSON of all fields that affect agent construction (
 
 ---
 
-This feature supports continuing to expand, polish, or shorten user-selected local text after report generation is complete. To enable it, set the following in `agent_config`:
+This feature supports continuing to expand, polish, shorten, supplement, or fact-check user-selected local text after report generation is complete. To enable it, set the following in `agent_config`:
 
 ```python
 agent_config["user_feedback_processor_enable"] = True
@@ -430,6 +430,8 @@ The currently supported actions are:
 - `polish`: polish the selected text.
 - `shorten`: shorten the selected text.
 - `supplementary_search`: selectively enhance the selected content together with supplementary retrieval. See "Rewrite Scope" below.
+- `new_task`: rewrite an existing section or append a new subsection based on a new user task.
+- `truth_verification`: fact-check the selected content; does not modify the report body.
 - `sync`: sync the full report already edited on the frontend back into backend state.
 - `finish`: end the current local editing session.
 
@@ -440,13 +442,13 @@ The currently supported actions are:
   - `selected_and_related`: replace the entire section containing the selection and allow connective rewriting across related content. This is only used by `supplementary_search`; other actions ignore it behaviorally even if it is present.
 - For `supplementary_search`, `rewrite_scope` must be one of the two values above, otherwise validation fails.
 
-The request body for local rewrite actions (`expand`, `polish`, `shorten`, `supplementary_search`) must contain the following fields:
+The request body for local rewrite actions (`expand`, `polish`, `shorten`, `supplementary_search`, `new_task`) and the read-only action `truth_verification` must contain the following fields:
 - `action`: action type. Required.
 - `selected_text`: the original text currently selected by the user.
 - `start_offset`: the start offset of the selected text in the current report.
 - `end_offset`: the end offset of the selected text in the current report.
 - `user_instruction`: optional extra rewrite or supplementary instruction. If present, it must be a string.
-- `rewrite_scope`: optional, default is `selected_only`; only `supplementary_search` requires it semantically.
+- `rewrite_scope`: optional, default is `selected_only`; only `supplementary_search` requires it semantically; `truth_verification` does not use this field.
 
 The `sync` request body only needs:
 - `action`: fixed as `sync`.
@@ -496,6 +498,18 @@ async for chunk in agent.run(message=feedback_message, conversation_id=conversat
 #     ensure_ascii=False,
 # )
 
+# Use truth verification as needed (read-only; does not modify the report body):
+# truth_verification_message = json.dumps(
+#     {
+#         "action": "truth_verification",
+#         "selected_text": "snippet to verify",
+#         "start_offset": 120,
+#         "end_offset": 136,
+#         "user_instruction": "Optional extra guidance",
+#     },
+#     ensure_ascii=False,
+# )
+
 finish_message = json.dumps({"action": "finish"}, ensure_ascii=False)
 async for chunk in agent.run(message=finish_message, conversation_id=conversation_id, agent_config=agent_config):
     logger.debug("[Finish stream message: %s]", chunk)
@@ -512,10 +526,12 @@ async for chunk in agent.run(message=finish_message, conversation_id=conversatio
 
 Notes:
 - Local rewrite actions require `selected_text` to exactly match the text in `[start_offset, end_offset)` of the current report, otherwise offset validation fails.
-- Rewrite results update only `final_result.response_content`. Existing citation / infer metadata stays unchanged, and the backend no longer maintains an extra offset mapping.
+- Rewrite results update `final_result.response_content`. When `source_tracer_research_trace_source_switch` is enabled, the backend runs diff-aware local source tracing on changed spans; unchanged spans keep their existing citations, and newly traced citations update `citation_messages` and append reference entries at the end of the report.
+- The backend no longer maintains an extra offset mapping.
 - `sync` only updates `final_result.response_content`, does not consume `feedback_interaction_count`, and appends a `search_context.rewrite_history` record only when the full report content actually changes.
 - The backend keeps only the latest 10 `sync` history records; unchanged `sync` requests do not create history entries.
 - Each successful normal local rewrite appends one record to `search_context.rewrite_history`, including `action`, `rewrite_scope` (when present), offsets, and related information for debugging and auditing.
+- `truth_verification` does not update `final_result.response_content` or write `rewrite_history`. The streaming `SUMMARY_RESPONSE` `content` is JSON with `display_text` and `feedback_interaction_count`, and it consumes one `feedback_interaction_count`.
 - **Compatibility**: omitting `rewrite_scope` is equivalent to explicitly sending `selected_only`; **`action` cannot be omitted or be an empty string**. If an older frontend still relies on backend inference, it must be updated to send a valid explicit `action`.
 
 # Further reading

@@ -80,8 +80,8 @@ openJiuwen-DeepSearch 当前支持以下内置联网增强引擎，均通过 `we
 
 不同引擎的接入方式与配置重点如下：
 
-- `jina` 使用项目内置的直接 HTTP API Wrapper；当 `search_url` 为空时，会自动回退到 `https://s.jina.ai`。可通过 `extension` 传入 `gl`、`hl`、`location`、`page` 等查询参数。
-- `bocha`、`perplexity` 使用 harness `web_tools` 适配层；支持通过 `extension.timeout_seconds` 控制调用超时，通过 `extension.fetch_webpage` 控制是否继续抓取网页正文。仅当底层 provider 支持 URL 覆盖时，`search_url` 才会生效。
+- `jina` 使用项目内置的直接 HTTP API Wrapper；当 `search_url` 为空时，会自动回退到 `https://s.jina.ai`。国内网络环境如无法访问该默认地址，可显式将 `search_url` 配置为 `https://s.jinaai.cn`。可通过 `extension` 传入 `gl`、`hl`、`location`、`page` 等查询参数。
+- `bocha`、`perplexity` 使用 harness `web_tools` 适配层；支持通过 `extension.timeout_seconds` 控制调用超时，通过 `extension.fetch_webpage` 控制是否继续抓取网页正文。仅当底层 provider 支持 URL 覆盖时，`search_url` 才会生效。国内网络环境如无法访问 Perplexity 默认服务，需要配置可访问的代理或转发地址，并通过 `search_url` 显式覆盖。
 - `serper` 在研究态 `web_search_tool` 中映射到 Google/Serper Wrapper，便于与服务端配置名称保持一致。
 - `tavily`、`google/serper`、`xunfei`、`petal` 保持原有接入方式，其中公共引擎允许 `search_url=""`，此时使用内置默认地址或 provider 默认行为。
 
@@ -91,7 +91,7 @@ openJiuwen-DeepSearch 当前支持以下内置联网增强引擎，均通过 `we
 - Collector 在 `_structure_result` 阶段会再次按同一上限裁剪传给 `run_doc_evaluation` 的内容。
 - `web_page_search_record` 会统一保留标准化字段 `title`、`url`、`content`、`type`，兼容不同引擎返回的 `link`、`source_url`、`snippet`、`summary`、`answer` 等别名字段。
 
-> 说明：用户需要自行前往相应联网增强引擎的官网注册账号，以便获取 `search_api_key`。对于 Jina 等公共搜索接口，`search_url` 可以留空使用系统默认地址；如需私有化部署或 vendor 提供自定义地址，再显式传入 `search_url`。
+> 说明：用户需要自行前往相应联网增强引擎的官网注册账号，以便获取 `search_api_key`。对于 Jina 等公共搜索接口，`search_url` 可以留空使用系统默认地址；国内网络环境建议为 Jina 显式配置 `search_url="https://s.jinaai.cn"`。如需私有化部署、代理转发或 vendor 提供自定义地址，也可显式传入 `search_url`。
 
 ## ssl证书配置说明
 
@@ -546,7 +546,7 @@ SDK 层通过 `agent_config` 接收这些参数。
 
 ---
 
-本功能支持在报告生成完成后，针对用户选中的局部文本继续进行扩写、润色或缩写。开启方式是在`agent_config`中设置：
+本功能支持在报告生成完成后，针对用户选中的局部文本继续进行扩写、润色、缩写、补充检索或内容真实性核验。开启方式是在`agent_config`中设置：
 
 ```python
 agent_config["user_feedback_processor_enable"] = True
@@ -564,6 +564,8 @@ agent_config["user_feedback_processor_max_interactions"] = 100
 - `polish`：润色选中文本。
 - `shorten`：缩写选中文本。
 - `supplementary_search`：结合补充检索对选中内容定向增强（见下文「改写范围」）。
+- `new_task`：根据新的用户任务改写现有章节或追加新小节。
+- `truth_verification`：对选中内容进行真实性核验，不修改报告正文。
 - `sync`：将前端已编辑完成的整篇报告同步回后端状态。
 - `finish`：结束当前局部优化会话。
 
@@ -574,13 +576,13 @@ agent_config["user_feedback_processor_max_interactions"] = 100
   - `selected_and_related`：替换选区所在**整章**，并允许衔接性联动改写（仅 `supplementary_search` 使用；其它动作即使携带也会在行为上忽略）。
 - 对 `supplementary_search`，`rewrite_scope` 必须为上述二者之一（否则在校验阶段报错）。
 
-局部改写动作（`expand`、`polish`、`shorten`、`supplementary_search`）的请求体需包含以下字段：
+局部改写动作（`expand`、`polish`、`shorten`、`supplementary_search`、`new_task`）以及只读核验动作 `truth_verification` 的请求体需包含以下字段：
 - `action`：动作类型（必填）。
 - `selected_text`：用户当前选中的原始文本。
 - `start_offset`：选中文本在当前报告中的起始偏移。
 - `end_offset`：选中文本在当前报告中的结束偏移。
 - `user_instruction`：附加改写或补充说明，可选；若出现则须为字符串。
-- `rewrite_scope`：可选，默认 `selected_only`；仅 `supplementary_search` 强制消费。
+- `rewrite_scope`：可选，默认 `selected_only`；仅 `supplementary_search` 强制消费；`truth_verification` 不使用该字段。
 
 `sync` 请求体只需要：
 - `action`：固定为 `sync`。
@@ -628,6 +630,15 @@ async for chunk in agent.run(message=feedback_message, conversation_id=conversat
 #     "user_instruction": "可选说明"
 # }, ensure_ascii=False)
 
+# 按需执行真实性核验（只读，不修改报告正文）：
+# json.dumps({
+#     "action": "truth_verification",
+#     "selected_text": "需要核验的原文片段",
+#     "start_offset": 120,
+#     "end_offset": 136,
+#     "user_instruction": "可选补充说明"
+# }, ensure_ascii=False)
+
 # 第三轮：结束局部优化
 finish_message = json.dumps({"action": "finish"}, ensure_ascii=False)
 async for chunk in agent.run(message=finish_message, conversation_id=conversation_id, agent_config=agent_config):
@@ -642,10 +653,12 @@ async for chunk in agent.run(message=finish_message, conversation_id=conversatio
 
 说明：
 - 局部改写动作要求 `selected_text` 与当前报告中 `[start_offset, end_offset)` 范围内的文本完全一致，否则会返回偏移校验错误。
-- 改写结果仅更新 `final_result.response_content`，原有 citation / infer metadata 保持不变；后端不再额外维护 offset 映射。
+- 改写结果会更新 `final_result.response_content`；当 `source_tracer_research_trace_source_switch` 开启时，后端会对变化片段执行差异感知局部溯源，未变化片段保留原引用，新增引用会同步更新 `citation_messages` 并在文末追加参考文献。
+- 后端不再额外维护 offset 映射。
 - `sync` 仅更新 `final_result.response_content`，不消耗 `feedback_interaction_count`，且只有整篇报告内容实际变化时才会追加一条 `search_context.rewrite_history` 记录。
 - 后端仅保留最近 10 条 `sync` 历史；内容未变化的 `sync` 不会新增历史记录。
 - 每次成功的普通局部改写会在 `search_context.rewrite_history` 中追加一条记录，其中包含 `action`、`rewrite_scope`（若有）及偏移等信息，便于排查与审计。
+- `truth_verification` 不更新 `final_result.response_content`，也不写入 `rewrite_history`；流式 `SUMMARY_RESPONSE` 的 `content` 为 JSON，包含 `display_text` 与 `feedback_interaction_count`，并消耗一次 `feedback_interaction_count`。
 - **兼容性**：省略 `rewrite_scope` 时与显式传 `selected_only` 等价；**`action` 不可省略或为空字符串**，若旧版前端仍依赖后端推断动作，需改为显式传入合法 `action`。
 
 
