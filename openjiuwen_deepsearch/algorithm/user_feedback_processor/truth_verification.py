@@ -372,6 +372,9 @@ class TruthVerificationProcessor(UserFeedbackPromptInvoker):
             ],
         )
         service = CollectorExecutionService()
+        max_tool_call_turns_per_query = session.get_global_state(
+            "config.info_collector_max_tool_call_turns_per_query"
+        )
         result = await service.run_plan(
             plan=plan,
             run_config=CollectorRunPlanConfig(
@@ -383,9 +386,7 @@ class TruthVerificationProcessor(UserFeedbackPromptInvoker):
                 max_research_loops=session.get_global_state(
                     "config.info_collector_max_research_loops"
                 ),
-                max_react_recursion_limit=session.get_global_state(
-                    "config.info_collector_max_react_recursion_limit"
-                ),
+                max_tool_call_turns_per_query=max_tool_call_turns_per_query,
             ),
             session=session,
             context=context,

@@ -138,11 +138,17 @@ class CollectorExecutionResult:
 
 @dataclass(frozen=True)
 class CollectorInputBuildConfig:
-    """封装构造 collector 子图输入时使用的相关执行参数。"""
+    """封装构造 collector 子图输入时使用的相关执行参数。
+
+    Attributes:
+        initial_search_query_count: 初始检索 query 数量。
+        max_research_loops: research loop 最大轮次。
+        max_tool_call_turns_per_query: 单个检索 query 最大工具调用轮次。
+    """
 
     initial_search_query_count: int
     max_research_loops: int
-    max_react_recursion_limit: int
+    max_tool_call_turns_per_query: int
 
 
 @dataclass(frozen=True)
@@ -160,20 +166,28 @@ class CollectorInputBuildParams:
 
 @dataclass(frozen=True)
 class CollectorRunPlanConfig:
-    """封装执行 collector plan 时使用的上下文与相关配置。"""
+    """封装执行 collector plan 时使用的上下文与相关配置。
+
+    Attributes:
+        language: 输出语言。
+        section_idx: 当前章节索引。
+        initial_search_query_count: 初始检索 query 数量。
+        max_research_loops: research loop 最大轮次。
+        max_tool_call_turns_per_query: 单个检索 query 最大工具调用轮次。
+    """
 
     language: str
     section_idx: int | str
     initial_search_query_count: int
     max_research_loops: int
-    max_react_recursion_limit: int
+    max_tool_call_turns_per_query: int
 
     def to_input_build_config(self) -> CollectorInputBuildConfig:
         """提取 ``_input_build`` 需要的相关配置。"""
         return CollectorInputBuildConfig(
             initial_search_query_count=self.initial_search_query_count,
             max_research_loops=self.max_research_loops,
-            max_react_recursion_limit=self.max_react_recursion_limit,
+            max_tool_call_turns_per_query=self.max_tool_call_turns_per_query,
         )
 
 
@@ -316,7 +330,7 @@ class CollectorExecutionService:
             "step_description": step.description,
             "initial_search_query_count": build_config.initial_search_query_count,
             "max_research_loops": build_config.max_research_loops,
-            "max_react_recursion_limit": build_config.max_react_recursion_limit,
+            "max_tool_call_turns_per_query": build_config.max_tool_call_turns_per_query,
             "report_type": params.report_type or "professional",
             "research_intent": params.research_intent or {},
         }

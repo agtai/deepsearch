@@ -194,7 +194,7 @@ async def test_run_collection_returns_summary_and_doc_infos_from_collector_servi
         "search_context.feedback_interaction_count": 2,
         "config.info_collector_initial_search_query_count": 2,
         "config.info_collector_max_research_loops": 1,
-        "config.info_collector_max_react_recursion_limit": 4,
+        "config.info_collector_max_tool_call_turns_per_query": 3,
     }.get(key)
 
     service_result = MagicMock()

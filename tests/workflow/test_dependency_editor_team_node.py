@@ -158,7 +158,7 @@ class TestDependencyInfoCollectorNode:
             "section_context.step_background_knowledge": {},
             "config.info_collector_initial_search_query_count": 2,
             "config.info_collector_max_research_loops": 2,
-            "config.info_collector_max_react_recursion_limit": 8,
+            "config.info_collector_max_tool_call_turns_per_query": 3,
         }.get(key)
 
         result = node._pre_handle({}, session, context)
@@ -339,7 +339,7 @@ async def test_dependency_info_collector_isolates_parallel_step_inputs_and_resul
         "section_context.step_background_knowledge": {},
         "config.info_collector_initial_search_query_count": 2,
         "config.info_collector_max_research_loops": 2,
-        "config.info_collector_max_react_recursion_limit": 8,
+        "config.info_collector_max_tool_call_turns_per_query": 3,
     }
     session.get_global_state.side_effect = lambda key: state_map.get(key)
     session.update_global_state = Mock()
@@ -406,7 +406,7 @@ async def test_normal_info_collector_stays_sequential():
         "section_context.warning_infos": [],
         "config.info_collector_initial_search_query_count": 2,
         "config.info_collector_max_research_loops": 2,
-        "config.info_collector_max_react_recursion_limit": 8,
+        "config.info_collector_max_tool_call_turns_per_query": 3,
     }
     session.get_global_state.side_effect = lambda key: state_map.get(key)
     session.update_global_state = Mock()
@@ -461,7 +461,7 @@ async def test_normal_info_collector_keeps_previous_collected_doc_num_when_curre
         "section_context.warning_infos": [],
         "config.info_collector_initial_search_query_count": 2,
         "config.info_collector_max_research_loops": 2,
-        "config.info_collector_max_react_recursion_limit": 8,
+        "config.info_collector_max_tool_call_turns_per_query": 3,
     }
     session.get_global_state.side_effect = lambda key: state_map.get(key)
     session.update_global_state = Mock()

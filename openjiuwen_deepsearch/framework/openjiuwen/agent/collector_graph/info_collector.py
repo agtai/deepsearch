@@ -95,9 +95,15 @@ class InfoRetrievalNode(BaseNode):
 
         state = dict(
             search_queries=session.get_global_state("collector_context.search_queries"),
-            max_tool_steps=session.get_global_state("collector_context.max_tool_steps"),
+            max_tool_call_turns_per_query=session.get_global_state(
+                "collector_context.max_tool_call_turns_per_query"
+            ),
             section_idx=section_idx,
+            plan_idx=session.get_global_state("collector_context.plan_idx"),
+            step_idx=session.get_global_state("collector_context.step_idx"),
             step_title=step_title,
+            research_loop_count=session.get_global_state("collector_context.research_loop_count"),
+            max_research_loops=session.get_global_state("collector_context.max_research_loops"),
             search_method=session.get_global_state("config.info_collector_search_method"),
             web_search_engine_name=web_search_engine_name,
             local_search_engine_name=local_search_engine_name,
@@ -115,8 +121,10 @@ class InfoRetrievalNode(BaseNode):
             sub_state = {
                 "search_query": retrieval_query.query,
                 "section_idx": state.get("section_idx", 0),
+                "plan_idx": state.get("plan_idx", 0),
+                "step_idx": state.get("step_idx", 0),
                 "step_title": state.get("step_title", ""),
-                "max_tool_steps": state.get("max_tool_steps", 3),
+                "max_tool_call_turns_per_query": state.get("max_tool_call_turns_per_query", 2),
                 "search_method": state.get("search_method", "web"),
                 "web_search_engine_name": state.get("web_search_engine_name", None),
                 "local_search_engine_name": state.get("local_search_engine_name", None),
@@ -143,7 +151,11 @@ class InfoRetrievalNode(BaseNode):
             空输出字典。
         """
         section_idx = session.get_global_state("collector_context.section_idx")
+        plan_idx = session.get_global_state("collector_context.plan_idx")
+        step_idx = session.get_global_state("collector_context.step_idx")
         step_title = session.get_global_state("collector_context.step_title")
+        research_loop_count = session.get_global_state("collector_context.research_loop_count") or 0
+        max_research_loops = session.get_global_state("collector_context.max_research_loops")
         doc_infos: list = session.get_global_state("collector_context.doc_infos") or []
         search_queries = session.get_global_state("collector_context.search_queries")
         history_queries = session.get_global_state("collector_context.history_queries")
@@ -201,10 +213,24 @@ class InfoRetrievalNode(BaseNode):
         session.update_global_state({"collector_context.source_store": source_store})
         if LogManager.is_sensitive():
             logger.info("section_idx: %s | [InfoRetrievalNode] End InfoRetrievalNode.", section_idx)
+            logger.info(
+                "section_idx: %s | plan_idx: %s | step_idx: %s | [InfoRetrievalNode] loop_summary "
+                "research_loop_index=%s max_research_loops=%s query_count=%s new_doc_count=%s "
+                "total_doc_count=%s attempted_query_count=%s",
+                section_idx, plan_idx, step_idx, research_loop_count + 1, max_research_loops,
+                len(search_queries or []), len(new_doc_infos), len(doc_infos), len(updated_ledger.attempted_queries),
+            )
         else:
             logger.info("section_idx: %s | step title: %s | [InfoRetrievalNode] End InfoRetrievalNode."
                         "Get %s doc_infos item. attempted query count: %s",
                         section_idx, step_title, len(doc_infos), len(updated_ledger.attempted_queries))
+            logger.info(
+                "section_idx: %s | plan_idx: %s | step_idx: %s | step_title: %s | "
+                "[InfoRetrievalNode] loop_summary research_loop_index=%s max_research_loops=%s "
+                "query_count=%s new_doc_count=%s total_doc_count=%s attempted_query_count=%s",
+                section_idx, plan_idx, step_idx, step_title, research_loop_count + 1, max_research_loops,
+                len(search_queries or []), len(new_doc_infos), len(doc_infos), len(updated_ledger.attempted_queries),
+            )
 
         return dict()
 
@@ -221,11 +247,12 @@ class InfoRetrievalNode(BaseNode):
         step_title = state.get("step_title", "")
         if LogManager.is_sensitive():
             logger.info(f"section_idx: {section_idx} | [InfoRetrievalNode] Start InfoRetrieval main function."
-                        f"Collecting info for query, Max tool steps: {state['max_tool_steps']}")
+                        f"Collecting info for query, Max tool call turns per query: "
+                        f"{state['max_tool_call_turns_per_query']}")
         else:
             logger.info(f"section_idx: {section_idx} | [InfoRetrievalNode] Start InfoRetrieval main function. | "
                         f"step title: {step_title} Collecting info for query: {state['search_query']} | "
-                        f"Max tool steps: {state['max_tool_steps']}")
+                        f"Max tool call turns per query: {state['max_tool_call_turns_per_query']}")
 
         query = state.get("search_query", step_title)
         agent_input = {
@@ -369,9 +396,9 @@ class InfoRetrievalNode(BaseNode):
         section_idx = state.get("section_idx", 0)
         step_title = state.get("step_title", "")
         query = state.get("search_query", step_title)
-        max_tool_steps = state.get("max_tool_steps", 3)
+        max_tool_call_turns_per_query = state.get("max_tool_call_turns_per_query", 2)
 
-        for i in range(max_tool_steps):
+        for i in range(max_tool_call_turns_per_query):
             if LogManager.is_sensitive():
                 logger.info(f"section_idx: {section_idx} |"
                             f"[InfoRetrievalNode] Current step index: {i + 1}")
@@ -379,21 +406,23 @@ class InfoRetrievalNode(BaseNode):
                 logger.info(f"section_idx: {section_idx} | step title {step_title} | "
                             f"Collecting info for query: {query} | "
                             f"[InfoRetrievalNode] Current step index: {i + 1}")
-            agent_input["remaining_steps"] = max_tool_steps - i
+            agent_input["remaining_steps"] = max_tool_call_turns_per_query - i
             tool_prompt = apply_system_prompt("collector", agent_input)
 
             response = await self._invoke_llm_with_retry(tool_prompt, tool_list, state)
             agent_input = await self._process_llm_response(response, agent_input, tool_dict, state)
             if response is None or not response.get("tool_calls", []):
                 break
-            if i + 1 == max_tool_steps:
+            if i + 1 == max_tool_call_turns_per_query:
                 if LogManager.is_sensitive():
                     logger.info(f"section_idx: {section_idx} | "
-                                f"[InfoRetrievalNode] | [COLLECTOR TOOL CALL] reach max tool steps {max_tool_steps}")
+                                f"[InfoRetrievalNode] | [COLLECTOR TOOL CALL] reach max tool call turns "
+                                f"{max_tool_call_turns_per_query}")
                 else:
                     logger.info(f"section_idx: {section_idx} | step title {step_title} | "
                                 f"Collecting info for query: {query} | [InfoRetrievalNode] | "
-                                f"[COLLECTOR TOOL CALL] reach max tool steps limit {max_tool_steps}")
+                                f"[COLLECTOR TOOL CALL] reach max tool call turns limit "
+                                f"{max_tool_call_turns_per_query}")
 
         return state, agent_input
 

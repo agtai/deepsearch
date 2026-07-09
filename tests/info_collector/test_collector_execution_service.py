@@ -55,7 +55,7 @@ async def test_run_plan_updates_collecting_steps_and_returns_aggregate_result():
                 section_idx=1,
                 initial_search_query_count=2,
                 max_research_loops=2,
-                max_react_recursion_limit=8,
+                max_tool_call_turns_per_query=4,
             ),
             session=MagicMock(),
             context=MagicMock(),
@@ -90,7 +90,7 @@ def test_input_build_accepts_named_config_object():
             build_config=CollectorInputBuildConfig(
                 initial_search_query_count=2,
                 max_research_loops=3,
-                max_react_recursion_limit=8,
+                max_tool_call_turns_per_query=4,
             ),
         )
     )
@@ -101,7 +101,8 @@ def test_input_build_accepts_named_config_object():
     assert agent_input["step_title"] == "步骤1"
     assert agent_input["initial_search_query_count"] == 2
     assert agent_input["max_research_loops"] == 3
-    assert agent_input["max_react_recursion_limit"] == 8
+    assert agent_input["max_tool_call_turns_per_query"] == 4
+    assert "max_react_recursion_limit" not in agent_input
 
 
 def test_input_build_includes_research_intent():
@@ -123,7 +124,7 @@ def test_input_build_includes_research_intent():
             build_config=CollectorInputBuildConfig(
                 initial_search_query_count=2,
                 max_research_loops=3,
-                max_react_recursion_limit=8,
+                max_tool_call_turns_per_query=4,
             ),
             research_intent={"exclude_domains": ["csdn.net"]},
         )
@@ -180,7 +181,7 @@ async def test_run_plan_handles_absent_or_empty_info_summary(
                 section_idx=1,
                 initial_search_query_count=2,
                 max_research_loops=2,
-                max_react_recursion_limit=8,
+                max_tool_call_turns_per_query=4,
             ),
             session=MagicMock(),
             context=MagicMock(),

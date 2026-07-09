@@ -16,6 +16,7 @@
 
 - 章节 `InfoCollectorNode` 会为当前 plan 调用 `CollectorExecutionService.run_plan`。
 - 每个 step 会生成检索 query，并根据配置使用 web、本地或 runtime API 工具。
+- supervisor 会在每轮采集后判断证据是否充分；证据不足但继续检索预计没有信息增益时，会提前进入 summary。
 - 采集结果会写回 step 的 `retrieval_queries`、`doc_infos`、`step_result` 和 `evaluation`。
 - 没有采集到文档时，调用方会记录 `INFO_COLLECTING_EMPTY` warning。
 - 依赖驱动模式可为满足依赖的多个 step 并行启动独立 collector workflow session。
@@ -38,15 +39,21 @@
 2. collector 子图初始化 `CollectorContext` 和证据账本。
 3. 采集节点准备可用工具，执行 LLM 决策和工具调用循环。
 4. 工具返回的搜索结果合并进 source store，并更新 `retrieval_queries.doc_infos`。
-5. 达到任务完成工具、循环上限或异常边界后，输出结构化 `doc_infos`、`info_summary`、`evaluation` 和消息历史。
-6. 上游章节节点把结果回填到 plan step，并累计章节已采集文档数。
+5. supervisor 根据 evidence ledger、当前资料和缺口决定是否继续；`is_sufficient=true`、达到循环上限、
+   `should_continue=false` 或没有后续 query 时，进入 summary。
+6. 达到停止条件或异常边界后，输出结构化 `doc_infos`、`info_summary`、`evaluation` 和消息历史。
+7. 上游章节节点把结果回填到 plan step，并累计章节已采集文档数。
 
 ## 数据契约与依赖
 
 - collector 输入包含 `language`、`messages`、`section_idx`、`plan_idx`、`step_idx`、`initial_search_query_count`、
-  `max_research_loops`、`max_react_recursion_limit`、`report_type`、`research_intent`。
+  `max_research_loops`、`max_tool_call_turns_per_query`、`report_type`、`research_intent`。
 - collector 输出至少包含 `history_queries`、`doc_infos`、`info_summary`、`evaluation`、`messages`。
 - `EvidenceLedger` 记录 accepted/rejected/pending 证据、尝试过的 query 和缺口，供后续采集轮次判断。
+- `CollectorContext.should_continue` 保存 supervisor 对下一轮检索价值的判断；为 `false` 时，collector 清空后续 query
+  并进入 summary。
+- `max_tool_call_turns_per_query` 来自 `config.info_collector_max_tool_call_turns_per_query`，独立于
+  `max_research_loops` 生效。
 - 搜索工具来源于 `web_search_context`、`local_search_context` 和 runtime API 工具配置。
 
 ## 边界与错误处理

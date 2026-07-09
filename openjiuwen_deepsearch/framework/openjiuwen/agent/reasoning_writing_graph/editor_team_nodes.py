@@ -596,11 +596,14 @@ class InfoCollectorNode(BaseNode):
 
         initial_search_query_count = session.get_global_state("config.info_collector_initial_search_query_count")
         max_research_loops = session.get_global_state("config.info_collector_max_research_loops")
-        max_react_recursion_limit = session.get_global_state("config.info_collector_max_react_recursion_limit")
+        max_tool_call_turns_per_query = session.get_global_state(
+            "config.info_collector_max_tool_call_turns_per_query"
+        )
 
         return dict(messages=messages, current_plan=current_plan, section_idx=section_idx,
                     language=language, initial_search_query_count=initial_search_query_count,
-                    max_research_loops=max_research_loops, max_react_recursion_limit=max_react_recursion_limit,
+                    max_research_loops=max_research_loops,
+                    max_tool_call_turns_per_query=max_tool_call_turns_per_query,
                     history_plans=history_plans, collected_doc_num=collected_doc_num, warning_infos=warning_infos)
 
     async def _do_invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
@@ -621,7 +624,7 @@ class InfoCollectorNode(BaseNode):
                 section_idx=state.get("section_idx", 0),
                 initial_search_query_count=state.get("initial_search_query_count", 2),
                 max_research_loops=state.get("max_research_loops", 2),
-                max_react_recursion_limit=state.get("max_react_recursion_limit", 8),
+                max_tool_call_turns_per_query=state.get("max_tool_call_turns_per_query", 2),
             ),
             session=session,
             context=context

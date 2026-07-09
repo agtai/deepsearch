@@ -55,8 +55,23 @@ class SearchQueryList(BaseModel):
 
 
 class Reflection(BaseModel):
+    """Supervisor 对当前收集轮次的结构化反思结果。
+
+    Attributes:
+        is_sufficient: 当前证据是否足以产出可靠的 step-level summary。
+        should_continue: 当证据仍不足时，继续下一轮检索是否仍有价值。
+        knowledge_gap: 缺失信息或可披露限制的简要描述。
+        next_queries: 用于补齐剩余关键缺口的后续检索 query。
+        known_facts: 本轮新确认的事实。
+        missing_evidence: 仍阻碍当前 step 可靠总结的可验证证据需求。
+    """
+
     is_sufficient: bool = Field(
         description="Whether the provided summaries are sufficient to answer the user's question."
+    )
+    should_continue: bool = Field(
+        default=True,
+        description="Whether another retrieval loop is likely to add useful evidence when not sufficient."
     )
     knowledge_gap: str = Field(
         description="A description of what information is missing or needs clarification."
@@ -104,7 +119,6 @@ class StartNode(Start):
 
     async def invoke(self, inputs: Input, session: Session, context: ModelContext) -> Output:
         """Invoke method of StartNode."""
-
         # 初始化 collector_context
         collector_context = CollectorContext(
             language=inputs.get("language", "zh-CN"),
@@ -118,8 +132,8 @@ class StartNode(Start):
             step_description=inputs.get("step_description", ""),
             step_background_knowledge=inputs.get("step_background_knowledge") or [],
             initial_search_query_count=inputs.get("initial_search_query_count", 1),
-            max_research_loops=inputs.get("max_research_loops", 1),
-            max_react_recursion_limit=inputs.get("max_react_recursion_limit", 5),
+            max_research_loops=inputs.get("max_research_loops", 2),
+            max_tool_call_turns_per_query=inputs.get("max_tool_call_turns_per_query", 2),
             evidence_ledger={},
             report_type=inputs.get("report_type", "professional"),
             research_intent=inputs.get("research_intent") or {},
@@ -145,12 +159,6 @@ class GenerateQueryNode(BaseNode):
         number_queries = session.get_global_state("collector_context.initial_search_query_count")
         language = session.get_global_state("collector_context.language")
         evidence_ledger = session.get_global_state("collector_context.evidence_ledger")
-        max_research_loops = session.get_global_state("collector_context.max_research_loops")
-        max_react_recursion_limit = session.get_global_state("collector_context.max_react_recursion_limit")
-
-        step_num = (max_react_recursion_limit - 2) // max_research_loops - 1
-        max_tool_steps = max(int(step_num), 1)
-        session.update_global_state({"collector_context.max_tool_steps": max_tool_steps})
         llm_model_name = adapt_llm_model_name(session, NodeId.INFO_COLLECTOR.value)
         self.llm = llm_context.get().get(llm_model_name)
 
@@ -370,12 +378,24 @@ class SupervisorNode(BaseNode):
         return node_output
 
     def _post_handle(self, inputs: Input, algorithm_output: dict, session: Session, context: ModelContext):
+        """根据 supervisor 反思结果更新 collector 状态并决定下一节点。
+
+        Args:
+            inputs: 当前节点输入。
+            algorithm_output: 包含 reflection 和递增后 research_loop_count 的节点输出。
+            session: 当前运行 session。
+            context: 图执行上下文。
+
+        Returns:
+            包含下一节点 ID 的输出字典。
+        """
         max_research_loops = session.get_global_state("collector_context.max_research_loops")
         research_loop_count = algorithm_output["research_loop_count"]
         reflection: Reflection = algorithm_output["reflection"]
 
         session.update_global_state({"collector_context.research_loop_count": research_loop_count})
         session.update_global_state({"collector_context.is_sufficient": reflection.is_sufficient})
+        session.update_global_state({"collector_context.should_continue": reflection.should_continue})
         session.update_global_state({"collector_context.knowledge_gap": reflection.knowledge_gap})
 
         missing_evidence = reflection.missing_evidence
@@ -394,7 +414,9 @@ class SupervisorNode(BaseNode):
         session.update_global_state({"collector_context.evidence_ledger": updated_ledger.model_dump()})
 
         next_queries = reflection.next_queries
-        if not reflection.is_sufficient and not next_queries:
+        if reflection.is_sufficient or not reflection.should_continue:
+            next_queries = []
+        if not reflection.is_sufficient and reflection.should_continue and not next_queries:
             if updated_ledger.missing_evidence:
                 next_queries = [updated_ledger.missing_evidence[0]]
             elif reflection.knowledge_gap:
@@ -405,7 +427,35 @@ class SupervisorNode(BaseNode):
         session.update_global_state({"collector_context.search_queries": search_queries})
 
         section_idx = session.get_global_state("collector_context.section_idx")
+        plan_idx = algorithm_output.get("plan_idx", "")
+        step_idx = algorithm_output.get("step_idx", "")
         step_title = algorithm_output.get("step_title", "")
+        stop_reason = "continue"
+        if reflection.is_sufficient:
+            stop_reason = "is_sufficient"
+        elif research_loop_count >= max_research_loops:
+            stop_reason = "max_research_loops"
+        elif not reflection.should_continue:
+            stop_reason = "should_continue_false"
+        elif not search_queries:
+            stop_reason = "no_follow_up_query"
+
+        if LogManager.is_sensitive():
+            logger.info(
+                "section_idx: %s | plan_idx: %s | step_idx: %s | [SupervisorNode] loop_decision "
+                "research_loop_count=%s max_research_loops=%s is_sufficient=%s should_continue=%s "
+                "stop_reason=%s next_query_count=%s",
+                section_idx, plan_idx, step_idx, research_loop_count, max_research_loops,
+                reflection.is_sufficient, reflection.should_continue, stop_reason, len(search_queries),
+            )
+        else:
+            logger.info(
+                "section_idx: %s | plan_idx: %s | step_idx: %s | step_title: %s | "
+                "[SupervisorNode] loop_decision research_loop_count=%s max_research_loops=%s "
+                "is_sufficient=%s should_continue=%s stop_reason=%s next_query_count=%s",
+                section_idx, plan_idx, step_idx, step_title, research_loop_count, max_research_loops,
+                reflection.is_sufficient, reflection.should_continue, stop_reason, len(search_queries),
+            )
         if reflection.is_sufficient:
             logger.info("section_idx: %s | step_title: %s | [SupervisorNode] End SupervisorNode. "
                         "cause: is_sufficient=True.", section_idx, step_title)
@@ -414,6 +464,10 @@ class SupervisorNode(BaseNode):
             logger.info("section_idx: %s | step_title: %s | [SupervisorNode] End SupervisorNode. "
                         "cause: research_loop_count reach max loops limit %s",
                         section_idx, step_title, max_research_loops)
+            return dict(next_node=NodeId.COLLECTOR_SUMMARY.value)
+        if not reflection.should_continue:
+            logger.info("section_idx: %s | step_title: %s | [SupervisorNode] End SupervisorNode. "
+                        "cause: should_continue=False.", section_idx, step_title)
             return dict(next_node=NodeId.COLLECTOR_SUMMARY.value)
         if not search_queries:
             logger.info("section_idx: %s | step_title: %s | [SupervisorNode] End SupervisorNode. "
@@ -440,6 +494,7 @@ class SupervisorNode(BaseNode):
         if result is None:
             result = Reflection(
                 is_sufficient=True,
+                should_continue=False,
                 knowledge_gap="",
                 next_queries=[],
                 known_facts=[],
@@ -632,7 +687,7 @@ def build_info_collector_sub_graph() -> Workflow:
             "step_background_knowledge": "${step_background_knowledge}",
             "initial_search_query_count": "${initial_search_query_count}",
             "max_research_loops": "${max_research_loops}",
-            "max_react_recursion_limit": "${max_react_recursion_limit}",
+            "max_tool_call_turns_per_query": "${max_tool_call_turns_per_query}",
             "report_type": "${report_type}",
             "research_intent": "${research_intent}",
         }

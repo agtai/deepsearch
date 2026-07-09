@@ -9,6 +9,18 @@ from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import Retr
 
 
 class CollectorContext(BaseModel):
+    """Collector 子图运行时状态。
+
+    Attributes:
+        language: 输出语言。
+        messages: 用户消息列表。
+        section_idx: 当前章节索引。
+        plan_idx: 当前计划索引。
+        step_idx: 当前步骤索引。
+        max_tool_call_turns_per_query: 单个检索 query 的最大工具调用轮次。
+        should_continue: supervisor 判断未充分时是否值得继续检索。
+    """
+
     language: str = Field(default="", description="语言")  # public
     messages: list = Field(default=[], description="消息列表")  # public
     section_idx: int | str = Field(default=0, description="章节索引")  # public
@@ -21,9 +33,8 @@ class CollectorContext(BaseModel):
     step_background_knowledge: list[str] = Field(default=[], description="步骤做信息总结时的背景信息")
     initial_search_query_count: int = Field(default=1, description="初始查询计数")
     max_research_loops: int = Field(default=2, description="最大循环限制")
-    max_react_recursion_limit: int = Field(default=8, description="最大递归限制")
     research_loop_count: int = Field(default=0, description="研究循环计数")
-    max_tool_steps: int = Field(default=3, description="最大步数")
+    max_tool_call_turns_per_query: int = Field(default=2, description="单个检索 query 最大工具调用轮次")
     report_type: str = Field(default="professional", description="报告类型：professional / brief")
     research_intent: dict = Field(default_factory=dict, description="结构化报告约束")
     evidence_ledger: dict = Field(default_factory=dict, description="collector 内部 evidence ledger")
@@ -34,6 +45,7 @@ class CollectorContext(BaseModel):
                                description="collector 子图内的原文存储，Phase 1 为 source_id 到正文的映射")
     new_doc_infos_current_loop: list = Field(default_factory=list, description="当前循环新增文件信息，用于流式输出")
     is_sufficient: bool = Field(default=False, description="是否足够")  # Supervisor
+    should_continue: bool = Field(default=True, description="是否继续下一轮检索")  # Supervisor
     knowledge_gap: str = Field(default="", description="内容差距")
     info_summary: str = Field(default="", description="总结")  # Summary
     need_programmer: bool = Field(default=False, description="是否需要程序")

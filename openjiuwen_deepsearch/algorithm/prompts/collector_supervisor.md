@@ -40,12 +40,14 @@ The table intentionally contains key_passages and scores instead of full source 
 - Apply the Evidence Boundary Policy below before deciding whether more search is needed.
 - If the evidence is sufficient:
   1. set "is_sufficient" to true.
-  2. keep "missing_evidence" and "next_queries" empty.
-  3. keep "knowledge_gap" empty when there are no meaningful limitations, or use it to concisely disclose non-critical limitations.
+  2. set "should_continue" to false.
+  3. keep "missing_evidence" and "next_queries" empty.
+  4. keep "knowledge_gap" empty when there are no meaningful limitations, or use it to concisely disclose non-critical limitations.
 - If there is still a gap:
   1. set "is_sufficient" to false.
   2. output only remaining blocking "missing_evidence" as concrete, verifiable evidence requirements.
-  3. generate "next_queries" that directly target the remaining blocking missing_evidence.
+  3. set "should_continue" to true only when another retrieval loop is likely to add useful evidence for those blocking gaps.
+  4. generate "next_queries" that directly target the remaining blocking missing_evidence only when "should_continue" is true.
 - Output "known_facts" as newly confirmed, source-supported facts from this reflection only.
 - "known_facts" may include direct facts, partial facts, or contextual-but-useful facts.
 - Direct facts satisfy a missing_evidence item. Partial facts narrow the remaining requirement. Contextual-but-useful facts help explain what can be concluded despite missing ideal evidence.
@@ -58,6 +60,9 @@ The table intentionally contains key_passages and scores instead of full source 
 - attempted_queries means "already tried"; it does not mean the query failed.
 - If multiple attempted_queries have already covered a similar issue and the new evidence still does not resolve it,
   turn that unresolved item into knowledge_gap unless it would directly prevent a useful, honest step-level conclusion.
+- If the latest gathered information is mostly duplicate, irrelevant, generic background, or does not narrow the blocking gap, set "should_continue" to false and keep "next_queries" empty.
+- If the remaining gap is unlikely to be resolved by another web retrieval loop, set "should_continue" to false and disclose it in "knowledge_gap".
+- If "should_continue" is false, "next_queries" must be [] even when "is_sufficient" is false.
 - Do not produce more than {{ number_queries }} next_queries.
 - Write your response in {{ language }}.
 
@@ -69,6 +74,7 @@ The table intentionally contains key_passages and scores instead of full source 
 - Do not keep searching only for ideal evidence, such as more original wording, marginally more authoritative citations, broader background context, or finer implementation details, unless that evidence would materially change, complete, or correct the step-level conclusion.
 - If current evidence supports a bounded answer, set "is_sufficient" to true even when some non-critical limitations remain. Put those limitations in "knowledge_gap", keep "missing_evidence" empty, and return "next_queries": [].
 - Before setting "is_sufficient" to false, ask whether the remaining gaps would prevent the SummaryNode from writing a useful, honest, evidence-bounded summary. If not, set "is_sufficient" to true.
+- Before setting "should_continue" to true, ask whether the latest retrieval materially resolved, narrowed, or usefully bounded a blocking gap. If not, set "should_continue" to false.
 - When generating "next_queries":
   - target only unresolved gaps that materially affect the step conclusion;
   - do not repeat an attempted query with only minor wording changes;
@@ -94,16 +100,18 @@ The table intentionally contains key_passages and scores instead of full source 
 ## Output Format
 - Return a JSON object with exactly these keys:
   - "is_sufficient": true or false.
+  - "should_continue": true or false. Use true only when "is_sufficient" is false and another retrieval loop is likely to add useful evidence.
   - "knowledge_gap": A concise description of blocking missing information, non-critical limitations, or "" if there are no meaningful limitations.
   - "known_facts": A list of newly confirmed facts from this reflection only.
   - "missing_evidence": A list of remaining blocking verifiable evidence requirements.
-  - "next_queries": Follow-up queries, or [] if sufficient.
+  - "next_queries": Follow-up queries, or [] if sufficient or not worth continuing.
 - Return a complete, valid JSON object. Do not output partial JSON.
 - Do not output explanations, rationale, markdown fences, or any extra keys.
 
 ## Example
 {
     "is_sufficient": false,
+    "should_continue": true,
     "knowledge_gap": "still missing comparable 2024 market size data",
     "known_facts": ["newly confirmed fact from current loop documents"],
     "missing_evidence": ["specific verifiable evidence requirement"],

@@ -17,6 +17,8 @@
 - `llm_config` 按模型槽位传入，运行时至少需要 `general` 槽位；部分节点可使用 `plan_understanding`、`info_collecting`、`writing_checking` 或 `vlm_chart_generating`。
 - `StartNode` 只把本次运行需要的 `agent_config` 字段合并进 session，再叠加默认 `ServiceConfig`，形成节点读取的 `config` 全局状态。
 - `ServiceConfig` 提供 SDK 内部默认参数，包括 workflow 超时、重试次数、采集循环、报告生成、溯源并发、LLM 默认超时、thinking 模式、节点调试和中间结果导出。
+- `ServiceConfig.info_collector_max_research_loops` 控制信息采集 research loop 硬上限；
+  `ServiceConfig.info_collector_max_tool_call_turns_per_query` 控制单个检索 query 内的工具调用轮次，两者独立生效。
 - `vlm_chart_generator_enable=True` 时会关闭 Mermaid 图文并茂插入；如果缺少 VLM 模型配置，入口校验会自动关闭 VLM 迭代图生成。
 - LLM、搜索和 embedding 密钥字段使用 `bytearray`，调用方和消费代码应沿用现有 `zero_secret` 清理策略。
 

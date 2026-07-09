@@ -309,9 +309,9 @@ class openjiuwen_deepsearch.config.config.ServiceConfig()
 - **planner_max_retry_num** (int, optional): Maximum retry count. Default value: `3`.
 
 ### Information collection parameters
-- **info_collector_max_react_recursion_limit** (int, optional): Maximum recursion limit for the React-style collector agent. Default value: `8`.
 - **info_collector_initial_search_query_count** (int, optional): Initial number of search queries. Default value: `3`.
 - **info_collector_max_research_loops** (int, optional): Maximum number of research loops. Default value: `2`.
+- **info_collector_max_tool_call_turns_per_query** (int, optional): Maximum tool-call turns for each collector query. Default value: `2`.
 - **info_collector_max_retry_num** (int, optional): Maximum retry count. Default value: `3`.
 
 ### Reporting parameters

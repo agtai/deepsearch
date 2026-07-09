@@ -81,7 +81,7 @@ class TestInfoCollectorNode:
         state_map = {
             "collector_context.search_queries": [RetrievalQuery(query="查询1"), RetrievalQuery(query="查询2")],
             "collector_context.history_queries": [],
-            "collector_context.max_tool_steps": 3,
+            "collector_context.max_tool_call_turns_per_query": 3,
             "collector_context.section_idx": 0,
             "collector_context.step_title": "测试步骤",
             "config.info_collector_search_method": "web",
@@ -144,9 +144,13 @@ class TestInfoCollectorNode:
 
         expected_state = {
             "search_queries": [RetrievalQuery(query="查询1"), RetrievalQuery(query="查询2")],
-            "max_tool_steps": 3,
+            "max_tool_call_turns_per_query": 3,
             "section_idx": 0,
+            "plan_idx": None,
+            "step_idx": None,
             "step_title": "测试步骤",
+            "research_loop_count": None,
+            "max_research_loops": None,
             "search_method": "web",
             "web_search_engine_name": SearchEngine.PETAL.value,
             "local_search_engine_name": LocalSearch.OPENAPI.value,
@@ -157,7 +161,9 @@ class TestInfoCollectorNode:
 
         # 验证正确的全局状态被获取
         mock_session.get_global_state.assert_any_call("collector_context.search_queries")
-        mock_session.get_global_state.assert_any_call("collector_context.max_tool_steps")
+        mock_session.get_global_state.assert_any_call("collector_context.max_tool_call_turns_per_query")
+        mock_session.get_global_state.assert_any_call("collector_context.research_loop_count")
+        mock_session.get_global_state.assert_any_call("collector_context.max_research_loops")
 
     @pytest.mark.asyncio
     async def test_do_invoke_success(self, info_collector_node, mock_session, mock_context):
@@ -218,7 +224,7 @@ class TestInfoCollectorNode:
             state_map = {
                 "collector_context.search_queries": [],  # 空查询
                 "collector_context.history_queries": [],
-                "collector_context.max_tool_steps": 3,
+                "collector_context.max_tool_call_turns_per_query": 3,
                 "collector_context.section_idx": 0,
                 "collector_context.step_title": "测试步骤",
                 "config.info_collector_search_method": "web",
@@ -401,7 +407,7 @@ class TestInfoCollectorNode:
             "section_idx": 0,
             "step_title": "测试步骤",
             "search_query": "测试查询",
-            "max_tool_steps": 2,
+            "max_tool_call_turns_per_query": 2,
             "search_method": "web",
             "web_search_engine_name": "tavily",
             "api_tools_config": {
@@ -454,7 +460,7 @@ class TestInfoCollectorNode:
         state = {
             "section_idx": 0,
             "step_title": "测试步骤",
-            "max_tool_steps": 2
+            "max_tool_call_turns_per_query": 2
         }
 
         agent_input = {
@@ -487,7 +493,7 @@ class TestInfoCollectorNode:
                 state, agent_input, tool_list, tool_dict
             )
 
-            # 验证 LLM 被调用了 max_tool_steps 次
+            # 验证 LLM 被调用了 max_tool_call_turns_per_query 次
             assert mock_llm.call_count == 2
 
             # 验证处理响应被调用
@@ -500,7 +506,7 @@ class TestInfoCollectorNode:
     @pytest.mark.asyncio
     async def test_collector_llm_no_tool_calls(self, info_collector_node):
         """测试 _collector_llm 方法没有工具调用的情况"""
-        state = {"max_tool_steps": 3}
+        state = {"max_tool_call_turns_per_query": 3}
         agent_input = {"messages": [], "remaining_steps": None}
         tool_list = []
         tool_dict = {}
@@ -515,6 +521,15 @@ class TestInfoCollectorNode:
 
             # 验证只调用了一次 LLM（因为没有工具调用就退出了）
             assert mock_llm.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_collector_llm_rejects_none_tool_call_turns(self, info_collector_node):
+        """非法的工具调用轮次配置不应被静默改写成默认值。"""
+        state = {"max_tool_call_turns_per_query": None}
+        agent_input = {"messages": [], "remaining_steps": None}
+
+        with pytest.raises(TypeError):
+            await info_collector_node.collector_llm(state, agent_input, [], {})
 
     @pytest.mark.asyncio
     async def test_structure_result_with_records(self, info_collector_node, sample_web_record):
@@ -945,7 +960,7 @@ class TestEditorTeamInfoCollectorNode:
             "section_context.warning_infos": [],
             "config.info_collector_initial_search_query_count": 2,
             "config.info_collector_max_research_loops": 2,
-            "config.info_collector_max_react_recursion_limit": 8,
+            "config.info_collector_max_tool_call_turns_per_query": 3,
             "config": {"mock": True},
         }
         session.get_global_state = MagicMock(side_effect=state_map.get)
@@ -1015,7 +1030,7 @@ class TestEditorTeamInfoCollectorNode:
             "section_context.warning_infos": [],
             "config.info_collector_initial_search_query_count": 2,
             "config.info_collector_max_research_loops": 2,
-            "config.info_collector_max_react_recursion_limit": 8,
+            "config.info_collector_max_tool_call_turns_per_query": 3,
             "config": {"mock": True},
             "collector_context": {},
         }

@@ -1,6 +1,7 @@
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
 import pytest
+from pydantic import ValidationError
 from openjiuwen.core.workflow.workflow import Workflow
 
 from openjiuwen_deepsearch.framework.openjiuwen.agent.collector_graph.graph_builder import SearchQueryList, \
@@ -8,6 +9,7 @@ from openjiuwen_deepsearch.framework.openjiuwen.agent.collector_graph.graph_buil
     GraphEndNode, build_info_collector_sub_graph, get_research_record, llm_context
 from openjiuwen_deepsearch.framework.openjiuwen.agent.search_context import RetrievalQuery
 from openjiuwen_deepsearch.framework.openjiuwen.agent.collector_graph.evidence_ledger import EvidenceLedger
+from openjiuwen_deepsearch.config.config import Config
 
 module_prefix = "openjiuwen_deepsearch.framework.openjiuwen.agent.collector_graph.graph_builder"
 
@@ -47,6 +49,7 @@ class TestReflection:
         )
 
         assert reflection.is_sufficient is True
+        assert reflection.should_continue is True
         assert reflection.knowledge_gap == "需要更多信息"
         assert reflection.next_queries == ["follow up query 1", "follow up query 2"]
         assert reflection.known_facts == ["事实1"]
@@ -134,7 +137,7 @@ class TestStartNode:
             "step_description": "步骤描述",
             "initial_search_query_count": 3,
             "max_research_loops": 2,
-            "max_react_recursion_limit": 5
+            "max_tool_call_turns_per_query": 4,
         }
 
         result = await start_node.invoke(inputs, mock_session, mock_context)
@@ -151,6 +154,7 @@ class TestStartNode:
         assert collector_context.language == "zh-CN"
         assert collector_context.section_idx == 0
         assert collector_context.research_loop_count == 0
+        assert collector_context.max_tool_call_turns_per_query == 4
         assert collector_context.evidence_ledger == {}
 
     @pytest.mark.asyncio
@@ -169,6 +173,16 @@ class TestStartNode:
         call_args = mock_session.update_global_state.call_args[0][0]
         collector_context = CollectorContext(**call_args["collector_context"])
         assert collector_context.evidence_ledger == {}
+
+    @pytest.mark.asyncio
+    async def test_start_node_rejects_none_tool_call_turns(self, start_node, mock_session, mock_context):
+        """非法的工具调用轮次配置不应被静默改写成默认值。"""
+        with pytest.raises(ValidationError):
+            await start_node.invoke(
+                {"max_tool_call_turns_per_query": None},
+                mock_session,
+                mock_context,
+            )
 
 
 class TestGenerateQueryNode:
@@ -194,7 +208,6 @@ class TestGenerateQueryNode:
             "collector_context.initial_search_query_count": 2,
             "collector_context.language": "zh-CN",
             "collector_context.max_research_loops": 2,
-            "collector_context.max_react_recursion_limit": 6,
             "collector_context.step_description": "步骤描述",
             "collector_context.evidence_ledger": {},
         }
@@ -229,12 +242,7 @@ class TestGenerateQueryNode:
 
                 result = await generate_query_node.invoke(inputs, mock_session, mock_context)
 
-                # 验证第一次调用是设置 max_tool_steps
-                mock_session.update_global_state.assert_any_call({
-                    "collector_context.max_tool_steps": 1  # (6-2)//2-1 = 1
-                })
-
-                # 验证第二次调用是设置 search_query (查询被正确截断)
+                # 验证设置 search_query (查询被正确截断)
                 search_queries = [RetrievalQuery(query=query) for query in queries[:2]]
                 mock_session.update_global_state.assert_any_call({
                     "collector_context.search_queries": search_queries  # 从3个截断到2个
@@ -274,11 +282,6 @@ class TestGenerateQueryNode:
                 )
 
                 await generate_query_node.invoke(inputs, mock_session, mock_context)
-
-                # 验证第一次调用是设置 max_tool_steps
-                mock_session.update_global_state.assert_any_call({
-                    "collector_context.max_tool_steps": 1  # (6-2)//2-1 = 1
-                })
 
                 # 验证使用了默认查询
                 search_queries = [RetrievalQuery(query=query) for query in queries]
@@ -339,7 +342,7 @@ class TestSupervisorNode:
                 },
             ],
             "collector_context.research_loop_count": 1,
-            "collector_context.max_tool_steps": 3,
+            "collector_context.max_tool_call_turns_per_query": 3,
             "collector_context.max_research_loops": 3,
             "collector_context.evidence_ledger": {
                 "known_facts": ["已有事实"],
@@ -439,6 +442,40 @@ class TestSupervisorNode:
                 })
         finally:
             # 清理 contextvar
+            llm_context.reset(token)
+
+    @pytest.mark.asyncio
+    async def test_supervisor_node_stops_when_should_continue_false(
+        self, supervisor_node, mock_session, mock_context
+    ):
+        """未达到 loop 上限时，should_continue=false 应提前进入 summary。"""
+        inputs = {}
+        mock_llm_dict = MagicMock()
+        mock_llm_dict.get.return_value = MagicMock()
+        token = llm_context.set(mock_llm_dict)
+
+        try:
+            with patch.object(supervisor_node, '_invoke_llm_with_retry') as mock_llm, \
+                    patch(f"{module_prefix}.adapt_llm_model_name"):
+                mock_llm.return_value = Reflection(
+                    is_sufficient=False,
+                    should_continue=False,
+                    knowledge_gap="继续搜索很可能只是重复结果",
+                    next_queries=["不应继续的查询"],
+                    known_facts=["已确认有限证据"],
+                    missing_evidence=["仍缺原始数据"],
+                )
+
+                result = await supervisor_node.invoke(inputs, mock_session, mock_context)
+
+                assert result["next_node"] == "collector_summary"
+                mock_session.update_global_state.assert_any_call({
+                    "collector_context.should_continue": False,
+                })
+                mock_session.update_global_state.assert_any_call({
+                    "collector_context.search_queries": [],
+                })
+        finally:
             llm_context.reset(token)
 
     @pytest.mark.asyncio
@@ -616,6 +653,9 @@ def test_collector_supervisor_prompt_contract_mentions_ledger_fields():
     assert "similar issue" in prompt
     assert "turn that unresolved item into knowledge_gap" in prompt
     assert "final evaluation" in prompt
+    assert '"should_continue"' in prompt
+    assert "latest gathered information is mostly duplicate" in prompt
+    assert "should_continue\" is false, \"next_queries\" must be []" in prompt
     assert "{{ ledger_brief }}" in prompt
     assert "{{ ledger }}" not in prompt
     assert "Ledger object" not in prompt
@@ -789,6 +829,15 @@ def test_build_info_collector_sub_graph():
     """测试子图构建"""
     collector_graph = build_info_collector_sub_graph()
     assert isinstance(collector_graph, Workflow)
+
+
+def test_service_config_uses_relaxed_collector_loop_defaults():
+    """信息采集默认 research loop 上限应放宽，工具调用轮次独立配置。"""
+    service_config = Config().service_config
+
+    assert service_config.info_collector_max_research_loops == 2
+    assert service_config.info_collector_max_tool_call_turns_per_query == 2
+    assert not hasattr(service_config, "info_collector_max_react_recursion_limit")
 
 
 # 测试工具函数
