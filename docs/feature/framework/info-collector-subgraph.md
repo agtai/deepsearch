@@ -46,12 +46,15 @@
 
 ## 数据契约与依赖
 
-- collector 输入包含 `language`、`messages`、`section_idx`、`plan_idx`、`step_idx`、`initial_search_query_count`、
+- collector 输入包含 `language`、`messages`、`section_idx`、`plan_idx`、`step_idx`、`max_search_query_count`、
   `max_research_loops`、`max_tool_call_turns_per_query`、`report_type`、`research_intent`。
 - collector 输出至少包含 `history_queries`、`doc_infos`、`info_summary`、`evaluation`、`messages`。
 - `EvidenceLedger` 记录 accepted/rejected/pending 证据、尝试过的 query 和缺口，供后续采集轮次判断。
 - `CollectorContext.should_continue` 保存 supervisor 对下一轮检索价值的判断；为 `false` 时，collector 清空后续 query
   并进入 summary。
+- `max_search_query_count` 来自 `config.info_collector_max_search_query_count`，表示单轮 query 硬上限；初始 query
+  生成在需要外部检索时使用 `1..max_search_query_count`，明确不需要外部检索时可返回空列表；supervisor 后续
+  query 在 `0..max_search_query_count` 范围内自主决定数量。
 - `max_tool_call_turns_per_query` 来自 `config.info_collector_max_tool_call_turns_per_query`，独立于
   `max_research_loops` 生效。
 - 搜索工具来源于 `web_search_context`、`local_search_context` 和 runtime API 工具配置。

@@ -380,7 +380,11 @@ class ServiceConfig(BaseModel):
     planner_max_retry_num: int = Field(default=3, description="最大重试次数")
 
     # 信息收集节点参数
-    info_collector_initial_search_query_count: int = Field(default=3, description="初始搜索查询数量")
+    info_collector_max_search_query_count: int = Field(
+        default=5,
+        ge=0,
+        description="单轮最大搜索查询数量",
+    )
     info_collector_max_research_loops: int = Field(default=2, description="最大研究循环次数")
     info_collector_max_tool_call_turns_per_query: int = Field(default=2, ge=1, description="单个检索 query 最大工具调用轮次")
     info_collector_max_retry_num: int = Field(default=3, description="最大重试次数")

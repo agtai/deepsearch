@@ -421,7 +421,7 @@ class openjiuwen_deepsearch.config.config.ServiceConfig()
 - **planner_max_retry_num**(int, 可选)：最大重试次数。默认值：`3`。
 
 ### 信息收集节点参数
-- **info_collector_initial_search_query_count**(int, 可选)：初始搜索查询数量。默认值：`3`。
+- **info_collector_max_search_query_count**(int, 可选)：单轮最大搜索查询数量。默认值：`5`。
 - **info_collector_max_research_loops**(int, 可选)：最大研究循环次数。默认值：`2`。
 - **info_collector_max_tool_call_turns_per_query**(int, 可选)：单个 collector query 最大工具调用轮次。默认值：`2`。
 - **info_collector_max_retry_num**(int, 可选)：最大重试次数。默认值：`3`。
