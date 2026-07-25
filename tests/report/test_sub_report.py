@@ -278,6 +278,118 @@ async def test_write_subsection_reports_calls_llm_with_output_constraint_context
         llm_context.reset(token)
 
 
+@pytest.mark.asyncio
+async def test_write_subsection_reports_uses_flat_outline_rule_for_brief_report():
+    token = llm_context.set({"mock_model": object()})
+    try:
+        reporter = Reporter("mock_model")
+        current_inputs = {
+            "language": CHINESE,
+            "section_idx": "1",
+            "section_task": "1 市场概览",
+            "section_description": "概述市场当前状态。",
+            "section_format_requirements": [],
+            "report_task": "市场研究",
+            "current_outline": "1 市场概览",
+            "sub_section_outline": "1 市场概览",
+            "classified_content": [
+                {
+                    "index": 1,
+                    "doc_time": "2026",
+                    "original_content": "市场保持稳定。",
+                    "scores": {},
+                }
+            ],
+            "sub_section_references": [],
+            "sub_report_background_knowledge": [],
+            "report_type": "brief",
+            "paragraph_style": "concise",
+            "visualization_enable": False,
+        }
+
+        with patch(
+            "openjiuwen_deepsearch.algorithm.report.report.ainvoke_llm_with_stats",
+            new_callable=AsyncMock,
+        ) as mock_ainvoke, patch.object(
+            reporter,
+            "_generate_sub_report_sidecar",
+            new_callable=AsyncMock,
+            return_value={"sidecar": None, "summary": "summary", "warning": ""},
+        ):
+            mock_ainvoke.return_value = {"content": "# 1 市场概览\n\n市场保持稳定。"}
+
+            result = await reporter._write_subsection_reports(current_inputs)
+
+        assert result["success"] is True
+        _, kwargs = mock_ainvoke.call_args
+        rendered_prompt = "\n".join(message["content"] for message in kwargs["messages"])
+        assert "If the outline has only one line" in rendered_prompt
+        assert (
+            "Do not add any Markdown heading that is not present in "
+            "`current_chapter_outline`" in rendered_prompt
+        )
+        assert "must still be included" in rendered_prompt
+        assert "not as additional Markdown headings" in rendered_prompt
+        assert "generic headings such as" not in rendered_prompt
+        assert "keep the Level 1-only outline" in rendered_prompt
+        assert "follow each Level 2 heading" not in rendered_prompt
+    finally:
+        llm_context.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_write_subsection_reports_keeps_hierarchical_outline_instruction():
+    token = llm_context.set({"mock_model": object()})
+    try:
+        reporter = Reporter("mock_model")
+        current_inputs = {
+            "language": CHINESE,
+            "section_idx": "2",
+            "section_task": "2 模型介绍",
+            "section_description": "分别介绍不同模型。",
+            "section_format_requirements": [],
+            "report_task": "模型研究",
+            "current_outline": "1 市场概览\n2 模型介绍",
+            "sub_section_outline": "2 模型介绍\n2.1 CMSY\n2.2 BSM",
+            "classified_content": [
+                {
+                    "index": 1,
+                    "doc_time": "2026",
+                    "original_content": "CMSY 和 BSM 是资源评估模型。",
+                    "scores": {},
+                }
+            ],
+            "sub_section_references": [],
+            "sub_report_background_knowledge": [],
+            "report_type": "brief",
+            "paragraph_style": "concise",
+            "visualization_enable": False,
+        }
+
+        with patch(
+            "openjiuwen_deepsearch.algorithm.report.report.ainvoke_llm_with_stats",
+            new_callable=AsyncMock,
+        ) as mock_ainvoke, patch.object(
+            reporter,
+            "_generate_sub_report_sidecar",
+            new_callable=AsyncMock,
+            return_value={"sidecar": None, "summary": "summary", "warning": ""},
+        ):
+            mock_ainvoke.return_value = {
+                "content": "# 2 模型介绍\n\n## 2.1 CMSY\n\n内容。\n\n## 2.2 BSM\n\n内容。"
+            }
+
+            result = await reporter._write_subsection_reports(current_inputs)
+
+        assert result["success"] is True
+        _, kwargs = mock_ainvoke.call_args
+        rendered_prompt = "\n".join(message["content"] for message in kwargs["messages"])
+        assert "follow each Level 2 heading" in rendered_prompt
+        assert "keep the Level 1-only outline" not in rendered_prompt
+    finally:
+        llm_context.reset(token)
+
+
 def test_build_compact_classify_doc_infos_text_zero_based():
     """Coverage-matrix flow uses start=0 so 'Document 0' maps to 'doc_0'."""
     output = build_compact_classify_doc_infos_text(
